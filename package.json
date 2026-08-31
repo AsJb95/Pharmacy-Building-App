@@ -1,0 +1,69 @@
+{
+  "name": "vhc-pharmacy-pos",
+  "private": true,
+  "version": "3.9.0",
+  "description": "VARNIKA HEALTH CARE POS Pharmacy Software",
+  "author": "VHC Pharmacy",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.112.3",
+    "date-fns": "^4.3.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.2"
+  },
+  "build": {
+    "appId": "com.vhc.pharmacypos",
+    "productName": "VHC Pharmacy POS",
+    "electronVersion": "34.0.0",
+    "directories": {
+      "output": "C:/New VHC/release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "telegram-bot/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "telegram-bot/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "electron/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "VHC Pharmacy POS",
+      "include": "build/installer.nsh",
+      "artifactName": "VHC_Pharmacy_POS_Setup_${version}.exe"
+    },
+    "portable": {
+      "artifactName": "VHC_Pharmacy_POS_Portable_${version}.exe"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+# Dependencies — reinstalled from package-lock.json, never committed
+node_modules/
+
+# Editor-generated pre-git backup snapshots (repack_asar.cjs / manual .bak copies made
+# during development before this repo existed) — disposable now that real history exists
+.asar_tmp/
+.bundle_backups/
+*.bak
+
+# One-off local log/output files, not source
+*.log
+
+# electron-builder output lives outside this folder (C:\New VHC\release) and is never
+# produced inside unpacked_app itself, but excluded defensively in case that ever changes
+release/
+dist-installer/

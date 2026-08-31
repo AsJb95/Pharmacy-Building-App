@@ -1,0 +1,6 @@
+{
+  "name": "vhc-pharmacy-telegram-bot",
+  "private": true,
+  "type": "commonjs",
+  "description": "Embedded Telegram reporting/command service, forked as a child process by the main Electron app. See ../electron/main.js (bot lifecycle) and ../../telegram-bot/README.md (architecture notes). Not run standalone in production."
+}
