@@ -47,8 +47,7 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "icon": "electron/icon.ico"
     },
@@ -61,9 +60,6 @@
       "shortcutName": "VHC Pharmacy POS",
       "include": "build/installer.nsh",
       "artifactName": "VHC_Pharmacy_POS_Setup_${version}.exe"
-    },
-    "portable": {
-      "artifactName": "VHC_Pharmacy_POS_Portable_${version}.exe"
     }
   }
 }
