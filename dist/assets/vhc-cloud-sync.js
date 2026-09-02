@@ -20370,6 +20370,25 @@ ${suffix}`;
     await supabase.auth.signOut();
     currentSession = null;
   }
+  // Reads the REAL server-side profiles.is_platform_admin flag (RLS-protected — a user
+  // can only read their own row) rather than any local/frontend value, so Settings'
+  // destructive Danger Zone actions gate on genuine Supabase-verified platform-admin
+  // status, not a client-side password. Fails closed (false) on any error/missing
+  // session — never let a network hiccup or query error be mistaken for admin access.
+  async function isPlatformAdmin() {
+    if (!currentSession) return false;
+    try {
+      const { data, error } = await supabase.from("profiles").select("is_platform_admin").eq("id", currentSession.user.id).maybeSingle();
+      if (error) {
+        console.error("[VHC_CLOUD] isPlatformAdmin query failed:", error);
+        return false;
+      }
+      return !!(data && data.is_platform_admin);
+    } catch (e) {
+      console.error("[VHC_CLOUD] isPlatformAdmin failed:", e);
+      return false;
+    }
+  }
   var pharmacyLocationId = null;
   var productCodeSupported = false;
   async function ensurePharmacyLocation() {
@@ -21214,6 +21233,7 @@ ${suffix}`;
     signIn: withErrorReport(signIn),
     getSession,
     signOut: withErrorReport(signOut),
+    isPlatformAdmin,
     init: withErrorReport(init),
     getInventory,
     fetchInventory: withErrorReport(fetchInventory),

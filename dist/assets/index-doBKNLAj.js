@@ -57423,6 +57423,13 @@ function Lh() {
       : null;
     return () => unsubscribe && unsubscribe();
   }, []);
+  // Server-verified (profiles.is_platform_admin via RLS), not a local password — gates the
+  // Danger Zone / Update Admin Password below. Starts false (fail-closed) until confirmed.
+  let [isPlatformAdmin, setIsPlatformAdmin] = (0, _.useState)(!1);
+  (0, _.useEffect)(() => {
+    window.VHC_CLOUD && window.VHC_CLOUD.isPlatformAdmin &&
+      window.VHC_CLOUD.isPlatformAdmin().then(setIsPlatformAdmin).catch(() => setIsPlatformAdmin(!1));
+  }, []);
   let saveTelegramBotSettingsHandler = async () => {
     if (!window.electronAPI || !window.electronAPI.saveTelegramBotSettings) return;
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(telegramReportTime)) {
@@ -59064,7 +59071,12 @@ function Lh() {
                           children: [
                             (0, J.jsx)(`h4`, { style: { margin: `0 0 0.5rem`, color: `#991b1b`, fontSize: `0.95rem` }, children: `⚠️ Danger Zone` }),
                             (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `#7f1d1d`, margin: `0 0 0.9rem` }, children: `Destructive actions. A safety backup is created before any reset. Requires typing DELETE to confirm.` }),
-                            (0, J.jsxs)(`div`, {
+                            // Gated on the real Supabase profiles.is_platform_admin flag (see isPlatformAdmin
+                            // state above), not the local admin-password PIN this modal already sits behind —
+                            // these four actions wipe cloud data and are Platform-Admin-only regardless of who
+                            // knows the local PIN.
+                            !isPlatformAdmin && (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `#991b1b`, fontWeight: `800`, margin: `0 0 0.9rem` }, children: `🔒 Platform Admin access required — these actions are locked for clinic accounts.` }),
+                            isPlatformAdmin && (0, J.jsxs)(`div`, {
                               style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`, gap: `1rem` },
                               children: [
                                 (0, J.jsxs)(`div`, {
@@ -60764,7 +60776,9 @@ function a_() {
     [o, s] = (0, _.useState)(``),
     [c, l] = (0, _.useState)(`patient_wise`),
     [u, d] = (0, _.useState)(null),
-    [f, p] = (0, _.useState)(`all`),
+    // Default to "Date Wise" (today, via m's own default below) instead of "All Dates" —
+    // Reports must open showing today's data, not the full unfiltered history.
+    [f, p] = (0, _.useState)(`date`),
     [m, h] = (0, _.useState)(new Date().toISOString().slice(0, 10)),
     [g, v] = (0, _.useState)(new Date().toISOString().slice(0, 7)),
     [y, b] = (0, _.useState)(new Date().getFullYear().toString()),
