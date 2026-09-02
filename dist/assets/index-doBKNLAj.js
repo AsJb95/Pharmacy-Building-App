@@ -51717,6 +51717,32 @@ function Nh() {
                   ],
                 }),
                 (0, J.jsxs)(`div`, {
+                  // o.length is already the unique-medicine count (merge-by-id in L/R/z
+                  // guarantees one entry per medicine). Injections/procedures are counted
+                  // too, matching the spec's own example of "Injection x1" as one of 4 items.
+                  // Custom charges are excluded (not a medicine/product/service line).
+                  className: `flex-between`,
+                  style: {
+                    padding: `0 1.5rem`,
+                    marginTop: `0.9rem`,
+                    fontSize: `0.85rem`,
+                    fontWeight: `700`,
+                    color: `var(--text-secondary)`,
+                  },
+                  children: [
+                    (0, J.jsxs)(`span`, {
+                      children: [`Items: `, (0, J.jsx)(`span`, { style: { color: `var(--text-primary)`, fontWeight: `800` }, children: o.length + injectionItems.length + procedureItems.length })],
+                    }),
+                    (0, J.jsxs)(`span`, {
+                      children: [`Total Quantity: `, (0, J.jsx)(`span`, { style: { color: `var(--text-primary)`, fontWeight: `800` }, children:
+                        o.reduce((sum, item) => sum + (parseInt(item.qty, 10) || 0), 0) +
+                        injectionItems.reduce((sum, item) => sum + (parseInt(item.qty, 10) || 0), 0) +
+                        procedureItems.length
+                      })],
+                    }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
                   style: { flex: 1, padding: `1.5rem`, overflowY: `auto` },
                   children: [
                     !hasActiveBillContent
