@@ -15984,6 +15984,19 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               e ? `nav-link active` : `nav-link`,
             children: [(0, J.jsx)(br, { size: 19 }), `Settings & Sync`],
           }),
+          // Ends only the Supabase Cloud Sync session (VHC_CLOUD.signOut()) so another
+          // authorized account can sign in — never touches pharmacy data. See
+          // VhcCloudAuthGate's `vhc-cloud-signed-out` listener for what happens next.
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `nav-link`,
+            style: { background: `none`, border: `none`, width: `100%`, textAlign: `left`, cursor: `pointer`, color: `#f87171` },
+            onClick: async () => {
+              if (!window.confirm(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`)) return;
+              await window.VHC_CLOUD.signOut();
+            },
+            children: [(0, J.jsx)(`span`, { style: { fontSize: `1.05rem`, lineHeight: 1 }, children: `🚪` }), `Logout`],
+          }),
         ],
       }),
     ],
@@ -63231,6 +63244,19 @@ function VhcCloudAuthGate({ children }) {
       }
       setReady(!0);
     })();
+  }, []);
+  // Fired by vhc-cloud-sync.js's own onAuthStateChange on SIGNED_OUT (Logout button, or any
+  // other cause the session ends). Only clears this gate's session state — the children tree
+  // (Hr/Lr/etc.) unmounts as a result and remounts fresh on the next sign-in; no pharmacy
+  // data (localStorage caches, sales history, inventory, settings) is touched here at all.
+  (0, _.useEffect)(() => {
+    let onSignedOut = () => {
+      (setSession(null), setEmail(``), setPassword(``), setErr(``));
+    };
+    return (
+      window.addEventListener(`vhc-cloud-signed-out`, onSignedOut),
+      () => window.removeEventListener(`vhc-cloud-signed-out`, onSignedOut)
+    );
   }, []);
   let handleSignIn = async (e) => {
     (e.preventDefault(), setErr(``), setLoading(!0));

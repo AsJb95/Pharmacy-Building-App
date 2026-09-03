@@ -20352,6 +20352,14 @@ ${suffix}`;
   }
   supabase.auth.onAuthStateChange((event, session) => {
     syncRealtimeAuth(session, `onAuthStateChange:${event}`);
+    // Fires for every sign-out cause (Logout button, expired/revoked session), not just a
+    // manual signOut() call, so VhcCloudAuthGate always falls back to the login screen —
+    // never leaves the app rendered against a session that's actually gone.
+    if (event === "SIGNED_OUT") {
+      try {
+        window.dispatchEvent(new CustomEvent("vhc-cloud-signed-out"));
+      } catch (e) {}
+    }
   });
   async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
