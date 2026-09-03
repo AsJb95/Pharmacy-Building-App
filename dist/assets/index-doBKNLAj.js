@@ -15984,19 +15984,6 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               e ? `nav-link active` : `nav-link`,
             children: [(0, J.jsx)(br, { size: 19 }), `Settings & Sync`],
           }),
-          // Ends only the Supabase Cloud Sync session (VHC_CLOUD.signOut()) so another
-          // authorized account can sign in — never touches pharmacy data. See
-          // VhcCloudAuthGate's `vhc-cloud-signed-out` listener for what happens next.
-          (0, J.jsxs)(`button`, {
-            type: `button`,
-            className: `nav-link`,
-            style: { background: `none`, border: `none`, width: `100%`, textAlign: `left`, cursor: `pointer`, color: `#f87171` },
-            onClick: async () => {
-              if (!window.confirm(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`)) return;
-              await window.VHC_CLOUD.signOut();
-            },
-            children: [(0, J.jsx)(`span`, { style: { fontSize: `1.05rem`, lineHeight: 1 }, children: `🚪` }), `Logout`],
-          }),
         ],
       }),
     ],
@@ -57477,6 +57464,35 @@ function Lh() {
               i(`Settings saved successfully!`, `success`);
             },
             children: [(0, J.jsx)(vr, { size: 20 }), `Save Changes`],
+          }),
+        ],
+      }),
+      // Account type is derived from the real, server-verified isPlatformAdmin state (see
+      // the useEffect above, backed by profiles.is_platform_admin via RLS) — never a
+      // hardcoded email check. Logout uses the app's own Promise-based confirm dialog (Eh(),
+      // aliased `a` in this component) instead of window.confirm(): a native blocking dialog
+      // was found to leave the login form's inputs unresponsive afterward in this Electron
+      // window, requiring a full app restart to recover — this in-app modal doesn't have
+      // that failure mode and is what every other confirmation in this app already uses.
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4`,
+        style: { padding: `1.25rem 1.5rem`, display: `flex`, alignItems: `center`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `1rem` },
+        children: [
+          (0, J.jsxs)(`div`, {
+            children: [
+              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `#64748b`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Signed in as` }),
+              (0, J.jsx)(`div`, { style: { fontSize: `1.05rem`, fontWeight: `800`, color: isPlatformAdmin ? `#7c3aed` : `#0369a1`, marginTop: `0.2rem` }, children: isPlatformAdmin ? `Platform Admin` : `Clinic Admin` }),
+            ],
+          }),
+          (0, J.jsx)(`button`, {
+            type: `button`,
+            className: `btn`,
+            style: { background: `#fef2f2`, color: `#dc2626`, border: `1px solid #fca5a5`, fontWeight: `800` },
+            onClick: async () => {
+              if (!(await a(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`))) return;
+              await window.VHC_CLOUD.signOut();
+            },
+            children: `🚪 Logout`,
           }),
         ],
       }),
