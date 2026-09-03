@@ -57496,7 +57496,12 @@ function Lh() {
           }),
         ],
       }),
-      (0, J.jsxs)(`div`, {
+      // Platform-Admin-only trigger cards (Backup & Restore, Stock Audit). Gated on the same
+      // server-verified isPlatformAdmin used by the Danger Zone and the account label above —
+      // hidden entirely for clinic accounts rather than shown-disabled, per spec. Sibling
+      // sections below collapse up naturally since this is a conditional array entry, not a
+      // fixed-height placeholder.
+      isPlatformAdmin && (0, J.jsxs)(`div`, {
         className: `mb-4`,
         style: {
           display: `grid`,
@@ -57568,7 +57573,7 @@ function Lh() {
           }),
         ],
       }),
-      (0, J.jsxs)(`div`, {
+      isPlatformAdmin && (0, J.jsxs)(`div`, {
         className: `glass-panel mb-4`,
         style: {
           padding: `1.5rem`,
@@ -58161,7 +58166,7 @@ function Lh() {
             }),
         ],
       }),
-      (0, J.jsxs)(`div`, {
+      isPlatformAdmin && (0, J.jsxs)(`div`, {
         className: `glass-panel mb-4`,
         style: {
           padding: `1.25rem 1.5rem`,
