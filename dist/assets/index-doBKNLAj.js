@@ -60810,8 +60810,9 @@ function a_() {
     [o, s] = (0, _.useState)(``),
     [c, l] = (0, _.useState)(`patient_wise`),
     [u, d] = (0, _.useState)(null),
-    // Default to "Date Wise" (today, via m's own default below) instead of "All Dates" —
-    // Reports must open showing today's data, not the full unfiltered history.
+    // Defaults to "Date Wise"/today. A day with no sales yet then shows a dedicated
+    // empty-state banner (below, right above the stats grid) instead of a bare all-zero
+    // stats screen that was mistaken for a data-loss bug — see that banner's own comment.
     [f, p] = (0, _.useState)(`date`),
     [m, h] = (0, _.useState)(new Date().toISOString().slice(0, 10)),
     [g, v] = (0, _.useState)(new Date().toISOString().slice(0, 7)),
@@ -61370,6 +61371,30 @@ function a_() {
           }),
         ],
       }),
+      // Shown only when a narrowing filter (Today/Month/Year/Custom) produces zero results —
+      // never when there's genuinely no data anywhere (n.length===0, e.g. a brand-new
+      // install). Without this, an all-zero stats grid on a slow-starting day was
+      // indistinguishable from real data loss and was reported as exactly that. Reassures
+      // with the actual total bill count and offers a one-click way to see it.
+      D.length === 0 && f !== `all` && n.length > 0 &&
+        (0, J.jsxs)(`div`, {
+          className: `glass-panel mb-4`,
+          style: { padding: `1.25rem 1.5rem`, background: `#f0f9ff`, border: `1px solid #93c5fd`, display: `flex`, alignItems: `center`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `1rem` },
+          children: [
+            (0, J.jsxs)(`div`, {
+              children: [
+                (0, J.jsx)(`div`, { style: { fontWeight: `800`, color: `#0369a1`, fontSize: `1rem` }, children: `No bills match this filter yet` }),
+                (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `#475569`, marginTop: `0.25rem` }, children: `Your billing history is intact — ${n.length} total bill(s) on record. This period just doesn't have any yet.` }),
+              ],
+            }),
+            (0, J.jsx)(`button`, {
+              type: `button`,
+              className: `btn btn-primary`,
+              onClick: () => p(`all`),
+              children: `View All Dates`,
+            }),
+          ],
+        }),
       (0, J.jsxs)(`div`, {
         className: `dashboard-grid mb-4`,
         children: [
