@@ -51088,6 +51088,14 @@ function Nh() {
     [discountAmount, setDiscountAmount] = [activeTab.discountAmount, vhcField(`discountAmount`)],
     [discountPercent, setDiscountPercent] = [activeTab.discountPercent, vhcField(`discountPercent`)],
     [discountMode, setDiscountMode] = [activeTab.discountMode, vhcField(`discountMode`)],
+    // Applied Split Payment breakdown for this bill tab ({cash, upi, credit, totalReceived,
+    // status}), null until the popup's Apply button is clicked. Kept on the tab (like cart/
+    // discount) so it survives a tab switch, but explicitly cleared in N() below — unlike
+    // paymentMode, these are bill-specific amounts that must never carry over to the next sale.
+    [splitPayment, setSplitPayment] = [activeTab.splitPayment, vhcField(`splitPayment`)],
+    [splitPaymentPopupOpen, setSplitPaymentPopupOpen] = (0, _.useState)(!1),
+    [splitCashInput, setSplitCashInput] = (0, _.useState)(``),
+    [splitUpiInput, setSplitUpiInput] = (0, _.useState)(``),
     [tabPendingClose, setTabPendingClose] = (0, _.useState)(null);
   (_.useEffect(() => {
     try {
@@ -51155,6 +51163,7 @@ function Nh() {
       setDiscountAmount(``),
       setDiscountPercent(``),
       setDiscountMode(`percent`),
+      setSplitPayment(null),
       localStorage.removeItem(`pos_active_cart`),
       localStorage.removeItem(`pos_active_patient`),
       localStorage.removeItem(`pos_active_doctor`),
@@ -51300,10 +51309,16 @@ function Nh() {
         : Math.min(preDiscountTotal, parseFloat(discountAmount) || 0),
     effectiveDiscountPercent = preDiscountTotal > 0 ? (discountValue / preDiscountTotal) * 100 : 0,
     trueGrandTotal = Math.max(0, preDiscountTotal - discountValue),
+    // Rounded to the paisa the Split Payment popup actually displays as "Total: ₹X.XX" — used
+    // ONLY for that popup's own math (preview + Apply validation), never for the real saved
+    // totalAmount/invoice (trueGrandTotal, untouched). Without this, entering amounts that sum
+    // to exactly the displayed total could still be rejected as "exceeds bill total" whenever
+    // trueGrandTotal's raw float sits a fraction of a paisa below its own rounded display.
+    splitBillTotal = Math.round(trueGrandTotal * 100) / 100,
     hasActiveBillContent = o.length > 0 || injectionItems.length > 0 || procedureItems.length > 0 || customCharges.length > 0,
     [ne, re] = [activeTab.lastBillId, vhcField(`lastBillId`)],
     [U, ie] = [activeTab.lastBillSnapshot, vhcField(`lastBillSnapshot`)],
-    ae = (e, t, n, r, i, a, o, s, extraParticulars, gstModeForBill, discountForBill, discountPercentForBill, patientSnapshotForBill) => {
+    ae = (e, t, n, r, i, a, o, s, extraParticulars, gstModeForBill, discountForBill, discountPercentForBill, patientSnapshotForBill, paymentDetailsForBill) => {
       try {
         let c = [
           {
@@ -51325,6 +51340,14 @@ function Nh() {
             gstMode: gstModeForBill || `regular`,
             discount: parseFloat(discountForBill) || 0,
             discountPercent: parseFloat(discountPercentForBill) || 0,
+            // Additive fields for Split Payment / partial-credit tracking — new bills always pass
+            // paymentDetailsForBill (oe() computes it for every mode, not just Split), so this
+            // fallback only matters for defensiveness. It preserves the pre-existing implicit
+            // meaning of every payment mode: fully paid, nothing owed.
+            amountReceived: paymentDetailsForBill ? paymentDetailsForBill.amountReceived : n,
+            outstandingAmount: paymentDetailsForBill ? paymentDetailsForBill.outstandingAmount : 0,
+            paymentStatus: paymentDetailsForBill ? paymentDetailsForBill.status : `Paid`,
+            paymentBreakdown: paymentDetailsForBill ? paymentDetailsForBill.breakdown : { [s]: n },
             particulars: [
               ...t.map((e) => {
                 let t = parseFloat(e.unitsPerPack || e.units_per_pack) || 1,
@@ -51361,6 +51384,10 @@ function Nh() {
         i(`Cart is empty.`, `warning`);
         return;
       }
+      if (f === `Split` && !splitPayment) {
+        i(`Please enter the Split Payment amounts and click Apply first.`, `warning`);
+        return;
+      }
       let r = [...o],
         injSnapshot = injectionItems.slice(),
         procSnapshot = procedureItems.slice(),
@@ -51368,6 +51395,27 @@ function Nh() {
         a = trueGrandTotal,
         s = H,
         l = te,
+        // How much of `a` was actually received right now, vs left as outstanding credit, and
+        // under what label — same for both save paths below. Cash/UPI (and legacy Card records
+        // already in history) are treated as fully paid, exactly as before this feature existed;
+        // Credit is untouched (still 0 received, fully outstanding, "Credit" status — the
+        // existing workflow's own meaning, not reinterpreted). Split reads the popup's Apply'd
+        // breakdown, already validated against the bill total at Apply time.
+        paymentDetails =
+          f === `Split`
+            ? { breakdown: { cash: splitPayment.cash, upi: splitPayment.upi, credit: splitPayment.credit }, amountReceived: splitPayment.totalReceived, outstandingAmount: splitPayment.credit, status: splitPayment.status }
+            : f === `Credit`
+              ? { breakdown: { credit: a }, amountReceived: 0, outstandingAmount: a, status: `Credit` }
+              : { breakdown: { [f]: a }, amountReceived: a, outstandingAmount: 0, status: `Paid` },
+        // Shown in the success toast only — never changes what's saved. Split's own two
+        // outcomes read best spelled out (a Split that happens to land on Paid shouldn't look
+        // different from Cash, but a partial one must clearly show what's still owed).
+        paymentStatusSuffix =
+          f === `Split`
+            ? paymentDetails.outstandingAmount > 0
+              ? `\nStatus: Partially Paid\nOutstanding: ₹${paymentDetails.outstandingAmount.toFixed(2)}`
+              : `\nStatus: Paid in Full`
+            : ``,
         d = c.trim() || `Walk-in Patient`,
         // Immutable patient snapshot, captured ONCE, right now, at the moment of billing.
         // This — not the live OPD list, not selectedPatient state, not any global — is what
@@ -51518,14 +51566,14 @@ function Nh() {
           return (
             re(c.billId),
             ie(billSnapshot),
-            ae(c.billId, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot),
+            ae(c.billId, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot, paymentDetails),
             n(
               `SALE`,
               `Completed ${f} payment for ₹${a.toFixed(2)} for ${d} (Bill: ${c.billId})`,
             ),
             applyInventoryDeductions(c.billId),
             i(
-              `Payment Successful (${f.toUpperCase()})!\nPatient: ${d}\nBill ID: #${c.billId}\nAmount: ₹${a.toFixed(2)}`,
+              `Payment Successful (${f.toUpperCase()})!\nPatient: ${d}\nBill ID: #${c.billId}\nAmount: ₹${a.toFixed(2)}${paymentStatusSuffix}`,
               `success`,
               5e3,
             ),
@@ -51586,14 +51634,14 @@ function Nh() {
       return (
         re(m),
         ie(billSnapshot2),
-        ae(m, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot),
+        ae(m, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot, paymentDetails),
         applyInventoryDeductions(m),
         n(
           `SALE`,
           `Completed ${f} payment for ₹${a.toFixed(2)} for ${d} (Bill: ${m})`,
         ),
         i(
-          `Payment Successful (${f.toUpperCase()})!\nPatient: ${d}\nBill ID: #${m}\nAmount: ₹${a.toFixed(2)}`,
+          `Payment Successful (${f.toUpperCase()})!\nPatient: ${d}\nBill ID: #${m}\nAmount: ₹${a.toFixed(2)}${paymentStatusSuffix}`,
           `success`,
           5e3,
         ),
@@ -52855,7 +52903,9 @@ function Nh() {
                   style: { padding: `1.1rem`, marginTop: `auto` },
                   children: [
                     (0, J.jsxs)(`div`, {
-                      style: { marginBottom: `0.85rem` },
+                      // position:relative anchors the Split Payment popup below, so it overlays
+                      // near the Payment Mode buttons instead of a full-screen modal.
+                      style: { marginBottom: `0.85rem`, position: `relative` },
                       children: [
                         (0, J.jsx)(`label`, {
                           style: {
@@ -52939,19 +52989,27 @@ function Nh() {
                             }),
                             (0, J.jsx)(`button`, {
                               type: `button`,
-                              onClick: () => p(`Card`),
+                              // Replaces Card in this exact grid slot. Selecting it opens the
+                              // small anchored popup below to enter the Cash/UPI split; Complete
+                              // Payment is blocked (see oe()) until Apply has been clicked once.
+                              onClick: () => {
+                                (p(`Split`),
+                                  setSplitCashInput(splitPayment ? String(splitPayment.cash || ``) : ``),
+                                  setSplitUpiInput(splitPayment ? String(splitPayment.upi || ``) : ``),
+                                  setSplitPaymentPopupOpen(!0));
+                              },
                               style: {
                                 padding: `0.5rem 0.25rem`,
                                 borderRadius: `8px`,
                                 fontWeight: `800`,
                                 fontSize: `0.78rem`,
                                 border:
-                                  f === `Card`
+                                  f === `Split`
                                     ? `2px solid #9333ea`
                                     : `1.5px solid #cbd5e1`,
                                 background:
-                                  f === `Card` ? `#faf5ff` : `#ffffff`,
-                                color: f === `Card` ? `#7e22ce` : `#475569`,
+                                  f === `Split` ? `#faf5ff` : `#ffffff`,
+                                color: f === `Split` ? `#7e22ce` : `#475569`,
                                 cursor: `pointer`,
                                 display: `flex`,
                                 alignItems: `center`,
@@ -52961,12 +53019,12 @@ function Nh() {
                                 overflow: `hidden`,
                                 textOverflow: `ellipsis`,
                                 boxShadow:
-                                  f === `Card`
+                                  f === `Split`
                                     ? `0 2px 8px rgba(147,51,234,0.15)`
                                     : `none`,
                                 transition: `all 0.15s ease`,
                               },
-                              children: `💳 Card`,
+                              children: `🔀 Split Payment`,
                             }),
                             (0, J.jsx)(`button`, {
                               type: `button`,
@@ -53001,6 +53059,125 @@ function Nh() {
                             }),
                           ],
                         }),
+                        // Small anchored popup, not a full-screen modal — position:absolute
+                        // against the position:relative wrapper two levels up, so it sits right
+                        // under the Payment Mode row. Backdrop-less by design: it's compact
+                        // enough that a stray click just needs the Cancel/Apply buttons, matching
+                        // the "small popup/dropdown/anchored panel" requirement.
+                        splitPaymentPopupOpen &&
+                          (0, J.jsxs)(`div`, {
+                            style: {
+                              position: `absolute`,
+                              top: `100%`,
+                              left: 0,
+                              right: 0,
+                              marginTop: `0.4rem`,
+                              zIndex: 30,
+                              background: `#ffffff`,
+                              border: `1.5px solid #9333ea`,
+                              borderRadius: `10px`,
+                              boxShadow: `0 8px 24px rgba(0,0,0,0.18)`,
+                              padding: `0.9rem`,
+                            },
+                            children: [
+                              (0, J.jsxs)(`div`, {
+                                className: `flex-between`,
+                                style: { marginBottom: `0.6rem` },
+                                children: [
+                                  (0, J.jsx)(`span`, { style: { fontWeight: `800`, fontSize: `0.85rem`, color: `#334155` }, children: `🔀 Split Payment` }),
+                                  (0, J.jsxs)(`span`, { style: { fontWeight: `800`, fontSize: `0.85rem`, color: `#7e22ce` }, children: [`Total: ₹`, splitBillTotal.toFixed(2)] }),
+                                ],
+                              }),
+                              (0, J.jsxs)(`label`, {
+                                style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, gap: `0.5rem`, fontSize: `0.8rem`, fontWeight: `700`, color: `#475569`, marginBottom: `0.5rem` },
+                                children: [
+                                  `💵 Cash`,
+                                  (0, J.jsx)(`input`, {
+                                    type: `number`, step: `0.01`, min: `0`, placeholder: `0.00`,
+                                    value: splitCashInput,
+                                    onChange: (e) => setSplitCashInput(e.target.value),
+                                    style: { width: `110px`, padding: `0.3rem 0.4rem`, textAlign: `right`, border: `1.5px solid #cbd5e1`, borderRadius: `6px`, fontWeight: `700` },
+                                  }),
+                                ],
+                              }),
+                              (0, J.jsxs)(`label`, {
+                                style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, gap: `0.5rem`, fontSize: `0.8rem`, fontWeight: `700`, color: `#475569`, marginBottom: `0.5rem` },
+                                children: [
+                                  `📱 UPI`,
+                                  (0, J.jsx)(`input`, {
+                                    type: `number`, step: `0.01`, min: `0`, placeholder: `0.00`,
+                                    value: splitUpiInput,
+                                    onChange: (e) => setSplitUpiInput(e.target.value),
+                                    style: { width: `110px`, padding: `0.3rem 0.4rem`, textAlign: `right`, border: `1.5px solid #cbd5e1`, borderRadius: `6px`, fontWeight: `700` },
+                                  }),
+                                ],
+                              }),
+                              (() => {
+                                // Read-only preview, recomputed on every keystroke — the same
+                                // "remaining balance becomes Credit" math oe() uses at Apply/save
+                                // time, so what's shown here is exactly what gets recorded.
+                                let cashVal = parseFloat(splitCashInput) || 0,
+                                  upiVal = parseFloat(splitUpiInput) || 0,
+                                  received = cashVal + upiVal,
+                                  overpaid = received > splitBillTotal + 0.004,
+                                  remaining = Math.max(0, splitBillTotal - received);
+                                return (0, J.jsxs)(J.Fragment, {
+                                  children: [
+                                    (0, J.jsxs)(`div`, {
+                                      style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, fontSize: `0.8rem`, fontWeight: `700`, color: `#475569`, paddingTop: `0.5rem`, borderTop: `1px dashed #e2e8f0` },
+                                      children: [
+                                        `📋 Credit (auto)`,
+                                        (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: remaining > 0 ? `#b45309` : `#16a34a` }, children: [`₹`, remaining.toFixed(2)] }),
+                                      ],
+                                    }),
+                                    (0, J.jsxs)(`div`, {
+                                      style: { fontSize: `0.72rem`, color: `#64748b`, marginTop: `0.35rem` },
+                                      children: [`Received: ₹${received.toFixed(2)}  |  Balance: ₹${remaining.toFixed(2)}`],
+                                    }),
+                                    overpaid &&
+                                      (0, J.jsx)(`div`, {
+                                        style: { fontSize: `0.75rem`, color: `#dc2626`, fontWeight: `700`, marginTop: `0.35rem` },
+                                        children: `Payment amount cannot exceed the bill total.`,
+                                      }),
+                                  ],
+                                });
+                              })(),
+                              (0, J.jsxs)(`div`, {
+                                style: { display: `flex`, gap: `0.5rem`, marginTop: `0.8rem` },
+                                children: [
+                                  (0, J.jsx)(`button`, {
+                                    type: `button`,
+                                    className: `btn btn-outline`,
+                                    style: { flex: 1 },
+                                    onClick: () => setSplitPaymentPopupOpen(!1),
+                                    children: `Cancel`,
+                                  }),
+                                  (0, J.jsx)(`button`, {
+                                    type: `button`,
+                                    className: `btn btn-primary`,
+                                    style: { flex: 1 },
+                                    onClick: () => {
+                                      let cashVal = Math.round((parseFloat(splitCashInput) || 0) * 100) / 100,
+                                        upiVal = Math.round((parseFloat(splitUpiInput) || 0) * 100) / 100;
+                                      if (cashVal < 0 || upiVal < 0) {
+                                        i(`Amounts cannot be negative.`, `warning`);
+                                        return;
+                                      }
+                                      let received = cashVal + upiVal;
+                                      if (received > splitBillTotal + 0.004) {
+                                        i(`Payment amount cannot exceed the bill total.`, `warning`);
+                                        return;
+                                      }
+                                      let remaining = Math.max(0, Math.round((splitBillTotal - received) * 100) / 100);
+                                      (setSplitPayment({ cash: cashVal, upi: upiVal, credit: remaining, totalReceived: received, status: remaining > 0 ? `Partially Paid` : `Paid` }),
+                                        setSplitPaymentPopupOpen(!1));
+                                    },
+                                    children: `Apply`,
+                                  }),
+                                ],
+                              }),
+                            ],
+                          }),
                       ],
                     }),
                     (0, J.jsxs)(`div`, {
@@ -53189,7 +53366,7 @@ function Nh() {
                             whiteSpace: `normal`,
                             textAlign: `center`,
                           },
-                          disabled: !hasActiveBillContent,
+                          disabled: !hasActiveBillContent || (f === `Split` && !splitPayment),
                           children: [`F8 - Complete Payment (`, f, `)`],
                         }),
                       ],
