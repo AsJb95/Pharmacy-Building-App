@@ -716,6 +716,214 @@ async function updateAlertsConfig(patch) {
 }
 
 // ============================================================
+// Warehouse -> Pharmacy stock transfers ("Pending Stock Requests")
+//
+// Shares the exact transfer_orders / transfer_order_items tables, the same
+// Pending -> Completed / Rejected status vocabulary, and the same accept
+// semantics as the VHC Mobile app's WarehouseContext.jsx
+// (createPharmacyTransferRequest / approvePharmacyTransfer /
+// cancelPharmacyTransfer) — no separate transfer system, no separate stock
+// logic, no new tables. The Warehouse side creates the Pending row (this app
+// never does); it changes NO stock. Only Accept moves stock, and it does so
+// exactly once no matter which app calls it, because the very first write is
+// an atomic `UPDATE transfer_orders ... WHERE status='Pending'` — if Mobile
+// (or another Desktop session) already claimed the row, this update affects
+// zero rows and Accept fails with a clean "already processed" error instead
+// of moving stock a second time. batchEq mirrors WarehouseContext.jsx's own
+// helper: a null/blank batch must match a NULL batch_no, not the string "".
+// ============================================================
+
+let mainWarehouseLocationId = null;
+const locationNameCache = new Map();
+let pendingTransfersCache = [];
+
+function getPendingPharmacyTransfers() {
+  return pendingTransfersCache.length ? pendingTransfersCache : cacheGet('pendingTransfers') || [];
+}
+
+function batchEq(query, batch) {
+  return batch ? query.eq('batch_no', batch) : query.is('batch_no', null);
+}
+
+async function ensureMainWarehouseLocation() {
+  if (mainWarehouseLocationId) return mainWarehouseLocationId;
+  const { data, error } = await supabase.from('locations').select('id').eq('type', 'warehouse_main').limit(1).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('No location of type warehouse_main found.');
+  mainWarehouseLocationId = data.id;
+  return mainWarehouseLocationId;
+}
+
+async function getLocationName(id) {
+  if (!id) return 'Warehouse';
+  if (locationNameCache.has(id)) return locationNameCache.get(id);
+  const { data } = await supabase.from('locations').select('name').eq('id', id).maybeSingle();
+  const name = (data && data.name) || 'Warehouse';
+  locationNameCache.set(id, name);
+  return name;
+}
+
+async function fetchPendingPharmacyTransfers() {
+  const locId = await ensurePharmacyLocation();
+  const { data, error } = await supabase
+    .from('transfer_orders')
+    .select('*, transfer_order_items(*)')
+    .eq('to_location_id', locId)
+    .eq('status', 'Pending')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  const rows = data || [];
+  const mapped = await Promise.all(rows.map(async (r) => ({
+    id: r.id,
+    transferNumber: r.transfer_number,
+    requestDate: r.transfer_date || r.created_at,
+    createdAt: r.created_at,
+    fromLocationId: r.from_location_id,
+    fromLocationName: await getLocationName(r.from_location_id),
+    notes: r.notes || '',
+    status: r.status,
+    items: (r.transfer_order_items || []).map((it) => ({
+      id: it.id,
+      itemId: it.item_id,
+      name: it.name,
+      batch: it.batch_no,
+      expiry: it.expiry_date,
+      qty: it.qty,
+      mrp: it.mrp,
+      netRate: it.net_rate,
+    })),
+  })));
+  pendingTransfersCache = mapped;
+  cacheSet('pendingTransfers', mapped);
+  return mapped;
+}
+
+// Accept a Pending Warehouse -> Pharmacy request: live-check that Main Stock
+// still has enough for every line, atomically claim the row (Pending ->
+// Completed), then deduct Main Stock and add to Pharmacy, batch-matched, with
+// a stock_movements ledger row per side. The status claim above is the sole
+// guard against a double accept or a race with Mobile accepting first — safe
+// to call from either app, or from two Desktop sessions, for the same request.
+async function acceptPharmacyTransfer(transferId) {
+  const pharmId = await ensurePharmacyLocation();
+  const mainId = await ensureMainWarehouseLocation();
+
+  const { data: t, error: readErr } = await supabase.from('transfer_orders').select('*, transfer_order_items(*)').eq('id', transferId).maybeSingle();
+  if (readErr) throw readErr;
+  if (!t) throw new Error('Request not found — refresh and try again.');
+  if (t.status !== 'Pending') throw new Error(`This request is already "${t.status}".`);
+
+  const lines = (t.transfer_order_items || []).filter((l) => (l.qty || 0) > 0);
+  if (lines.length === 0) throw new Error('This request has no items to transfer.');
+
+  const plan = [];
+  for (const line of lines) {
+    const { data: src, error: srcErr } = await batchEq(
+      supabase.from('stock_batches').select('id, qty, gst, stockist, mrp, net_rate').eq('item_id', line.item_id).eq('location_id', mainId),
+      line.batch_no,
+    ).maybeSingle();
+    if (srcErr) throw srcErr;
+    if (!src || (src.qty || 0) < line.qty) {
+      throw new Error(`Warehouse stock for "${line.name}" changed — only ${(src && src.qty) || 0} available (need ${line.qty}). Refresh and try again.`);
+    }
+    plan.push({ line, src });
+  }
+
+  const { data: claimed, error: claimErr } = await supabase
+    .from('transfer_orders')
+    .update({ status: 'Completed' })
+    .eq('id', transferId).eq('status', 'Pending').select('id');
+  if (claimErr) throw claimErr;
+  if (!claimed || claimed.length === 0) {
+    throw new Error('This request was already accepted or rejected.');
+  }
+
+  const problems = [];
+  for (const { line, src } of plan) {
+    try {
+      const qty = line.qty;
+      const { data: srcUpd, error: srcUpdErr } = await supabase
+        .from('stock_batches').update({ qty: Math.max(0, (src.qty || 0) - qty) })
+        .eq('id', src.id).eq('qty', src.qty).select('id');
+      if (srcUpdErr) throw srcUpdErr;
+      if (!srcUpd || srcUpd.length === 0) throw new Error('Warehouse stock changed during accept — this line needs manual review.');
+      await supabase.from('stock_movements').insert({
+        item_id: line.item_id, location_id: mainId, batch_no: line.batch_no,
+        type: 'TRANSFER', qty: -qty, opening: src.qty, closing: Math.max(0, (src.qty || 0) - qty),
+        reason: `Pharmacy transfer ${t.transfer_number} accepted (out of Main Stock)`,
+      });
+
+      const { data: destRow } = await batchEq(
+        supabase.from('stock_batches').select('id, qty').eq('item_id', line.item_id).eq('location_id', pharmId),
+        line.batch_no,
+      ).maybeSingle();
+      if (destRow) {
+        const before = destRow.qty || 0;
+        const { data: bumped, error: bumpErr } = await supabase
+          .from('stock_batches').update({ qty: before + qty }).eq('id', destRow.id).eq('qty', before).select('id');
+        if (bumpErr) throw bumpErr;
+        if (!bumped || bumped.length === 0) throw new Error('Pharmacy stock changed during accept — this line needs manual review.');
+        await supabase.from('stock_movements').insert({
+          item_id: line.item_id, location_id: pharmId, batch_no: line.batch_no,
+          type: 'TRANSFER', qty, opening: before, closing: before + qty,
+          reason: `Pharmacy transfer ${t.transfer_number} accepted (into Pharmacy)`,
+        });
+      } else {
+        const { error: insErr } = await supabase.from('stock_batches').insert({
+          item_id: line.item_id, location_id: pharmId, batch_no: line.batch_no || null,
+          expiry_date: line.expiry_date || null, mrp: line.mrp ?? null, net_rate: line.net_rate ?? null,
+          gst: src.gst ?? null, stockist: src.stockist ?? null, qty,
+        });
+        if (insErr) throw insErr;
+        await supabase.from('stock_movements').insert({
+          item_id: line.item_id, location_id: pharmId, batch_no: line.batch_no,
+          type: 'TRANSFER', qty, opening: 0, closing: qty,
+          reason: `Pharmacy transfer ${t.transfer_number} accepted (into Pharmacy, new batch)`,
+        });
+      }
+    } catch (e) {
+      problems.push(`${line.name}: ${e.message || e}`);
+    }
+  }
+
+  await fetchInventory();
+  if (problems.length) {
+    throw new Error(`Request marked Completed, but some lines need checking:\n${problems.join('\n')}`);
+  }
+  return { ok: true, transferNumber: t.transfer_number };
+}
+
+// Reject a Pending request: atomically claim Pending -> Rejected. No stock is
+// touched — nothing was reserved at request time. The row is kept as an audit
+// record (never deleted). A reason, if given, is appended to the existing
+// `notes` field rather than a new column — visible on both apps without a
+// schema change.
+async function rejectPharmacyTransfer(transferId, reason) {
+  const { data: t } = await supabase.from('transfer_orders').select('id, status, notes').eq('id', transferId).maybeSingle();
+  if (t && t.status !== 'Pending') throw new Error(`This request is already "${t.status}".`);
+
+  const { data: claimed, error } = await supabase
+    .from('transfer_orders')
+    .update({ status: 'Rejected' })
+    .eq('id', transferId).eq('status', 'Pending').select('id');
+  if (error) throw error;
+  if (!claimed || claimed.length === 0) {
+    throw new Error('This request can no longer be rejected (it was already accepted or rejected).');
+  }
+
+  if (reason && reason.trim()) {
+    const existingNotes = (t && t.notes) || '';
+    const appended = existingNotes ? `${existingNotes}\n[Rejected by Pharmacy: ${reason.trim()}]` : `[Rejected by Pharmacy: ${reason.trim()}]`;
+    try {
+      await supabase.from('transfer_orders').update({ notes: appended }).eq('id', transferId);
+    } catch (e) {
+      console.error('[VHC_CLOUD] rejectPharmacyTransfer: appending reason to notes failed (reject itself already succeeded):', e?.message || e);
+    }
+  }
+  return { ok: true };
+}
+
+// ============================================================
 // Realtime — one channel, per-table diff handlers. Each event re-fetches
 // only that one changed row's table slice (not a full reload) and notifies
 // the React bundle via a DOM CustomEvent.
@@ -746,6 +954,13 @@ async function startRealtime() {
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts_config', filter: `location_id=eq.${locId}` }, (payload) => {
       emit('alerts_config', payload.eventType, payload.new || payload.old);
+    })
+    // No location filter — matches WarehouseContext.jsx's own unfiltered
+    // transfer_orders subscription; Pending Stock Requests are filtered
+    // server-side (to_location_id + status) inside fetchPendingPharmacyTransfers.
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transfer_orders' }, async (payload) => {
+      await fetchPendingPharmacyTransfers();
+      emit('transfer_orders', payload.eventType, payload.new || payload.old);
     })
     .subscribe((status, err) => {
       window.__vhcRealtimeStatus = { status, err: err?.message };
@@ -797,9 +1012,24 @@ async function init() {
   await getSession();
   if (!currentSession) return; // caller must signIn() first
   await ensurePharmacyLocation();
-  await Promise.all([fetchInventory(), fetchPatients(), fetchSalesHistory()]);
+  await Promise.all([
+    fetchInventory(), fetchPatients(), fetchSalesHistory(),
+    fetchPendingPharmacyTransfers().catch((e) => console.error('[VHC_CLOUD] initial fetchPendingPharmacyTransfers failed:', e?.message || e)),
+  ]);
   await autoRecoverLocalInventoryIfNeeded();
   await startRealtime();
+  // Belt-and-suspenders alongside the transfer_orders realtime subscription above: a
+  // Warehouse -> Pharmacy request must never depend solely on realtime actually being
+  // configured (the table only joined the Supabase realtime publication via a migration
+  // dated the same day this feature shipped — see supabase/migrations/20260909000100_
+  // transfer_orders_realtime.sql). If that migration is ever rolled back or hasn't reached
+  // this environment yet, this 45s poll still satisfies "no manual refresh required."
+  if (!window.__vhcTransferPollTimer) {
+    window.__vhcTransferPollTimer = setInterval(() => {
+      fetchPendingPharmacyTransfers().then(() => emit('transfer_orders', 'change', null))
+        .catch((e) => console.error('[VHC_CLOUD] poll fetchPendingPharmacyTransfers failed:', e?.message || e));
+    }, 45000);
+  }
 }
 
 window.VHC_CLOUD = {
@@ -836,4 +1066,9 @@ window.VHC_CLOUD = {
   getAlertsConfig: withErrorReport(getAlertsConfig),
   updateAlertsConfig: withErrorReport(updateAlertsConfig),
   getRealtimeState,
+
+  getPendingPharmacyTransfers,
+  fetchPendingPharmacyTransfers: withErrorReport(fetchPendingPharmacyTransfers),
+  acceptPharmacyTransfer: withErrorReport(acceptPharmacyTransfer),
+  rejectPharmacyTransfer: withErrorReport(rejectPharmacyTransfer),
 };

@@ -15769,7 +15769,208 @@ function StockValuationAdminComponent() {
   });
 }
 
+// Warehouse -> Pharmacy "Pending Stock Requests". Reads/writes the exact same
+// transfer_orders / transfer_order_items rows as the VHC Mobile app — no
+// separate transfer system. Accept/Reject call window.VHC_CLOUD's
+// acceptPharmacyTransfer/rejectPharmacyTransfer (cloud-src/vhc-cloud-sync.js),
+// which do the real work (live stock check, atomic Pending->Completed/Rejected
+// claim, stock_batches CAS update, stock_movements ledger) — this component is
+// presentation + confirmation only, so accepting from Desktop or Mobile always
+// produces the identical result.
+function PendingStockRequestsModal({ onClose, onCountChange }) {
+  let toastFn = Th(),
+    confirmAction = Eh(),
+    [requests, setRequests] = (0, _.useState)([]),
+    [loading, setLoading] = (0, _.useState)(!0),
+    [processingId, setProcessingId] = (0, _.useState)(null),
+    [rejectingId, setRejectingId] = (0, _.useState)(null),
+    [rejectReason, setRejectReason] = (0, _.useState)(``),
+    load = async () => {
+      setLoading(!0);
+      let result = window.VHC_CLOUD && window.VHC_CLOUD.fetchPendingPharmacyTransfers ? await window.VHC_CLOUD.fetchPendingPharmacyTransfers() : [];
+      let rows = Array.isArray(result) ? result : [];
+      (setRequests(rows), onCountChange && onCountChange(rows.length), setLoading(!1));
+    };
+  (0, _.useEffect)(() => {
+    load();
+    let onCloudChange = (evt) => {
+      evt.detail && evt.detail.table === `transfer_orders` && load();
+    };
+    return (
+      window.addEventListener(`vhc-cloud-change`, onCloudChange),
+      () => window.removeEventListener(`vhc-cloud-change`, onCloudChange)
+    );
+  }, []);
+  let handleAccept = async (r) => {
+    if (!(await confirmAction(`Accept transfer ${r.transferNumber} from ${r.fromLocationName}?\n\nThis will move stock from the Warehouse into Pharmacy Inventory immediately.`)))
+      return;
+    setProcessingId(r.id);
+    let result = await window.VHC_CLOUD.acceptPharmacyTransfer(r.id);
+    setProcessingId(null);
+    if (result && result.error) {
+      toastFn(result.error, `error`, 7e3);
+      load();
+      return;
+    }
+    (toastFn(`Transfer ${r.transferNumber} accepted — stock added to Pharmacy Inventory.`, `success`), load());
+  };
+  let handleRejectConfirm = async (r) => {
+    setProcessingId(r.id);
+    let result = await window.VHC_CLOUD.rejectPharmacyTransfer(r.id, rejectReason);
+    (setProcessingId(null), setRejectingId(null), setRejectReason(``));
+    if (result && result.error) {
+      toastFn(result.error, `error`, 7e3);
+      load();
+      return;
+    }
+    (toastFn(`Transfer ${r.transferNumber} rejected.`, `success`), load());
+  };
+  return (0, J.jsx)(`div`, {
+    className: `modal-overlay`,
+    onClick: onClose,
+    children: (0, J.jsxs)(`div`, {
+      className: `modal-content glass-panel animate-fade-in`,
+      onClick: (e) => e.stopPropagation(),
+      style: { maxWidth: `760px`, padding: `1.5rem`, background: `#ffffff`, color: `#0f172a`, borderRadius: `16px`, maxHeight: `88vh`, display: `flex`, flexDirection: `column` },
+      children: [
+        (0, J.jsxs)(`div`, {
+          className: `flex-between mb-4`,
+          style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem`, flexShrink: 0 },
+          children: [
+            (0, J.jsxs)(`div`, {
+              children: [
+                (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `🔔 Pending Stock Requests` }),
+                (0, J.jsx)(`p`, { style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `#64748b` }, children: `Warehouse → Pharmacy transfer requests awaiting your action` }),
+              ],
+            }),
+            (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, children: `✕` }),
+          ],
+        }),
+        (0, J.jsx)(`div`, {
+          style: { overflowY: `auto`, flex: 1, display: `flex`, flexDirection: `column`, gap: `0.9rem` },
+          children: loading
+            ? (0, J.jsx)(`p`, { style: { color: `#64748b`, textAlign: `center`, padding: `2rem 0` }, children: `Loading…` })
+            : requests.length === 0
+              ? (0, J.jsx)(`p`, { style: { color: `#64748b`, textAlign: `center`, padding: `2rem 0` }, children: `No pending stock requests right now.` })
+              : requests.map((r) =>
+                  (0, J.jsxs)(`div`, {
+                    key: r.id,
+                    style: { background: `#f8fafc`, border: `1px solid #e2e8f0`, borderRadius: `12px`, padding: `1rem 1.1rem` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        className: `flex-between`,
+                        style: { marginBottom: `0.6rem`, flexWrap: `wrap`, gap: `0.5rem` },
+                        children: [
+                          (0, J.jsxs)(`div`, {
+                            children: [
+                              (0, J.jsxs)(`div`, { style: { fontWeight: `800`, fontSize: `0.95rem` }, children: [`#`, r.transferNumber] }),
+                              (0, J.jsxs)(`div`, { style: { fontSize: `0.78rem`, color: `#64748b`, marginTop: `0.15rem` }, children: [`From: `, (0, J.jsx)(`strong`, { children: r.fromLocationName }), ` · `, new Date(r.requestDate).toLocaleString()] }),
+                            ],
+                          }),
+                          (0, J.jsx)(`span`, { style: { background: `#fffbeb`, color: `#b45309`, fontWeight: `800`, fontSize: `0.72rem`, padding: `0.2rem 0.6rem`, borderRadius: `99px` }, children: r.status }),
+                        ],
+                      }),
+                      (0, J.jsx)(`div`, {
+                        style: { display: `flex`, flexDirection: `column`, gap: `0.3rem`, marginBottom: `0.7rem` },
+                        children: r.items.map((it) =>
+                          (0, J.jsxs)(`div`, {
+                            key: it.id,
+                            style: { display: `flex`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `0.4rem`, fontSize: `0.82rem`, background: `#ffffff`, border: `1px solid #f1f5f9`, borderRadius: `8px`, padding: `0.4rem 0.6rem` },
+                            children: [
+                              (0, J.jsxs)(`span`, { style: { fontWeight: `700` }, children: [it.name, it.batch ? ` (Batch: ${it.batch})` : ``] }),
+                              (0, J.jsxs)(`span`, { style: { color: `#475569` }, children: [it.expiry ? `Exp: ${it.expiry} · ` : ``, `Qty: `, (0, J.jsx)(`strong`, { children: it.qty })] }),
+                            ],
+                          }),
+                        ),
+                      }),
+                      r.notes &&
+                        (0, J.jsxs)(`div`, { style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.7rem`, fontStyle: `italic`, whiteSpace: `pre-wrap` }, children: [`Note: `, r.notes] }),
+                      rejectingId === r.id
+                        ? (0, J.jsxs)(`div`, {
+                            style: { display: `flex`, flexDirection: `column`, gap: `0.5rem` },
+                            children: [
+                              (0, J.jsx)(`textarea`, {
+                                className: `input-field`,
+                                placeholder: `Reason for rejecting (optional)`,
+                                value: rejectReason,
+                                onChange: (e) => setRejectReason(e.target.value),
+                                style: { fontSize: `0.82rem`, minHeight: `56px` },
+                              }),
+                              (0, J.jsxs)(`div`, {
+                                style: { display: `flex`, gap: `0.5rem` },
+                                children: [
+                                  (0, J.jsx)(`button`, {
+                                    type: `button`,
+                                    className: `btn btn-outline`,
+                                    style: { flex: 1 },
+                                    onClick: () => {
+                                      (setRejectingId(null), setRejectReason(``));
+                                    },
+                                    children: `Cancel`,
+                                  }),
+                                  (0, J.jsx)(`button`, {
+                                    type: `button`,
+                                    className: `btn`,
+                                    style: { flex: 1, background: `#dc2626`, color: `#ffffff`, fontWeight: `700` },
+                                    disabled: processingId === r.id,
+                                    onClick: () => handleRejectConfirm(r),
+                                    children: processingId === r.id ? `Rejecting…` : `Confirm Reject`,
+                                  }),
+                                ],
+                              }),
+                            ],
+                          })
+                        : (0, J.jsxs)(`div`, {
+                            style: { display: `flex`, gap: `0.5rem` },
+                            children: [
+                              (0, J.jsx)(`button`, {
+                                type: `button`,
+                                className: `btn`,
+                                style: { flex: 1, background: `#16a34a`, color: `#ffffff`, fontWeight: `700` },
+                                disabled: processingId === r.id,
+                                onClick: () => handleAccept(r),
+                                children: processingId === r.id ? `Processing…` : `✓ Accept`,
+                              }),
+                              (0, J.jsx)(`button`, {
+                                type: `button`,
+                                className: `btn btn-outline`,
+                                style: { flex: 1, borderColor: `#dc2626`, color: `#dc2626`, fontWeight: `700` },
+                                disabled: processingId === r.id,
+                                onClick: () => setRejectingId(r.id),
+                                children: `✕ Reject`,
+                              }),
+                            ],
+                          }),
+                    ],
+                  }),
+                ),
+        }),
+      ],
+    }),
+  });
+}
 function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAlertCount = 0 }) {
+  // Warehouse -> Pharmacy "Pending Stock Requests" bell. Self-contained, same
+  // pattern as AutoSyncBadgeComponent: reads window.VHC_CLOUD's own cache on
+  // mount, then stays live via the same 'vhc-cloud-change' event every other
+  // badge in this sidebar already listens to — no new plumbing, no polling of
+  // its own (VHC_CLOUD already polls as a realtime fallback; see cloud-src).
+  let [pendingTransferCount, setPendingTransferCount] = (0, _.useState)(0),
+    [pendingTransfersModalOpen, setPendingTransfersModalOpen] = (0, _.useState)(!1),
+    refreshPendingTransferCount = () => {
+      let rows = window.VHC_CLOUD && window.VHC_CLOUD.getPendingPharmacyTransfers ? window.VHC_CLOUD.getPendingPharmacyTransfers() : [];
+      setPendingTransferCount(rows.length);
+    };
+  (0, _.useEffect)(() => {
+    refreshPendingTransferCount();
+    let onCloudChange = (evt) => {
+      evt.detail && evt.detail.table === `transfer_orders` && refreshPendingTransferCount();
+    };
+    return (
+      window.addEventListener(`vhc-cloud-change`, onCloudChange),
+      () => window.removeEventListener(`vhc-cloud-change`, onCloudChange)
+    );
+  }, []);
   return (0, J.jsxs)(`aside`, {
     className: `sidebar`,
     children: [
@@ -15978,6 +16179,39 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
                 }),
             ],
           }),
+          // Warehouse -> Pharmacy stock transfer requests. A button (not a route),
+          // matching the Logout entry's precedent for a nav-styled action rather
+          // than a navigation target — clicking it opens the modal directly, per
+          // spec ("Notification -> Pending Request -> View Details -> Accept/Reject").
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `nav-link`,
+            style: { background: `none`, border: `none`, width: `100%`, textAlign: `left`, cursor: `pointer`, justifyContent: `space-between` },
+            onClick: () => setPendingTransfersModalOpen(!0),
+            children: [
+              (0, J.jsxs)(`div`, {
+                style: { display: `flex`, alignItems: `center`, gap: `0.75rem` },
+                children: [(0, J.jsx)(`span`, { style: { fontSize: `1.05rem`, lineHeight: 1 }, children: `🔔` }), `Pending Stock Requests`],
+              }),
+              pendingTransferCount > 0 &&
+                (0, J.jsx)(`span`, {
+                  style: {
+                    background: `#ef4444`,
+                    color: `white`,
+                    padding: `0.1rem 0.5rem`,
+                    borderRadius: `99px`,
+                    fontSize: `0.72rem`,
+                    fontWeight: `700`,
+                  },
+                  children: pendingTransferCount,
+                }),
+            ],
+          }),
+          pendingTransfersModalOpen &&
+            (0, J.jsx)(PendingStockRequestsModal, {
+              onClose: () => setPendingTransfersModalOpen(!1),
+              onCountChange: setPendingTransferCount,
+            }),
           (0, J.jsxs)(hn, {
             to: `/settings`,
             className: ({ isActive: e }) =>
