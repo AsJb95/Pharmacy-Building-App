@@ -51582,6 +51582,7 @@ function Nh() {
             outstandingAmount: paymentDetailsForBill ? paymentDetailsForBill.outstandingAmount : 0,
             paymentStatus: paymentDetailsForBill ? paymentDetailsForBill.status : `Paid`,
             paymentBreakdown: paymentDetailsForBill ? paymentDetailsForBill.breakdown : { [s]: n },
+            recordedBy: (paymentDetailsForBill && paymentDetailsForBill.recordedBy) || null,
             particulars: [
               ...t.map((e) => {
                 let t = parseFloat(e.unitsPerPack || e.units_per_pack) || 1,
@@ -51622,6 +51623,18 @@ function Nh() {
         i(`Please enter the Split Payment amounts and click Apply first.`, `warning`);
         return;
       }
+      // Who was signed in to Cloud Sync at the moment this sale completed — the Payments
+      // report's "Recorded By" column reads this. getSession() reads the already-cached
+      // local session (no network round trip); resolves to null pre-cloud-sync-login or if
+      // signed out, which the report shows as "—", never a fabricated attribution.
+      let recordedByEmail = await (async () => {
+        try {
+          let session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
+          return session && session.user && session.user.email || null;
+        } catch {
+          return null;
+        }
+      })();
       let r = [...o],
         injSnapshot = injectionItems.slice(),
         procSnapshot = procedureItems.slice(),
@@ -51635,12 +51648,14 @@ function Nh() {
         // Credit is untouched (still 0 received, fully outstanding, "Credit" status — the
         // existing workflow's own meaning, not reinterpreted). Split reads the popup's Apply'd
         // breakdown, already validated against the bill total at Apply time.
-        paymentDetails =
+        paymentDetails = Object.assign(
           f === `Split`
             ? { breakdown: { cash: splitPayment.cash, upi: splitPayment.upi, credit: splitPayment.credit }, amountReceived: splitPayment.totalReceived, outstandingAmount: splitPayment.credit, status: splitPayment.status }
             : f === `Credit`
               ? { breakdown: { credit: a }, amountReceived: 0, outstandingAmount: a, status: `Credit` }
               : { breakdown: { [f]: a }, amountReceived: a, outstandingAmount: 0, status: `Paid` },
+          { recordedBy: recordedByEmail },
+        ),
         // Shown in the success toast only — never changes what's saved. Split's own two
         // outcomes read best spelled out (a Split that happens to land on Paid shouldn't look
         // different from Cash, but a partial one must clearly show what's still owed).
@@ -61211,6 +61226,252 @@ var r_ = (e) =>
     } catch {}
     return e;
   };
+// ============================================================
+// Payments report — pure functions, no hooks/DOM, so they're independently
+// testable (see test/payments-report.test.cjs, which mirrors this logic
+// exactly — keep the two in sync if this changes). Reuses the bill records
+// already in vhc_pos_sales_history and their existing paymentBreakdown /
+// amountReceived / outstandingAmount / paymentStatus fields (added for Split
+// Payment) — no new billing logic, no new stored data structure. A bill from
+// before those fields existed is handled by synthesizing the exact same
+// convention ae() already uses for it: Credit -> fully outstanding, anything
+// else -> fully paid in that one mode.
+// ============================================================
+function paymentMethodLabel(key) {
+  let k = String(key || ``).toLowerCase();
+  if (k === `cash`) return `Cash`;
+  if (k === `upi`) return `UPI`;
+  if (k === `card`) return `Card`;
+  if (k === `credit`) return `Credit`;
+  if (k === `unspecified`) return `Other (split detail unavailable)`;
+  return key ? key.charAt(0).toUpperCase() + key.slice(1) : `Other`;
+}
+// One bill -> one row per non-zero payment method actually in its breakdown
+// (Cash/UPI/Card/Other = money that moved; Credit = the outstanding portion,
+// never "collected"). This is exactly what makes a two- or three-method split
+// payment show as separate, individually traceable rows instead of one
+// combined figure, and is the sole source both the transaction table and the
+// collection summary read from — so a row can never be counted in one and
+// missed in the other.
+function expandBillToPaymentTransactions(bill) {
+  if (!bill || !bill.billId) return [];
+  let breakdown = bill.paymentBreakdown;
+  if (!breakdown || typeof breakdown !== `object`) {
+    // Legacy bill, or a Split bill that reached this terminal only via the cloud
+    // (createSale's payload never included paymentBreakdown, so a cross-terminal
+    // sync can't reconstruct it) — "Split" itself is never a real payment method,
+    // so it must not become a fake bucket named "Split" the way the other modes
+    // safely become their own name.
+    breakdown =
+      bill.paymentMode === `Credit`
+        ? { credit: bill.totalAmount || 0 }
+        : bill.paymentMode === `Split`
+          ? { unspecified: bill.totalAmount || 0 }
+          : { [bill.paymentMode || `Cash`]: bill.totalAmount || 0 };
+  }
+  let paymentType = bill.paymentMode === `Split` ? `Split` : `Single`,
+    rawStatus = bill.paymentStatus || (bill.paymentMode === `Credit` ? `Credit` : `Paid`),
+    billStatus = rawStatus === `Credit` ? `Pending/Unpaid` : rawStatus,
+    rows = [];
+  Object.keys(breakdown).forEach((key) => {
+    let amount = parseFloat(breakdown[key]) || 0;
+    if (amount <= 0) return;
+    rows.push({
+      billId: bill.billId,
+      billTotal: bill.totalAmount || 0,
+      date: bill.date,
+      patientName: bill.patientName || `Walk-in Patient`,
+      method: paymentMethodLabel(key),
+      isCredit: String(key).toLowerCase() === `credit`,
+      amount,
+      billStatus,
+      paymentType,
+      recordedBy: bill.recordedBy || null,
+      reference: bill.paymentReference || null,
+    });
+  });
+  return rows;
+}
+// `filters` = { method: 'all'|'cash'|'upi'|'card'|'credit'|..., status: 'all'|'paid'|'partial'|'pending', type: 'all'|'single'|'split' }.
+function filterPaymentTransactions(transactions, filters) {
+  let { method, status, type } = filters || {};
+  return (transactions || []).filter((t) => {
+    if (method && method !== `all` && t.method.toLowerCase() !== method.toLowerCase()) return !1;
+    if (status && status !== `all`) {
+      let want = status === `pending` ? `Pending/Unpaid` : status === `partial` ? `Partially Paid` : status === `paid` ? `Paid` : null;
+      if (want && t.billStatus !== want) return !1;
+    }
+    if (type && type !== `all` && t.paymentType.toLowerCase() !== type.toLowerCase()) return !1;
+    return !0;
+  });
+}
+// Sums by method (never by re-adding invoice totals — see the DO NOT in the
+// spec) plus Total Billing, computed from the DISTINCT bills actually present
+// in `transactions` so a two-row split bill's total is counted once, not once
+// per row.
+function computePaymentSummary(transactions) {
+  let sums = { Cash: 0, UPI: 0, Card: 0, Credit: 0, Other: 0 },
+    seenBills = /* @__PURE__ */ new Map();
+  (transactions || []).forEach((t) => {
+    let bucket = [`Cash`, `UPI`, `Card`, `Credit`].includes(t.method) ? t.method : `Other`;
+    ((sums[bucket] += t.amount), seenBills.has(t.billId) || seenBills.set(t.billId, t.billTotal));
+  });
+  let totalBilling = Array.from(seenBills.values()).reduce((s, v) => s + (v || 0), 0),
+    totalCollected = sums.Cash + sums.UPI + sums.Card + sums.Other;
+  return {
+    totalBilling,
+    totalCollected,
+    outstandingTotal: sums.Credit,
+    cashCollection: sums.Cash,
+    upiCollection: sums.UPI,
+    cardCollection: sums.Card,
+    otherCollection: sums.Other,
+  };
+}
+// Same visual language as the rest of Reports & Financials (glass-panel cards,
+// dashboard-grid stat tiles, table-container tables) — a new tab within the
+// existing screen, not a new design. Presentation only: all the real work
+// (expand/filter/sum) already happened in a_() via the pure functions above;
+// this component just renders what it's handed and reports clicks upward.
+function paymentStatusColor(status) {
+  if (status === `Paid`) return { bg: `#f0fdf4`, fg: `#16a34a` };
+  if (status === `Partially Paid`) return { bg: `#fffbeb`, fg: `#b45309` };
+  return { bg: `#fef2f2`, fg: `#dc2626` };
+}
+function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill }) {
+  let cards = [
+    { label: `Total Billing`, value: summary.totalBilling, color: `#0f172a` },
+    { label: `Total Collected`, value: summary.totalCollected, color: `#16a34a` },
+    { label: `Outstanding / Balance`, value: summary.outstandingTotal, color: `#dc2626` },
+    { label: `Cash Collection`, value: summary.cashCollection, color: `#2563eb` },
+    { label: `UPI Collection`, value: summary.upiCollection, color: `#0891b2` },
+    { label: `Card Collection`, value: summary.cardCollection, color: `#7e22ce` },
+    { label: `Other Collection`, value: summary.otherCollection, color: `#64748b` },
+  ];
+  return (0, J.jsxs)(`div`, {
+    style: { padding: `1rem`, display: `flex`, flexDirection: `column`, gap: `1rem` },
+    children: [
+      (0, J.jsx)(`div`, {
+        className: `dashboard-grid`,
+        children: cards.map((card) =>
+          (0, J.jsxs)(`div`, {
+            key: card.label,
+            className: `glass-panel`,
+            style: { padding: `1rem 1.1rem` },
+            children: [
+              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `#64748b`, fontWeight: `700` }, children: card.label }),
+              (0, J.jsxs)(`div`, { style: { fontSize: `1.4rem`, fontWeight: `800`, color: card.color, marginTop: `0.2rem` }, children: [`₹`, card.value.toFixed(2)] }),
+            ],
+          }),
+        ),
+      }),
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel`,
+        style: { padding: `1rem 1.1rem`, display: `flex`, flexWrap: `wrap`, gap: `0.75rem`, alignItems: `center` },
+        children: [
+          (0, J.jsx)(`span`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `#334155` }, children: `Filters:` }),
+          (0, J.jsxs)(`select`, {
+            className: `input-field`, style: { width: `auto`, padding: `0.35rem 0.6rem`, fontSize: `0.82rem` },
+            value: methodFilter, onChange: (e) => setMethodFilter(e.target.value),
+            children: [
+              (0, J.jsx)(`option`, { value: `all`, children: `All Payment Methods` }),
+              (0, J.jsx)(`option`, { value: `cash`, children: `Cash` }),
+              (0, J.jsx)(`option`, { value: `upi`, children: `UPI` }),
+              (0, J.jsx)(`option`, { value: `card`, children: `Card` }),
+              (0, J.jsx)(`option`, { value: `credit`, children: `Credit` }),
+              (0, J.jsx)(`option`, { value: `other`, children: `Other` }),
+            ],
+          }),
+          (0, J.jsxs)(`select`, {
+            className: `input-field`, style: { width: `auto`, padding: `0.35rem 0.6rem`, fontSize: `0.82rem` },
+            value: statusFilter, onChange: (e) => setStatusFilter(e.target.value),
+            children: [
+              (0, J.jsx)(`option`, { value: `all`, children: `All Statuses` }),
+              (0, J.jsx)(`option`, { value: `paid`, children: `Paid` }),
+              (0, J.jsx)(`option`, { value: `partial`, children: `Partially Paid` }),
+              (0, J.jsx)(`option`, { value: `pending`, children: `Pending / Unpaid` }),
+            ],
+          }),
+          (0, J.jsxs)(`select`, {
+            className: `input-field`, style: { width: `auto`, padding: `0.35rem 0.6rem`, fontSize: `0.82rem` },
+            value: typeFilter, onChange: (e) => setTypeFilter(e.target.value),
+            children: [
+              (0, J.jsx)(`option`, { value: `all`, children: `All Payment Types` }),
+              (0, J.jsx)(`option`, { value: `single`, children: `Single Payment` }),
+              (0, J.jsx)(`option`, { value: `split`, children: `Split Payment` }),
+            ],
+          }),
+          (0, J.jsx)(`span`, { style: { fontSize: `0.76rem`, color: `#94a3b8` }, children: `Patient/Customer and Bill No. use the search box above.` }),
+        ],
+      }),
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel`,
+        style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` },
+        children: [
+          (0, J.jsxs)(`div`, {
+            style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` },
+            children: [
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a` }, children: `💰 Payment Transaction History` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Every payment recorded separately — a split payment shows one row per method. Click a row for the full breakdown.` }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Transactions: `, (0, J.jsx)(`strong`, { children: transactions.length })] }),
+            ],
+          }),
+          (0, J.jsx)(`div`, {
+            className: `table-container`,
+            children: (0, J.jsxs)(`table`, {
+              style: { fontSize: `0.85rem`, width: `100%` },
+              children: [
+                (0, J.jsx)(`thead`, {
+                  children: (0, J.jsxs)(`tr`, {
+                    style: { background: `#f8fafc` },
+                    children: [
+                      (0, J.jsx)(`th`, { children: `Date & Time` }),
+                      (0, J.jsx)(`th`, { children: `Bill No.` }),
+                      (0, J.jsx)(`th`, { children: `Patient` }),
+                      (0, J.jsx)(`th`, { children: `Method` }),
+                      (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Amount Paid (₹)` }),
+                      (0, J.jsx)(`th`, { children: `Reference / Txn No.` }),
+                      (0, J.jsx)(`th`, { children: `Status` }),
+                      (0, J.jsx)(`th`, { children: `Type` }),
+                      (0, J.jsx)(`th`, { children: `Recorded By` }),
+                    ],
+                  }),
+                }),
+                (0, J.jsx)(`tbody`, {
+                  children: transactions.length > 0
+                    ? transactions.map((t, idx) => {
+                        let statusColors = paymentStatusColor(t.billStatus);
+                        return (0, J.jsxs)(`tr`, {
+                          key: `${t.billId}-${t.method}-${idx}`,
+                          style: { cursor: `pointer` },
+                          onClick: () => onSelectBill(t.billId),
+                          children: [
+                            (0, J.jsx)(`td`, { style: { color: `#475569`, whiteSpace: `nowrap` }, children: t.date ? new Date(t.date).toLocaleString() : `—` }),
+                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: `#1e293b` }, children: t.billId }),
+                            (0, J.jsx)(`td`, { children: t.patientName }),
+                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: t.isCredit ? `#dc2626` : `#0f172a` }, children: t.method }),
+                            (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: t.isCredit ? `#dc2626` : `#16a34a` }, children: t.amount.toFixed(2) }),
+                            (0, J.jsx)(`td`, { style: { color: `#94a3b8` }, children: t.reference || `—` }),
+                            (0, J.jsx)(`td`, { children: (0, J.jsx)(`span`, { style: { background: statusColors.bg, color: statusColors.fg, fontWeight: `800`, fontSize: `0.72rem`, padding: `0.15rem 0.55rem`, borderRadius: `99px` }, children: t.billStatus }) }),
+                            (0, J.jsx)(`td`, { style: { color: `#475569` }, children: t.paymentType }),
+                            (0, J.jsx)(`td`, { style: { color: `#94a3b8` }, children: t.recordedBy || `—` }),
+                          ],
+                        });
+                      })
+                    : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `9`, className: `text-center text-secondary py-4`, children: `No payment transactions match the current filters.` }) }),
+                }),
+              ],
+            }),
+          }),
+        ],
+      }),
+    ],
+  });
+}
 function a_() {
   let { settings: e } = Ir(),
     { inventory: reportsInventory, updateItemsBulk: reportsUpdateItemsBulk } = Vr(),
@@ -61231,6 +61492,14 @@ function a_() {
     [x, S] = (0, _.useState)(``),
     [C, w] = (0, _.useState)(``),
     [tabletFilter, setTabletFilter] = (0, _.useState)(`all`),
+    // Payments tab — Payment Method / Status / Type are new filters layered on top
+    // of the SAME date+search filtering the other tabs already use (see D below);
+    // Patient/Customer and Bill/Invoice Number are covered by the existing search
+    // box (o/s above), which already matches patientName and billId.
+    [paymentMethodFilter, setPaymentMethodFilter] = (0, _.useState)(`all`),
+    [paymentStatusFilter, setPaymentStatusFilter] = (0, _.useState)(`all`),
+    [paymentTypeFilter, setPaymentTypeFilter] = (0, _.useState)(`all`),
+    [selectedPaymentBill, setSelectedPaymentBill] = (0, _.useState)(null),
     T = () => {
       a(!0);
       let e = [];
@@ -61441,6 +61710,24 @@ function a_() {
               e.particulars.some((e) => e.drugName.toLowerCase().includes(n)))
         : !0;
     }),
+    // Every bill in D (already date+search filtered, same as every other tab)
+    // expanded into one row per payment method actually used — a Split bill
+    // paid Cash+UPI produces two rows here, never one combined figure.
+    allPaymentTransactions = _.useMemo(
+      () => D.flatMap((bill) => expandBillToPaymentTransactions(bill)),
+      [D],
+    ),
+    filteredPaymentTransactions = _.useMemo(
+      () => filterPaymentTransactions(allPaymentTransactions, { method: paymentMethodFilter, status: paymentStatusFilter, type: paymentTypeFilter }),
+      [allPaymentTransactions, paymentMethodFilter, paymentStatusFilter, paymentTypeFilter],
+    ),
+    // Summary cards read the SAME filtered rows as the table below them, so the
+    // two can never disagree — e.g. filtering to UPI only shows UPI's own total
+    // in every card, not the whole period's collection alongside a UPI-only table.
+    paymentSummary = _.useMemo(
+      () => computePaymentSummary(filteredPaymentTransactions),
+      [filteredPaymentTransactions],
+    ),
     O = _.useMemo(() => {
       let e = {};
       return (
@@ -61587,7 +61874,36 @@ function a_() {
                 onClick: () => {
                   try {
                     let e = [];
-                    c === `product_wise`
+                    c === `payments`
+                      ? (e.push(`Report Period: ${f} (${m || g || y || `${x} to ${C}`})`),
+                        e.push(`Filters: Method=${paymentMethodFilter} Status=${paymentStatusFilter} Type=${paymentTypeFilter}${o ? ` Search="${o}"` : ``}`),
+                        e.push(`Total Billing (Rs.),${paymentSummary.totalBilling.toFixed(2)}`),
+                        e.push(`Total Collected (Rs.),${paymentSummary.totalCollected.toFixed(2)}`),
+                        e.push(`Outstanding (Rs.),${paymentSummary.outstandingTotal.toFixed(2)}`),
+                        e.push(`Cash (Rs.),${paymentSummary.cashCollection.toFixed(2)}`),
+                        e.push(`UPI (Rs.),${paymentSummary.upiCollection.toFixed(2)}`),
+                        e.push(`Card (Rs.),${paymentSummary.cardCollection.toFixed(2)}`),
+                        e.push(`Other (Rs.),${paymentSummary.otherCollection.toFixed(2)}`),
+                        e.push(``),
+                        e.push(
+                          [
+                            `Date & Time`,
+                            `Bill No.`,
+                            `Patient`,
+                            `Method`,
+                            `Amount Paid (Rs.)`,
+                            `Reference/Txn No.`,
+                            `Status`,
+                            `Type`,
+                            `Recorded By`,
+                          ].join(`,`),
+                        ),
+                        filteredPaymentTransactions.forEach((t) => {
+                          e.push(
+                            `"${t.date ? new Date(t.date).toLocaleString() : ``}","${t.billId}","${(t.patientName || ``).replace(/"/g, `""`)}","${t.method}",${t.amount.toFixed(2)},"${t.reference || ``}","${t.billStatus}","${t.paymentType}","${t.recordedBy || ``}"`,
+                          );
+                        }))
+                      : c === `product_wise`
                       ? (e.push(
                           [
                             `Product Name`,
@@ -61658,7 +61974,7 @@ function a_() {
                     ((r.href = n),
                       r.setAttribute(
                         `download`,
-                        `Patient_Billing_Report_${new Date().toISOString().slice(0, 10)}.csv`,
+                        `${c === `payments` ? `Payments_Report` : `Patient_Billing_Report`}_${new Date().toISOString().slice(0, 10)}.csv`,
                       ),
                       document.body.appendChild(r),
                       r.click(),
@@ -61682,7 +61998,7 @@ function a_() {
                       t.setFontSize(11),
                       t.setTextColor(100),
                       t.text(
-                        `Patient Name-Wise Billing & Particulars Report`,
+                        c === `payments` ? `Payments & Collection Report` : `Patient Name-Wise Billing & Particulars Report`,
                         14,
                         28,
                       ),
@@ -61722,6 +62038,40 @@ function a_() {
                           theme: `grid`,
                           headStyles: { fillColor: [37, 99, 235] },
                           styles: { fontSize: 9, cellPadding: 3 },
+                        }));
+                    } else if (c === `payments`) {
+                      (t.text(
+                        `Filters: Method=${paymentMethodFilter} Status=${paymentStatusFilter} Type=${paymentTypeFilter}${o ? ` Search="${o}"` : ``}`,
+                        14,
+                        40,
+                      ),
+                        t.text(
+                          `Total Billing: Rs.${paymentSummary.totalBilling.toFixed(2)} | Total Collected: Rs.${paymentSummary.totalCollected.toFixed(2)} | Outstanding: Rs.${paymentSummary.outstandingTotal.toFixed(2)}`,
+                          14,
+                          46,
+                        ),
+                        t.text(
+                          `Cash: Rs.${paymentSummary.cashCollection.toFixed(2)} | UPI: Rs.${paymentSummary.upiCollection.toFixed(2)} | Card: Rs.${paymentSummary.cardCollection.toFixed(2)} | Other: Rs.${paymentSummary.otherCollection.toFixed(2)}`,
+                          14,
+                          52,
+                        ),
+                        e_(t, {
+                          head: [[`Date & Time`, `Bill No.`, `Patient`, `Method`, `Amount (Rs.)`, `Reference`, `Status`, `Type`, `Recorded By`]],
+                          body: filteredPaymentTransactions.map((tx) => [
+                            tx.date ? new Date(tx.date).toLocaleString() : `—`,
+                            tx.billId,
+                            tx.patientName || `Walk-in Patient`,
+                            tx.method,
+                            tx.amount.toFixed(2),
+                            tx.reference || `—`,
+                            tx.billStatus,
+                            tx.paymentType,
+                            tx.recordedBy || `—`,
+                          ]),
+                          startY: 60,
+                          theme: `grid`,
+                          headStyles: { fillColor: [37, 99, 235] },
+                          styles: { fontSize: 7, cellPadding: 2.5 },
                         }));
                     } else {
                       let e = [
@@ -61764,12 +62114,14 @@ function a_() {
                     (t.setFontSize(11),
                       t.setTextColor(0),
                       t.text(
-                        `Total Sales Count: ${D.length} | Total Revenue: Rs. ${k.toFixed(2)}`,
+                        c === `payments`
+                          ? `Transactions: ${filteredPaymentTransactions.length} | Total Collected: Rs. ${paymentSummary.totalCollected.toFixed(2)} | Outstanding: Rs. ${paymentSummary.outstandingTotal.toFixed(2)}`
+                          : `Total Sales Count: ${D.length} | Total Revenue: Rs. ${k.toFixed(2)}`,
                         14,
                         n + 10,
                       ),
                       t.save(
-                        `Patient_Billing_Report_${new Date().toISOString().slice(0, 10)}.pdf`,
+                        `${c === `payments` ? `Payments_Report` : `Patient_Billing_Report`}_${new Date().toISOString().slice(0, 10)}.pdf`,
                       ));
                   } catch (e) {
                     (console.error(`PDF Export Error:`, e),
@@ -61971,6 +62323,21 @@ function a_() {
                         children: [
                           `🏥 Procedures (`,
                           (procedureReportData || []).length,
+                          `)`,
+                        ],
+                      }),
+                      (0, J.jsxs)(`button`, {
+                        className: `btn ${c === `payments` ? `btn-primary` : `btn-outline`}`,
+                        style: {
+                          padding: `0.4rem 0.85rem`,
+                          fontSize: `0.85rem`,
+                          border: `none`,
+                          fontWeight: `600`,
+                        },
+                        onClick: () => l(`payments`),
+                        children: [
+                          `💰 Payments (`,
+                          filteredPaymentTransactions.length,
                           `)`,
                         ],
                       }),
@@ -62205,7 +62572,19 @@ function a_() {
               }),
             ],
           }),
-          c === `product_wise`
+          c === `payments`
+            ? (0, J.jsx)(PaymentsReportPanel, {
+                transactions: filteredPaymentTransactions,
+                summary: paymentSummary,
+                methodFilter: paymentMethodFilter,
+                setMethodFilter: setPaymentMethodFilter,
+                statusFilter: paymentStatusFilter,
+                setStatusFilter: setPaymentStatusFilter,
+                typeFilter: paymentTypeFilter,
+                setTypeFilter: setPaymentTypeFilter,
+                onSelectBill: (billId) => setSelectedPaymentBill(n.find((bill) => bill.billId === billId) || null),
+              })
+            : c === `product_wise`
             ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `📦 Product-Wise Sale Count & Rate Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Product names with total sale count, unit rate, and total sales amount` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Total Products: `, (0, J.jsx)(`strong`, { children: (productSalesReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `#f8fafc` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Product Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Unit Rate (₹)` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Sale Count` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Bills` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Sales Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (productSalesReportData && productSalesReportData.length > 0) ? productSalesReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `#64748b` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `#1e293b` }, children: item.productName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `600`, color: `#2563eb` }, children: item.unitRate > 0 ? `₹` + item.unitRate.toFixed(2) : `N/A` }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#059669` }, children: item.saleCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `#475569` }, children: item.billCount + ` Bills` }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `#0f172a` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `6`, className: `text-center text-secondary py-4`, children: `No matching product records found.` }) }) })] }) })] }) })
             : c === `injection_wise`
             ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `💉 Injection Billing Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Medicines administered as injections, with total count and total amount charged` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Total Medicines: `, (0, J.jsx)(`strong`, { children: (injectionReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `#f8fafc` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Medicine Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Injections Given` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Qty Used` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (injectionReportData && injectionReportData.length > 0) ? injectionReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `#64748b` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `#1e293b` }, children: item.medicineName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#db2777` }, children: item.injectionCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `#475569` }, children: item.totalQty }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `#0f172a` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `5`, className: `text-center text-secondary py-4`, children: `No injection records found.` }) }) })] }) })] }) })
@@ -62788,6 +63167,103 @@ function a_() {
           doctorName: u.doctorName,
           paymentMode: u.paymentMode,
           onClose: () => d(null),
+        }),
+      selectedPaymentBill &&
+        (0, J.jsx)(`div`, {
+          className: `modal-overlay`,
+          onClick: () => setSelectedPaymentBill(null),
+          children: (0, J.jsxs)(`div`, {
+            className: `modal-content glass-panel animate-fade-in`,
+            onClick: (evt) => evt.stopPropagation(),
+            style: { maxWidth: `440px`, padding: `1.5rem`, background: `#ffffff`, color: `#0f172a`, borderRadius: `16px` },
+            children: (() => {
+              let rows = expandBillToPaymentTransactions(selectedPaymentBill),
+                collected = rows.filter((r) => !r.isCredit).reduce((sum, r) => sum + r.amount, 0),
+                outstanding = rows.filter((r) => r.isCredit).reduce((sum, r) => sum + r.amount, 0),
+                billStatus = rows[0] ? rows[0].billStatus : (selectedPaymentBill.paymentStatus === `Credit` ? `Pending/Unpaid` : selectedPaymentBill.paymentStatus || `Paid`),
+                statusColors = paymentStatusColor(billStatus);
+              return [
+                (0, J.jsxs)(`div`, {
+                  key: `header`,
+                  className: `flex-between mb-4`,
+                  style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem` },
+                  children: [
+                    (0, J.jsxs)(`div`, {
+                      children: [
+                        (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `Payment Details` }),
+                        (0, J.jsxs)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: [`Bill #`, selectedPaymentBill.billId, ` · `, selectedPaymentBill.patientName || `Walk-in Patient`] }),
+                      ],
+                    }),
+                    (0, J.jsx)(`button`, { className: `btn-icon`, onClick: () => setSelectedPaymentBill(null), children: `✕` }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  key: `total`,
+                  className: `flex-between`,
+                  style: { padding: `0.6rem 0`, borderBottom: `1px dashed #e2e8f0` },
+                  children: [
+                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Invoice Total` }),
+                    (0, J.jsxs)(`span`, { style: { fontWeight: `800`, fontSize: `1.1rem` }, children: [`₹`, (selectedPaymentBill.totalAmount || 0).toFixed(2)] }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  key: `payments`,
+                  style: { padding: `0.75rem 0`, display: `flex`, flexDirection: `column`, gap: `0.5rem` },
+                  children: [
+                    (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `#334155`, textTransform: `uppercase`, letterSpacing: `0.04em` }, children: `Payments` }),
+                    ...rows.map((r, idx) =>
+                      (0, J.jsxs)(`div`, {
+                        key: idx,
+                        style: { display: `flex`, justifyContent: `space-between`, fontSize: `0.9rem` },
+                        children: [
+                          (0, J.jsxs)(`span`, { style: { fontWeight: r.isCredit ? `700` : `600`, color: r.isCredit ? `#dc2626` : `#1e293b` }, children: [r.method, r.isCredit ? ` (Outstanding)` : ``] }),
+                          (0, J.jsxs)(`span`, { style: { fontWeight: `700`, color: r.isCredit ? `#dc2626` : `#16a34a` }, children: [`₹`, r.amount.toFixed(2)] }),
+                        ],
+                      }),
+                    ),
+                    rows.length === 0 &&
+                      (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `#94a3b8` }, children: `No payment recorded for this bill.` }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  key: `paid`,
+                  className: `flex-between`,
+                  style: { padding: `0.5rem 0`, borderTop: `1px solid #e2e8f0` },
+                  children: [
+                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Total Paid` }),
+                    (0, J.jsxs)(`span`, { style: { fontWeight: `800` }, children: [`₹`, collected.toFixed(2)] }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  key: `balance`,
+                  className: `flex-between`,
+                  style: { padding: `0.5rem 0` },
+                  children: [
+                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Balance` }),
+                    (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: outstanding > 0 ? `#dc2626` : `#16a34a` }, children: [`₹`, outstanding.toFixed(2)] }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  key: `status`,
+                  className: `flex-between`,
+                  style: { padding: `0.5rem 0 0` },
+                  children: [
+                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Status` }),
+                    (0, J.jsx)(`span`, { style: { background: statusColors.bg, color: statusColors.fg, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.2rem 0.65rem`, borderRadius: `99px`, textTransform: `uppercase` }, children: billStatus }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  key: `meta`,
+                  style: { marginTop: `0.9rem`, paddingTop: `0.75rem`, borderTop: `1px solid #e2e8f0`, fontSize: `0.78rem`, color: `#94a3b8`, display: `flex`, flexDirection: `column`, gap: `0.2rem` },
+                  children: [
+                    (0, J.jsxs)(`span`, { children: [`Date & Time: `, selectedPaymentBill.date ? new Date(selectedPaymentBill.date).toLocaleString() : `—`] }),
+                    (0, J.jsxs)(`span`, { children: [`Reference / Transaction No.: `, selectedPaymentBill.paymentReference || `— (not recorded for this bill)`] }),
+                    (0, J.jsxs)(`span`, { children: [`Recorded By: `, selectedPaymentBill.recordedBy || `— (not recorded for this bill)`] }),
+                  ],
+                }),
+              ];
+            })(),
+          }),
         }),
     ],
   });
