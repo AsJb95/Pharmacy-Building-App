@@ -5,6 +5,18 @@
     <link rel="icon" type="image/png" href="../electron/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VHC Pharmacy-POS</title>
+    <script>
+      /* Theme bootstrap — runs before any paint so there is no light->dark flash.
+         Default is light for existing users; only a stored preference switches it. */
+      (function () {
+        try {
+          var t = localStorage.getItem('vhc_pos_theme');
+          document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
     <script src="./assets/vhc-cloud-sync.js"></script>
     <script src="./assets/vhc-audit-engine.js"></script>
   <script type="module" src="./assets/auto-sync-engine.js"></script>

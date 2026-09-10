@@ -15570,7 +15570,7 @@ function StockValuationAdminComponent() {
       padding: "1.25rem 1.5rem",
       background: "#ffffff",
       borderRadius: "16px",
-      border: "1.5px solid #cbd5e1"
+      border: "1.5px solid var(--border-strong)"
     },
     children: [
       (0, J.jsxs)("div", {
@@ -15611,7 +15611,7 @@ function StockValuationAdminComponent() {
                     borderRadius: "20px",
                     fontSize: "0.82rem",
                     fontWeight: "800",
-                    border: "1px solid #bae6fd"
+                    border: "1px solid var(--info-border)"
                   },
                   children: [
                     "Total: ₹",
@@ -15633,7 +15633,7 @@ function StockValuationAdminComponent() {
               background: "#f8fafc",
               padding: "0.35rem 0.65rem",
               borderRadius: "8px",
-              border: "1.5px solid #cbd5e1",
+              border: "1.5px solid var(--border-strong)",
               color: "#334155",
               display: "flex",
               alignItems: "center",
@@ -15660,7 +15660,7 @@ function StockValuationAdminComponent() {
           style: {
             marginTop: "1.25rem",
             paddingTop: "1.25rem",
-            borderTop: "1px solid #f1f5f9"
+            borderTop: "1px solid var(--border)"
           },
           children: (0, J.jsxs)("div", {
             style: {
@@ -15831,16 +15831,16 @@ function PendingStockRequestsModal({ onClose, onCountChange }) {
     children: (0, J.jsxs)(`div`, {
       className: `modal-content glass-panel animate-fade-in`,
       onClick: (e) => e.stopPropagation(),
-      style: { maxWidth: `760px`, padding: `1.5rem`, background: `#ffffff`, color: `#0f172a`, borderRadius: `16px`, maxHeight: `88vh`, display: `flex`, flexDirection: `column` },
+      style: { maxWidth: `760px`, padding: `1.5rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px`, maxHeight: `88vh`, display: `flex`, flexDirection: `column` },
       children: [
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem`, flexShrink: 0 },
+          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem`, flexShrink: 0 },
           children: [
             (0, J.jsxs)(`div`, {
               children: [
                 (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `🔔 Pending Stock Requests` }),
-                (0, J.jsx)(`p`, { style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `#64748b` }, children: `Warehouse → Pharmacy transfer requests awaiting your action` }),
+                (0, J.jsx)(`p`, { style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: `Warehouse → Pharmacy transfer requests awaiting your action` }),
               ],
             }),
             (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, children: `✕` }),
@@ -15849,13 +15849,13 @@ function PendingStockRequestsModal({ onClose, onCountChange }) {
         (0, J.jsx)(`div`, {
           style: { overflowY: `auto`, flex: 1, display: `flex`, flexDirection: `column`, gap: `0.9rem` },
           children: loading
-            ? (0, J.jsx)(`p`, { style: { color: `#64748b`, textAlign: `center`, padding: `2rem 0` }, children: `Loading…` })
+            ? (0, J.jsx)(`p`, { style: { color: `var(--text-soft)`, textAlign: `center`, padding: `2rem 0` }, children: `Loading…` })
             : requests.length === 0
-              ? (0, J.jsx)(`p`, { style: { color: `#64748b`, textAlign: `center`, padding: `2rem 0` }, children: `No pending stock requests right now.` })
+              ? (0, J.jsx)(`p`, { style: { color: `var(--text-soft)`, textAlign: `center`, padding: `2rem 0` }, children: `No pending stock requests right now.` })
               : requests.map((r) =>
                   (0, J.jsxs)(`div`, {
                     key: r.id,
-                    style: { background: `#f8fafc`, border: `1px solid #e2e8f0`, borderRadius: `12px`, padding: `1rem 1.1rem` },
+                    style: { background: `var(--surface-raised)`, border: `1px solid var(--border)`, borderRadius: `12px`, padding: `1rem 1.1rem` },
                     children: [
                       (0, J.jsxs)(`div`, {
                         className: `flex-between`,
@@ -15864,10 +15864,10 @@ function PendingStockRequestsModal({ onClose, onCountChange }) {
                           (0, J.jsxs)(`div`, {
                             children: [
                               (0, J.jsxs)(`div`, { style: { fontWeight: `800`, fontSize: `0.95rem` }, children: [`#`, r.transferNumber] }),
-                              (0, J.jsxs)(`div`, { style: { fontSize: `0.78rem`, color: `#64748b`, marginTop: `0.15rem` }, children: [`From: `, (0, J.jsx)(`strong`, { children: r.fromLocationName }), ` · `, new Date(r.requestDate).toLocaleString()] }),
+                              (0, J.jsxs)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, marginTop: `0.15rem` }, children: [`From: `, (0, J.jsx)(`strong`, { children: r.fromLocationName }), ` · `, new Date(r.requestDate).toLocaleString()] }),
                             ],
                           }),
-                          (0, J.jsx)(`span`, { style: { background: `#fffbeb`, color: `#b45309`, fontWeight: `800`, fontSize: `0.72rem`, padding: `0.2rem 0.6rem`, borderRadius: `99px` }, children: r.status }),
+                          (0, J.jsx)(`span`, { style: { background: `var(--warning-light)`, color: `var(--warning-strong)`, fontWeight: `800`, fontSize: `0.72rem`, padding: `0.2rem 0.6rem`, borderRadius: `99px` }, children: r.status }),
                         ],
                       }),
                       (0, J.jsx)(`div`, {
@@ -15875,16 +15875,16 @@ function PendingStockRequestsModal({ onClose, onCountChange }) {
                         children: r.items.map((it) =>
                           (0, J.jsxs)(`div`, {
                             key: it.id,
-                            style: { display: `flex`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `0.4rem`, fontSize: `0.82rem`, background: `#ffffff`, border: `1px solid #f1f5f9`, borderRadius: `8px`, padding: `0.4rem 0.6rem` },
+                            style: { display: `flex`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `0.4rem`, fontSize: `0.82rem`, background: `var(--surface)`, border: `1px solid var(--border)`, borderRadius: `8px`, padding: `0.4rem 0.6rem` },
                             children: [
                               (0, J.jsxs)(`span`, { style: { fontWeight: `700` }, children: [it.name, it.batch ? ` (Batch: ${it.batch})` : ``] }),
-                              (0, J.jsxs)(`span`, { style: { color: `#475569` }, children: [it.expiry ? `Exp: ${it.expiry} · ` : ``, `Qty: `, (0, J.jsx)(`strong`, { children: it.qty })] }),
+                              (0, J.jsxs)(`span`, { style: { color: `var(--text-secondary)` }, children: [it.expiry ? `Exp: ${it.expiry} · ` : ``, `Qty: `, (0, J.jsx)(`strong`, { children: it.qty })] }),
                             ],
                           }),
                         ),
                       }),
                       r.notes &&
-                        (0, J.jsxs)(`div`, { style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.7rem`, fontStyle: `italic`, whiteSpace: `pre-wrap` }, children: [`Note: `, r.notes] }),
+                        (0, J.jsxs)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.7rem`, fontStyle: `italic`, whiteSpace: `pre-wrap` }, children: [`Note: `, r.notes] }),
                       rejectingId === r.id
                         ? (0, J.jsxs)(`div`, {
                             style: { display: `flex`, flexDirection: `column`, gap: `0.5rem` },
@@ -15934,7 +15934,7 @@ function PendingStockRequestsModal({ onClose, onCountChange }) {
                               (0, J.jsx)(`button`, {
                                 type: `button`,
                                 className: `btn btn-outline`,
-                                style: { flex: 1, borderColor: `#dc2626`, color: `#dc2626`, fontWeight: `700` },
+                                style: { flex: 1, borderColor: `var(--danger-hover)`, color: `var(--danger-hover)`, fontWeight: `700` },
                                 disabled: processingId === r.id,
                                 onClick: () => setRejectingId(r.id),
                                 children: `✕ Reject`,
@@ -15955,7 +15955,8 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
   // mount, then stays live via the same 'vhc-cloud-change' event every other
   // badge in this sidebar already listens to — no new plumbing, no polling of
   // its own (VHC_CLOUD already polls as a realtime fallback; see cloud-src).
-  let [pendingTransferCount, setPendingTransferCount] = (0, _.useState)(0),
+  let [themeMode, , toggleTheme] = vhcUseTheme(),
+    [pendingTransferCount, setPendingTransferCount] = (0, _.useState)(0),
     [pendingTransfersModalOpen, setPendingTransfersModalOpen] = (0, _.useState)(!1),
     refreshPendingTransferCount = () => {
       let rows = window.VHC_CLOUD && window.VHC_CLOUD.getPendingPharmacyTransfers ? window.VHC_CLOUD.getPendingPharmacyTransfers() : [];
@@ -15977,7 +15978,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
       (0, J.jsxs)(`div`, {
         style: {
           padding: `0.85rem 1rem`,
-          background: `linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)`,
+          background: `linear-gradient(135deg, var(--surface) 0%, var(--surface-raised) 100%)`,
           borderRadius: `14px`,
           boxShadow: `0 4px 15px rgba(0,0,0,0.15)`,
           display: `flex`,
@@ -16007,7 +16008,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
                 style: {
                   fontSize: `1.05rem`,
                   margin: 0,
-                  color: `#0f172a`,
+                  color: `var(--text-primary)`,
                   fontWeight: `800`,
                   lineHeight: 1.1,
                 },
@@ -16016,7 +16017,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               (0, J.jsx)(`span`, {
                 style: {
                   fontSize: `0.68rem`,
-                  color: `#2563eb`,
+                  color: `var(--accent)`,
                   fontWeight: `700`,
                   letterSpacing: `0.8px`,
                   textTransform: `uppercase`,
@@ -16101,9 +16102,9 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               starting: { label: `Starting…`, color: `#f59e0b` },
               running: { label: `Active`, color: `#10b981` },
               error: { label: `Error`, color: `#f97316` },
-              disconnected: { label: `Disconnected`, color: `#ef4444` },
-              stopped: { label: `Stopped`, color: `#94a3b8` },
-            }[e && e.state] || { label: `Unknown`, color: `#94a3b8` };
+              disconnected: { label: `Disconnected`, color: `var(--danger-color)` },
+              stopped: { label: `Stopped`, color: `var(--text-faint)` },
+            }[e && e.state] || { label: `Unknown`, color: `var(--text-faint)` };
             return (0, J.jsxs)(`a`, {
               href: `https://t.me/vhcpharma_bot`,
               target: `_blank`,
@@ -16118,7 +16119,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
                 background: `rgba(255, 255, 255, 0.05)`,
                 borderRadius: `10px`,
                 border: `1px solid rgba(255, 255, 255, 0.1)`,
-                color: `#94a3b8`,
+                color: `var(--text-faint)`,
                 transition: `background 0.2s`,
               },
               title: `Telegram reporting bot @vhcpharma_bot — ${telegramStatusMeta.label}${e && e.lastError ? `\n${e.lastError}` : ``}`,
@@ -16217,6 +16218,26 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
             className: ({ isActive: e }) =>
               e ? `nav-link active` : `nav-link`,
             children: [(0, J.jsx)(br, { size: 19 }), `Settings & Sync`],
+          }),
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `theme-toggle-btn`,
+            onClick: () => toggleTheme(),
+            title: themeMode === `dark` ? `Switch to Light Mode` : `Switch to Dark Mode`,
+            children: [
+              (0, J.jsx)(`span`, {
+                style: { fontSize: `1rem`, lineHeight: 1 },
+                children: themeMode === `dark` ? `🌙` : `☀️`,
+              }),
+              (0, J.jsx)(`span`, {
+                children: themeMode === `dark` ? `Dark Mode` : `Light Mode`,
+              }),
+              (0, J.jsx)(`span`, {
+                className: `tt-track`,
+                "aria-hidden": `true`,
+                children: (0, J.jsx)(`span`, { className: `tt-knob` }),
+              }),
+            ],
           }),
         ],
       }),
@@ -16574,7 +16595,7 @@ function Wr() {
               (0, J.jsx)(`div`, {
                 style: {
                   fontSize: `0.85rem`,
-                  color: `#64748b`,
+                  color: `var(--text-soft)`,
                   fontWeight: `600`,
                 },
                 children: e,
@@ -16594,7 +16615,7 @@ function Wr() {
             style: {
               fontSize: `1.8rem`,
               fontWeight: `800`,
-              color: `#0f172a`,
+              color: `var(--text-primary)`,
               marginBottom: `0.3rem`,
             },
             children: t,
@@ -16643,7 +16664,7 @@ function Wr() {
               }),
               (0, J.jsx)(`p`, {
                 style: {
-                  color: `#94a3b8`,
+                  color: `var(--text-faint)`,
                   fontSize: `0.92rem`,
                   margin: `0.25rem 0 0`,
                 },
@@ -16651,7 +16672,7 @@ function Wr() {
               }),
               (0, J.jsx)(`p`, {
                 style: {
-                  color: `#64748b`,
+                  color: `var(--text-soft)`,
                   fontSize: `0.72rem`,
                   margin: `0.35rem 0 0`,
                   fontWeight: `600`,
@@ -16677,7 +16698,7 @@ function Wr() {
         ],
       }),
       (0, J.jsx)(`h3`, {
-        style: { fontSize: `1.15rem`, color: `#1e293b`, margin: `0.5rem 0 0` },
+        style: { fontSize: `1.15rem`, color: `var(--text-primary)`, margin: `0.5rem 0 0` },
         children: `Live System Metrics`,
       }),
       (0, J.jsxs)(`div`, {
@@ -16688,7 +16709,7 @@ function Wr() {
               title: `Total Sales Revenue`,
               value: `₹${c.toFixed(2)}`,
               icon: Qn,
-              color: `#2563eb`,
+              color: `var(--accent)`,
               bg: `#eff6ff`,
             }),
           (0, J.jsx)(d, {
@@ -16702,14 +16723,14 @@ function Wr() {
             title: `Patients Served`,
             value: u.toString(),
             icon: jr,
-            color: `#8b5cf6`,
+            color: `var(--purple-strong)`,
             bg: `#f5f3ff`,
           }),
           (0, J.jsx)(d, {
             title: `System Health & Sync`,
             value: `100.0%`,
             icon: Vn,
-            color: `#0284c7`,
+            color: `var(--info-strong)`,
             bg: `#f0f9ff`,
           }),
         ],
@@ -16724,7 +16745,7 @@ function Wr() {
             children: `System Status & Integration`,
           }),
           (0, J.jsx)(`p`, {
-            style: { color: `#64748b`, fontSize: `0.88rem`, margin: 0 },
+            style: { color: `var(--text-soft)`, fontSize: `0.88rem`, margin: 0 },
             children: `VHC Pharmacy POS is operational. Connected to Live Patient Sync and Telegram Bot integration.`,
           }),
         ],
@@ -17911,17 +17932,17 @@ function $i({ events: e, onOpenEvent: t, onRejectEvent: n }) {
                         gap: `0.6rem`,
                         padding: `0.6rem 0.75rem`,
                         borderRadius: `8px`,
-                        background: notif.type === `security` ? `#fef2f2` : notif.type === `alert` ? `#fffbeb` : `#f8fafc`,
-                        border: `1px solid ${notif.type === `security` ? `#fecaca` : notif.type === `alert` ? `#fde68a` : `#e2e8f0`}`,
+                        background: notif.type === `security` ? `var(--danger-light)` : notif.type === `alert` ? `var(--warning-light)` : `var(--surface-raised)`,
+                        border: `1px solid ${notif.type === `security` ? `var(--danger-light)` : notif.type === `alert` ? `var(--warning-border)` : `var(--border)`}`,
                       },
                       children: [
                         (0, J.jsx)(`span`, { style: { fontSize: `1.1rem` }, children: TelegramNotifIcon(notif.type) }),
                         (0, J.jsxs)(`div`, {
                           style: { flex: 1, minWidth: 0 },
                           children: [
-                            (0, J.jsx)(`div`, { style: { fontWeight: `700`, fontSize: `0.85rem`, color: `#0f172a` }, children: notif.title || notif.type }),
-                            notif.summary && (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `#475569`, marginTop: `0.15rem` }, children: notif.summary }),
-                            (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#94a3b8`, marginTop: `0.25rem` }, children: notif.timestamp ? new Date(notif.timestamp).toLocaleString(`en-IN`) : `` }),
+                            (0, J.jsx)(`div`, { style: { fontWeight: `700`, fontSize: `0.85rem`, color: `var(--text-primary)` }, children: notif.title || notif.type }),
+                            notif.summary && (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginTop: `0.15rem` }, children: notif.summary }),
+                            (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-faint)`, marginTop: `0.25rem` }, children: notif.timestamp ? new Date(notif.timestamp).toLocaleString(`en-IN`) : `` }),
                           ],
                         }),
                       ],
@@ -50328,7 +50349,7 @@ function Sh({ toast: e, onClose: t }) {
       }),
       error: (0, J.jsx)(Yn, {
         size: 20,
-        style: { color: `#ef4444`, flexShrink: 0 },
+        style: { color: `var(--danger-color)`, flexShrink: 0 },
       }),
       warning: (0, J.jsx)(qn, {
         size: 20,
@@ -50382,7 +50403,7 @@ function Sh({ toast: e, onClose: t }) {
           background: `none`,
           border: `none`,
           cursor: `pointer`,
-          color: `#94a3b8`,
+          color: `var(--text-faint)`,
           padding: `2px`,
           flexShrink: 0,
           display: `flex`,
@@ -50462,7 +50483,7 @@ function Ch({ confirmState: e, onResolve: t }) {
                     borderRadius: `10px`,
                     border: `1px solid rgba(148,163,184,0.3)`,
                     background: `rgba(148,163,184,0.1)`,
-                    color: `#94a3b8`,
+                    color: `var(--text-faint)`,
                     cursor: `pointer`,
                     fontSize: `0.9rem`,
                     fontWeight: 500,
@@ -50747,15 +50768,15 @@ function Dh({
       style: {
         maxWidth: `460px`,
         padding: `1.5rem`,
-        background: `#ffffff`,
-        color: `#0f172a`,
+        background: `var(--surface)`,
+        color: `var(--text-primary)`,
         borderRadius: `16px`,
       },
       children: [
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
           style: {
-            borderBottom: `1px solid #e2e8f0`,
+            borderBottom: `1px solid var(--border)`,
             paddingBottom: `0.75rem`,
           },
           children: [
@@ -50786,7 +50807,7 @@ function Dh({
             background: `#ffffff`,
             borderRadius: `10px`,
             overflowY: `auto`,
-            border: `1px dashed #94a3b8`,
+            border: `1px dashed #cbd5e1`,
             marginBottom: `1.5rem`,
             padding: `1.25rem`,
             fontFamily: `'Courier New', Courier, monospace`,
@@ -51151,8 +51172,8 @@ function Dh({
               disabled: u,
               style: {
                 flex: 1.3,
-                borderColor: `#0284c7`,
-                color: `#0284c7`,
+                borderColor: `var(--info-strong)`,
+                color: `var(--info-strong)`,
                 fontWeight: `700`,
                 display: `flex`,
                 alignItems: `center`,
@@ -51963,7 +51984,7 @@ function Nh() {
                   children: (0, J.jsxs)(J.Fragment, {
                     children: [
                       (0, J.jsx)(`div`, {
-                        style: { display: `flex`, gap: `0.4rem`, background: `#f1f5f9`, padding: `0.25rem`, borderRadius: `8px`, flexWrap: `wrap` },
+                        style: { display: `flex`, gap: `0.4rem`, background: `var(--surface-sunken)`, padding: `0.25rem`, borderRadius: `8px`, flexWrap: `wrap` },
                         children: tabs.map((tab, idx) =>
                           (0, J.jsxs)(`div`, {
                             style: { display: `flex`, alignItems: `center`, gap: `0.2rem` },
@@ -51979,7 +52000,7 @@ function Nh() {
                                   type: `button`,
                                   title: `Close tab`,
                                   onClick: () => vhcRequestCloseTab(tab.id),
-                                  style: { background: `none`, border: `none`, color: `#94a3b8`, fontWeight: `bold`, cursor: `pointer`, fontSize: `0.9rem`, padding: `0 0.3rem` },
+                                  style: { background: `none`, border: `none`, color: `var(--text-faint)`, fontWeight: `bold`, cursor: `pointer`, fontSize: `0.9rem`, padding: `0 0.3rem` },
                                   children: `×`,
                                 }),
                             ],
@@ -52081,7 +52102,7 @@ function Nh() {
                                 className: `glass-panel flex-between`,
                                 style: {
                                   padding: `1rem`,
-                                  borderLeft: `4px solid #2563eb`,
+                                  borderLeft: `4px solid var(--accent)`,
                                 },
                                 children: [
                                   (0, J.jsxs)(`div`, {
@@ -52091,7 +52112,7 @@ function Nh() {
                                         style: {
                                           margin: 0,
                                           fontWeight: `800`,
-                                          color: `#0f172a`,
+                                          color: `var(--text-primary)`,
                                           fontSize: `1.05rem`,
                                         },
                                         children: t.name,
@@ -52109,7 +52130,7 @@ function Nh() {
                                             style: {
                                               fontSize: `0.78rem`,
                                               fontWeight: `800`,
-                                              color: `#334155`,
+                                              color: `var(--text-heading)`,
                                             },
                                             children: `Batch:`,
                                           }),
@@ -52148,9 +52169,9 @@ function Nh() {
                                                   fontSize: `0.78rem`,
                                                   fontWeight: `800`,
                                                   borderRadius: `6px`,
-                                                  border: `1.5px solid #2563eb`,
-                                                  background: `#eff6ff`,
-                                                  color: `#1d4ed8`,
+                                                  border: `1.5px solid var(--accent)`,
+                                                  background: `var(--accent-light)`,
+                                                  color: `var(--accent-strong)`,
                                                   cursor: `pointer`,
                                                 },
                                                 children: c.map((e) =>
@@ -52177,8 +52198,8 @@ function Nh() {
                                                 style: {
                                                   fontSize: `0.78rem`,
                                                   fontWeight: `700`,
-                                                  color: `#0284c7`,
-                                                  background: `#e0f2fe`,
+                                                  color: `var(--info-strong)`,
+                                                  background: `var(--info-light)`,
                                                   padding: `0.1rem 0.4rem`,
                                                   borderRadius: `4px`,
                                                 },
@@ -52188,7 +52209,7 @@ function Nh() {
                                             (0, J.jsxs)(`span`, {
                                               style: {
                                                 fontSize: `0.72rem`,
-                                                color: `#64748b`,
+                                                color: `var(--text-soft)`,
                                               },
                                               children: [`Exp: `, t.expiry],
                                             }),
@@ -52206,7 +52227,7 @@ function Nh() {
                                           (0, J.jsx)(`span`, {
                                             style: {
                                               fontSize: `0.8rem`,
-                                              color: `#0284c7`,
+                                              color: `var(--info-strong)`,
                                               fontWeight: `800`,
                                             },
                                             children: `Unit Price: ₹`,
@@ -52235,17 +52256,17 @@ function Nh() {
                                               width: `85px`,
                                               padding: `0.2rem 0.4rem`,
                                               fontWeight: `800`,
-                                              border: `1.5px solid #0284c7`,
+                                              border: `1.5px solid var(--info-strong)`,
                                               borderRadius: `6px`,
-                                              background: `#f0f9ff`,
-                                              color: `#0369a1`,
+                                              background: `var(--info-light)`,
+                                              color: `var(--info-strong)`,
                                               fontSize: `0.9rem`,
                                             },
                                             title: `Edit per-tablet unit price`,
                                           }),
                                           (0, J.jsx)(`span`, {
                                             style: {
-                                              color: `#64748b`,
+                                              color: `var(--text-soft)`,
                                               fontWeight: `bold`,
                                               fontSize: `0.75rem`,
                                             },
@@ -52270,7 +52291,7 @@ function Nh() {
                                               },
                                               style: {
                                                 fontSize: `0.72rem`,
-                                                color: `#ef4444`,
+                                                color: `var(--danger-color)`,
                                                 background: `none`,
                                                 border: `none`,
                                                 cursor: `pointer`,
@@ -52291,7 +52312,7 @@ function Nh() {
                                         children: [
                                           `Strip MRP: `,
                                           (0, J.jsxs)(`strong`, {
-                                            style: { color: `#15803d` },
+                                            style: { color: `var(--success-strong)` },
                                             children: [
                                               `₹`,
                                               (parseFloat(t.mrp ?? t.price) || 0).toFixed(2),
@@ -52418,9 +52439,9 @@ function Nh() {
                                                       fontSize: `1.1rem`,
                                                       padding: `0.3rem 0.2rem`,
                                                       borderRadius: `6px`,
-                                                      border: `2px solid #2563eb`,
-                                                      background: `#ffffff`,
-                                                      color: `#0f172a`,
+                                                      border: `2px solid var(--accent)`,
+                                                      background: `var(--surface)`,
+                                                      color: `var(--text-primary)`,
                                                       outline: `none`,
                                                     },
                                                     title: `Type single digits (2,3,5,7,9) or custom tablet count`,
@@ -52428,7 +52449,7 @@ function Nh() {
                                                   (0, J.jsx)(`div`, {
                                                     style: {
                                                       fontSize: `0.68rem`,
-                                                      color: `#475569`,
+                                                      color: `var(--text-secondary)`,
                                                       fontWeight: `700`,
                                                       marginTop: `0.1rem`,
                                                     },
@@ -52488,18 +52509,18 @@ function Nh() {
                                                     border:
                                                       t.qty === e ||
                                                       (t.qty === `` && e === 1)
-                                                        ? `1.5px solid #2563eb`
-                                                        : `1px solid #cbd5e1`,
+                                                        ? `1.5px solid var(--accent)`
+                                                        : `1px solid var(--border-strong)`,
                                                     background:
                                                       t.qty === e ||
                                                       (t.qty === `` && e === 1)
-                                                        ? `#eff6ff`
-                                                        : `#ffffff`,
+                                                        ? `var(--accent-light)`
+                                                        : `var(--surface)`,
                                                     color:
                                                       t.qty === e ||
                                                       (t.qty === `` && e === 1)
-                                                        ? `#1d4ed8`
-                                                        : `#475569`,
+                                                        ? `var(--accent-strong)`
+                                                        : `var(--text-secondary)`,
                                                     cursor: `pointer`,
                                                   },
                                                   title: `Set tablet count to ${e}`,
@@ -52517,7 +52538,7 @@ function Nh() {
                                           textAlign: `right`,
                                           fontWeight: `800`,
                                           fontSize: `1.2rem`,
-                                          color: `#166534`,
+                                          color: `var(--success-strong)`,
                                         },
                                         children: [`₹`, a.toFixed(2)],
                                       }),
@@ -52540,7 +52561,7 @@ function Nh() {
                         style: { marginTop: `1.25rem` },
                         children: [
                           (0, J.jsx)(`h4`, {
-                            style: { margin: `0 0 0.5rem 0`, color: `#0f172a` },
+                            style: { margin: `0 0 0.5rem 0`, color: `var(--text-primary)` },
                             children: `💉 Injections`,
                           }),
                           (0, J.jsx)(`div`, {
@@ -52555,11 +52576,11 @@ function Nh() {
                                     (0, J.jsxs)(`div`, {
                                       children: [
                                         (0, J.jsxs)(`div`, {
-                                          style: { fontWeight: `800`, color: `#0f172a` },
+                                          style: { fontWeight: `800`, color: `var(--text-primary)` },
                                           children: [it.medicineName, ` × `, it.qty],
                                         }),
                                         (0, J.jsxs)(`div`, {
-                                          style: { fontSize: `0.78rem`, color: `#64748b`, marginTop: `0.2rem` },
+                                          style: { fontSize: `0.78rem`, color: `var(--text-soft)`, marginTop: `0.2rem` },
                                           children: [
                                             `Syringe ₹${(it.syringeCharge || 0).toFixed(2)} + Injection ₹${(it.injectionCharge || 0).toFixed(2)}`,
                                             it.optionalCharges ? ` + Optional ₹${it.optionalCharges.toFixed(2)}` : ``,
@@ -52568,7 +52589,7 @@ function Nh() {
                                         }),
                                         it.notes &&
                                           (0, J.jsxs)(`div`, {
-                                            style: { fontSize: `0.75rem`, color: `#94a3b8`, marginTop: `0.15rem` },
+                                            style: { fontSize: `0.75rem`, color: `var(--text-faint)`, marginTop: `0.15rem` },
                                             children: [`Note: `, it.notes],
                                           }),
                                       ],
@@ -52601,7 +52622,7 @@ function Nh() {
                         style: { marginTop: `1.25rem` },
                         children: [
                           (0, J.jsx)(`h4`, {
-                            style: { margin: `0 0 0.5rem 0`, color: `#0f172a` },
+                            style: { margin: `0 0 0.5rem 0`, color: `var(--text-primary)` },
                             children: `🏥 Procedures`,
                           }),
                           (0, J.jsx)(`div`, {
@@ -52611,16 +52632,16 @@ function Nh() {
                                 `div`,
                                 {
                                   className: `glass-panel flex-between`,
-                                  style: { padding: `1rem`, borderLeft: `4px solid #0891b2` },
+                                  style: { padding: `1rem`, borderLeft: `4px solid var(--info-strong)` },
                                   children: [
                                     (0, J.jsxs)(`div`, {
                                       children: [
                                         (0, J.jsxs)(`div`, {
-                                          style: { fontWeight: `800`, color: `#0f172a` },
+                                          style: { fontWeight: `800`, color: `var(--text-primary)` },
                                           children: [it.procedureName],
                                         }),
                                         (0, J.jsxs)(`div`, {
-                                          style: { fontSize: `0.78rem`, color: `#64748b`, marginTop: `0.2rem` },
+                                          style: { fontSize: `0.78rem`, color: `var(--text-soft)`, marginTop: `0.2rem` },
                                           children: [
                                             `Procedure Charge ₹${(it.procedureCharge || 0).toFixed(2)}`,
                                             (it.materials || []).length > 0
@@ -52634,7 +52655,7 @@ function Nh() {
                                       style: { display: `flex`, alignItems: `center`, gap: `0.75rem` },
                                       children: [
                                         (0, J.jsxs)(`div`, {
-                                          style: { fontWeight: `800`, fontSize: `1.1rem`, color: `#0891b2` },
+                                          style: { fontWeight: `800`, fontSize: `1.1rem`, color: `var(--info-strong)` },
                                           children: [`₹`, it.total.toFixed(2)],
                                         }),
                                         (0, J.jsx)(`button`, {
@@ -52658,7 +52679,7 @@ function Nh() {
                         style: { marginTop: `1.25rem` },
                         children: [
                           (0, J.jsx)(`h4`, {
-                            style: { margin: `0 0 0.5rem 0`, color: `#0f172a` },
+                            style: { margin: `0 0 0.5rem 0`, color: `var(--text-primary)` },
                             children: `➕ Custom Charges`,
                           }),
                           (0, J.jsx)(`div`, {
@@ -52767,8 +52788,8 @@ function Nh() {
                               zIndex: 100,
                               maxHeight: `240px`,
                               overflowY: `auto`,
-                              background: `#ffffff`,
-                              border: `1px solid #cbd5e1`,
+                              background: `var(--surface)`,
+                              border: `1px solid var(--border-strong)`,
                               boxShadow: `0 10px 25px rgba(0,0,0,0.15)`,
                               borderRadius: `8px`,
                             },
@@ -52779,7 +52800,7 @@ function Nh() {
                                   style: {
                                     padding: `0.75rem 1rem`,
                                     cursor: `pointer`,
-                                    borderBottom: `1px solid #f1f5f9`,
+                                    borderBottom: `1px solid var(--border)`,
                                   },
                                   onMouseDown: () => {
                                     w(!1);
@@ -52796,7 +52817,7 @@ function Nh() {
                                     (0, J.jsxs)(`div`, {
                                       style: {
                                         fontWeight: `bold`,
-                                        color: `#0f172a`,
+                                        color: `var(--text-primary)`,
                                         display: `flex`,
                                         justifyContent: `space-between`,
                                         alignItems: `center`,
@@ -52809,8 +52830,8 @@ function Nh() {
                                           (0, J.jsx)(`span`, {
                                             style: {
                                               fontSize: `0.68rem`,
-                                              background: `#e0f2fe`,
-                                              color: `#0369a1`,
+                                              background: `var(--info-light)`,
+                                              color: `var(--info-strong)`,
                                               padding: `0.1rem 0.35rem`,
                                               borderRadius: `4px`,
                                               fontWeight: `700`,
@@ -52822,7 +52843,7 @@ function Nh() {
                                     (0, J.jsxs)(`div`, {
                                       style: {
                                         fontSize: `0.75rem`,
-                                        color: `#64748b`,
+                                        color: `var(--text-soft)`,
                                         display: `flex`,
                                         gap: `0.75rem`,
                                         marginTop: `0.2rem`,
@@ -52861,12 +52882,12 @@ function Nh() {
                           ? (0, J.jsxs)(`div`, {
                               style: {
                                 fontSize: `0.75rem`,
-                                color: `#0284c7`,
-                                background: `#e0f2fe`,
+                                color: `var(--info-strong)`,
+                                background: `var(--info-light)`,
                                 padding: `0.4rem 0.75rem`,
                                 borderRadius: `6px`,
                                 marginTop: `0.4rem`,
-                                border: `1px solid #bae6fd`,
+                                border: `1px solid var(--info-border)`,
                                 display: `flex`,
                                 justifyContent: `space-between`,
                                 alignItems: `center`,
@@ -52888,7 +52909,7 @@ function Nh() {
                                   style: {
                                     background: `none`,
                                     border: `none`,
-                                    color: `#ef4444`,
+                                    color: `var(--danger-color)`,
                                     fontWeight: `bold`,
                                     cursor: `pointer`,
                                     fontSize: `0.75rem`,
@@ -52900,7 +52921,7 @@ function Nh() {
                           : (0, J.jsx)(`div`, {
                               style: {
                                 fontSize: `0.72rem`,
-                                color: `#64748b`,
+                                color: `var(--text-soft)`,
                                 marginTop: `0.3rem`,
                               },
                               children: `💡 Type any patient name or mobile number for autocomplete.`,
@@ -53006,7 +53027,7 @@ function Nh() {
                                     (0, J.jsxs)(`div`, {
                                       children: [
                                         (0, J.jsx)(`strong`, {
-                                          style: { color: `#0f172a` },
+                                          style: { color: `var(--text-primary)` },
                                           children: e.name,
                                         }),
                                         (0, J.jsxs)(`div`, {
@@ -53033,7 +53054,7 @@ function Nh() {
                                         (0, J.jsxs)(`div`, {
                                           style: {
                                             fontWeight: `800`,
-                                            color: `#2563eb`,
+                                            color: `var(--accent)`,
                                           },
                                           children: [
                                             `₹`,
@@ -53044,7 +53065,7 @@ function Nh() {
                                         (0, J.jsxs)(`div`, {
                                           style: {
                                             fontSize: `0.7rem`,
-                                            color: `#64748b`,
+                                            color: `var(--text-soft)`,
                                           },
                                           children: [
                                             `MRP ₹`,
@@ -53139,7 +53160,7 @@ function Nh() {
                         (0, J.jsx)(`button`, {
                           type: `button`,
                           className: `btn btn-outline`,
-                          style: { borderColor: `#0891b2`, color: `#0891b2`, fontWeight: `700` },
+                          style: { borderColor: `var(--info-strong)`, color: `var(--info-strong)`, fontWeight: `700` },
                           onClick: () => setProcedureModalOpen(!0),
                           children: `🏥 Add Procedure`,
                         }),
@@ -53160,7 +53181,7 @@ function Nh() {
                           style: {
                             fontSize: `0.8rem`,
                             fontWeight: `800`,
-                            color: `#334155`,
+                            color: `var(--text-heading)`,
                             display: `flex`,
                             alignItems: `center`,
                             gap: `0.4rem`,
@@ -53185,11 +53206,11 @@ function Nh() {
                                 fontSize: `0.78rem`,
                                 border:
                                   f === `Cash`
-                                    ? `2px solid #2563eb`
-                                    : `1.5px solid #cbd5e1`,
+                                    ? `2px solid var(--accent)`
+                                    : `1.5px solid var(--border-strong)`,
                                 background:
-                                  f === `Cash` ? `#eff6ff` : `#ffffff`,
-                                color: f === `Cash` ? `#1d4ed8` : `#475569`,
+                                  f === `Cash` ? `var(--accent-light)` : `var(--surface)`,
+                                color: f === `Cash` ? `var(--accent-strong)` : `var(--text-secondary)`,
                                 cursor: `pointer`,
                                 display: `flex`,
                                 alignItems: `center`,
@@ -53216,10 +53237,10 @@ function Nh() {
                                 fontSize: `0.78rem`,
                                 border:
                                   f === `UPI`
-                                    ? `2px solid #16a34a`
-                                    : `1.5px solid #cbd5e1`,
-                                background: f === `UPI` ? `#f0fdf4` : `#ffffff`,
-                                color: f === `UPI` ? `#15803d` : `#475569`,
+                                    ? `2px solid var(--money-pos)`
+                                    : `1.5px solid var(--border-strong)`,
+                                background: f === `UPI` ? `var(--success-light)` : `var(--surface)`,
+                                color: f === `UPI` ? `var(--success-strong)` : `var(--text-secondary)`,
                                 cursor: `pointer`,
                                 display: `flex`,
                                 alignItems: `center`,
@@ -53254,11 +53275,11 @@ function Nh() {
                                 fontSize: `0.78rem`,
                                 border:
                                   f === `Split`
-                                    ? `2px solid #9333ea`
-                                    : `1.5px solid #cbd5e1`,
+                                    ? `2px solid var(--purple-strong)`
+                                    : `1.5px solid var(--border-strong)`,
                                 background:
-                                  f === `Split` ? `#faf5ff` : `#ffffff`,
-                                color: f === `Split` ? `#7e22ce` : `#475569`,
+                                  f === `Split` ? `var(--purple-light)` : `var(--surface)`,
+                                color: f === `Split` ? `var(--purple-strong)` : `var(--text-secondary)`,
                                 cursor: `pointer`,
                                 display: `flex`,
                                 alignItems: `center`,
@@ -53285,11 +53306,11 @@ function Nh() {
                                 fontSize: `0.78rem`,
                                 border:
                                   f === `Credit`
-                                    ? `2px solid #d97706`
-                                    : `1.5px solid #cbd5e1`,
+                                    ? `2px solid var(--warning-strong)`
+                                    : `1.5px solid var(--border-strong)`,
                                 background:
-                                  f === `Credit` ? `#fffbeb` : `#ffffff`,
-                                color: f === `Credit` ? `#b45309` : `#475569`,
+                                  f === `Credit` ? `var(--warning-light)` : `var(--surface)`,
+                                color: f === `Credit` ? `var(--warning-strong)` : `var(--text-secondary)`,
                                 cursor: `pointer`,
                                 display: `flex`,
                                 alignItems: `center`,
@@ -53322,8 +53343,8 @@ function Nh() {
                               right: 0,
                               marginTop: `0.4rem`,
                               zIndex: 30,
-                              background: `#ffffff`,
-                              border: `1.5px solid #9333ea`,
+                              background: `var(--surface)`,
+                              border: `1.5px solid var(--purple-strong)`,
                               borderRadius: `10px`,
                               boxShadow: `0 8px 24px rgba(0,0,0,0.18)`,
                               padding: `0.9rem`,
@@ -53333,31 +53354,31 @@ function Nh() {
                                 className: `flex-between`,
                                 style: { marginBottom: `0.6rem` },
                                 children: [
-                                  (0, J.jsx)(`span`, { style: { fontWeight: `800`, fontSize: `0.85rem`, color: `#334155` }, children: `🔀 Split Payment` }),
-                                  (0, J.jsxs)(`span`, { style: { fontWeight: `800`, fontSize: `0.85rem`, color: `#7e22ce` }, children: [`Total: ₹`, splitBillTotal.toFixed(2)] }),
+                                  (0, J.jsx)(`span`, { style: { fontWeight: `800`, fontSize: `0.85rem`, color: `var(--text-heading)` }, children: `🔀 Split Payment` }),
+                                  (0, J.jsxs)(`span`, { style: { fontWeight: `800`, fontSize: `0.85rem`, color: `var(--purple-strong)` }, children: [`Total: ₹`, splitBillTotal.toFixed(2)] }),
                                 ],
                               }),
                               (0, J.jsxs)(`label`, {
-                                style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, gap: `0.5rem`, fontSize: `0.8rem`, fontWeight: `700`, color: `#475569`, marginBottom: `0.5rem` },
+                                style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, gap: `0.5rem`, fontSize: `0.8rem`, fontWeight: `700`, color: `var(--text-secondary)`, marginBottom: `0.5rem` },
                                 children: [
                                   `💵 Cash`,
                                   (0, J.jsx)(`input`, {
                                     type: `number`, step: `0.01`, min: `0`, placeholder: `0.00`,
                                     value: splitCashInput,
                                     onChange: (e) => setSplitCashInput(e.target.value),
-                                    style: { width: `110px`, padding: `0.3rem 0.4rem`, textAlign: `right`, border: `1.5px solid #cbd5e1`, borderRadius: `6px`, fontWeight: `700` },
+                                    style: { width: `110px`, padding: `0.3rem 0.4rem`, textAlign: `right`, border: `1.5px solid var(--border-strong)`, borderRadius: `6px`, fontWeight: `700` },
                                   }),
                                 ],
                               }),
                               (0, J.jsxs)(`label`, {
-                                style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, gap: `0.5rem`, fontSize: `0.8rem`, fontWeight: `700`, color: `#475569`, marginBottom: `0.5rem` },
+                                style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, gap: `0.5rem`, fontSize: `0.8rem`, fontWeight: `700`, color: `var(--text-secondary)`, marginBottom: `0.5rem` },
                                 children: [
                                   `📱 UPI`,
                                   (0, J.jsx)(`input`, {
                                     type: `number`, step: `0.01`, min: `0`, placeholder: `0.00`,
                                     value: splitUpiInput,
                                     onChange: (e) => setSplitUpiInput(e.target.value),
-                                    style: { width: `110px`, padding: `0.3rem 0.4rem`, textAlign: `right`, border: `1.5px solid #cbd5e1`, borderRadius: `6px`, fontWeight: `700` },
+                                    style: { width: `110px`, padding: `0.3rem 0.4rem`, textAlign: `right`, border: `1.5px solid var(--border-strong)`, borderRadius: `6px`, fontWeight: `700` },
                                   }),
                                 ],
                               }),
@@ -53373,19 +53394,19 @@ function Nh() {
                                 return (0, J.jsxs)(J.Fragment, {
                                   children: [
                                     (0, J.jsxs)(`div`, {
-                                      style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, fontSize: `0.8rem`, fontWeight: `700`, color: `#475569`, paddingTop: `0.5rem`, borderTop: `1px dashed #e2e8f0` },
+                                      style: { display: `flex`, alignItems: `center`, justifyContent: `space-between`, fontSize: `0.8rem`, fontWeight: `700`, color: `var(--text-secondary)`, paddingTop: `0.5rem`, borderTop: `1px dashed var(--border)` },
                                       children: [
                                         `📋 Credit (auto)`,
-                                        (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: remaining > 0 ? `#b45309` : `#16a34a` }, children: [`₹`, remaining.toFixed(2)] }),
+                                        (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: remaining > 0 ? `var(--warning-strong)` : `var(--money-pos)` }, children: [`₹`, remaining.toFixed(2)] }),
                                       ],
                                     }),
                                     (0, J.jsxs)(`div`, {
-                                      style: { fontSize: `0.72rem`, color: `#64748b`, marginTop: `0.35rem` },
+                                      style: { fontSize: `0.72rem`, color: `var(--text-soft)`, marginTop: `0.35rem` },
                                       children: [`Received: ₹${received.toFixed(2)}  |  Balance: ₹${remaining.toFixed(2)}`],
                                     }),
                                     overpaid &&
                                       (0, J.jsx)(`div`, {
-                                        style: { fontSize: `0.75rem`, color: `#dc2626`, fontWeight: `700`, marginTop: `0.35rem` },
+                                        style: { fontSize: `0.75rem`, color: `var(--danger-hover)`, fontWeight: `700`, marginTop: `0.35rem` },
                                         children: `Payment amount cannot exceed the bill total.`,
                                       }),
                                   ],
@@ -53470,15 +53491,15 @@ function Nh() {
                                     width: `62px`,
                                     textAlign: `right`,
                                     padding: `0.3rem 0.4rem`,
-                                    border: `1.5px solid #fca5a5`,
+                                    border: `1.5px solid var(--danger-border)`,
                                     borderRadius: `6px`,
                                     fontWeight: `700`,
-                                    color: `#dc2626`,
-                                    background: `#fff`,
+                                    color: `var(--danger-hover)`,
+                                    background: `var(--surface)`,
                                   },
                                 }),
                                 (0, J.jsx)(`span`, {
-                                  style: { color: `#dc2626`, fontWeight: `700`, fontSize: `0.85rem` },
+                                  style: { color: `var(--danger-hover)`, fontWeight: `700`, fontSize: `0.85rem` },
                                   children: `%`,
                                 }),
                               ],
@@ -53488,7 +53509,7 @@ function Nh() {
                               title: `Discount amount`,
                               children: [
                                 (0, J.jsx)(`span`, {
-                                  style: { color: `#94a3b8`, fontWeight: `600`, fontSize: `0.85rem` },
+                                  style: { color: `var(--text-faint)`, fontWeight: `600`, fontSize: `0.85rem` },
                                   children: `₹`,
                                 }),
                                 (0, J.jsx)(`input`, {
@@ -53505,11 +53526,11 @@ function Nh() {
                                     width: `78px`,
                                     textAlign: `right`,
                                     padding: `0.3rem 0.4rem`,
-                                    border: `1.5px solid #e2e8f0`,
+                                    border: `1.5px solid var(--border)`,
                                     borderRadius: `6px`,
                                     fontWeight: `600`,
-                                    color: `#64748b`,
-                                    background: `#f8fafc`,
+                                    color: `var(--text-soft)`,
+                                    background: `var(--surface-raised)`,
                                   },
                                 }),
                               ],
@@ -53544,7 +53565,7 @@ function Nh() {
                         className: `flex-between mb-4`,
                         style: { marginBottom: `0.5rem` },
                         children: [
-                          (0, J.jsx)(`span`, { style: { color: `#0891b2` }, children: `🏥 Procedures` }),
+                          (0, J.jsx)(`span`, { style: { color: `var(--info-strong)` }, children: `🏥 Procedures` }),
                           (0, J.jsxs)(`span`, { children: [`₹`, procedureTotal.toFixed(2)] }),
                         ],
                       }),
@@ -53792,8 +53813,8 @@ function InjectionModal({ isOpen, onClose, inventory, notify, onConfirm }) {
       style: {
         maxWidth: `480px`,
         padding: `1.5rem`,
-        background: `#ffffff`,
-        color: `#0f172a`,
+        background: `var(--surface)`,
+        color: `var(--text-primary)`,
         borderRadius: `16px`,
         maxHeight: `88vh`,
         overflowY: `auto`,
@@ -53801,7 +53822,7 @@ function InjectionModal({ isOpen, onClose, inventory, notify, onConfirm }) {
       children: [
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem` },
+          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem` },
           children: [
             (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `💉 Injection Billing` }),
             (0, J.jsx)(`button`, {
@@ -53823,8 +53844,8 @@ function InjectionModal({ isOpen, onClose, inventory, notify, onConfirm }) {
                     justifyContent: `space-between`,
                     alignItems: `center`,
                     padding: `0.5rem 0.75rem`,
-                    background: `#eff6ff`,
-                    border: `1px solid #93c5fd`,
+                    background: `var(--accent-light)`,
+                    border: `1px solid var(--accent-border)`,
                     borderRadius: `8px`,
                   },
                   children: [
@@ -53837,7 +53858,7 @@ function InjectionModal({ isOpen, onClose, inventory, notify, onConfirm }) {
                     (0, J.jsx)(`button`, {
                       type: `button`,
                       onClick: () => setSelectedMed(null),
-                      style: { background: `none`, border: `none`, color: `#ef4444`, cursor: `pointer`, fontWeight: `bold` },
+                      style: { background: `none`, border: `none`, color: `var(--danger-color)`, cursor: `pointer`, fontWeight: `bold` },
                       children: `Change`,
                     }),
                   ],
@@ -53857,17 +53878,17 @@ function InjectionModal({ isOpen, onClose, inventory, notify, onConfirm }) {
                 style: {
                   maxHeight: `180px`,
                   overflowY: `auto`,
-                  border: `1px solid #cbd5e1`,
+                  border: `1px solid var(--border-strong)`,
                   borderRadius: `8px`,
                 },
                 children: medMatches.map((it) =>
                   (0, J.jsxs)(`div`, {
-                    style: { padding: `0.5rem 0.75rem`, cursor: `pointer`, borderBottom: `1px solid #f1f5f9` },
+                    style: { padding: `0.5rem 0.75rem`, cursor: `pointer`, borderBottom: `1px solid var(--border)` },
                     onClick: () => (setSelectedMed(it), setMedQuery(``)),
                     children: [
                       (0, J.jsx)(`strong`, { children: it.name }),
                       (0, J.jsxs)(`span`, {
-                        style: { fontSize: `0.75rem`, color: `#64748b`, marginLeft: `0.5rem` },
+                        style: { fontSize: `0.75rem`, color: `var(--text-soft)`, marginLeft: `0.5rem` },
                         children: [`Stock: ${it.stock}`],
                       }),
                     ],
@@ -53960,10 +53981,10 @@ function InjectionModal({ isOpen, onClose, inventory, notify, onConfirm }) {
         }),
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { paddingTop: `0.75rem`, borderTop: `1px solid #e2e8f0`, fontWeight: `800`, fontSize: `1.15rem` },
+          style: { paddingTop: `0.75rem`, borderTop: `1px solid var(--border)`, fontWeight: `800`, fontSize: `1.15rem` },
           children: [
             (0, J.jsx)(`span`, { children: `Total` }),
-            (0, J.jsxs)(`span`, { style: { color: `#2563eb` }, children: [`₹`, total.toFixed(2)] }),
+            (0, J.jsxs)(`span`, { style: { color: `var(--accent)` }, children: [`₹`, total.toFixed(2)] }),
           ],
         }),
         (0, J.jsxs)(`div`, {
@@ -54059,8 +54080,8 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
       style: {
         maxWidth: `520px`,
         padding: `1.5rem`,
-        background: `#ffffff`,
-        color: `#0f172a`,
+        background: `var(--surface)`,
+        color: `var(--text-primary)`,
         borderRadius: `16px`,
         maxHeight: `88vh`,
         overflowY: `auto`,
@@ -54068,7 +54089,7 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
       children: [
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem` },
+          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem` },
           children: [
             (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `🏥 Procedure Billing` }),
             (0, J.jsx)(`button`, {
@@ -54138,17 +54159,17 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
                 style: {
                   maxHeight: `180px`,
                   overflowY: `auto`,
-                  border: `1px solid #cbd5e1`,
+                  border: `1px solid var(--border-strong)`,
                   borderRadius: `8px`,
                 },
                 children: matMatches.map((it) =>
                   (0, J.jsxs)(`div`, {
-                    style: { padding: `0.5rem 0.75rem`, cursor: `pointer`, borderBottom: `1px solid #f1f5f9` },
+                    style: { padding: `0.5rem 0.75rem`, cursor: `pointer`, borderBottom: `1px solid var(--border)` },
                     onClick: () => addMaterial(it),
                     children: [
                       (0, J.jsx)(`strong`, { children: it.name }),
                       (0, J.jsxs)(`span`, {
-                        style: { fontSize: `0.75rem`, color: `#64748b`, marginLeft: `0.5rem` },
+                        style: { fontSize: `0.75rem`, color: `var(--text-soft)`, marginLeft: `0.5rem` },
                         children: [`Stock: ${it.stock} | ₹${(((parseFloat(it.mrp ?? it.price) || 0) / (parseFloat(it.unitsPerPack || it.units_per_pack) || 1))).toFixed(2)}/unit`],
                       }),
                     ],
@@ -54160,11 +54181,11 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
         materials.length > 0 &&
           (0, J.jsx)(`div`, {
             className: `mb-4`,
-            style: { border: `1px solid #e2e8f0`, borderRadius: `8px`, overflow: `hidden` },
+            style: { border: `1px solid var(--border)`, borderRadius: `8px`, overflow: `hidden` },
             children: materials.map((m) =>
               (0, J.jsxs)(`div`, {
                 className: `flex-between`,
-                style: { padding: `0.5rem 0.75rem`, borderBottom: `1px solid #f1f5f9` },
+                style: { padding: `0.5rem 0.75rem`, borderBottom: `1px solid var(--border)` },
                 children: [
                   (0, J.jsxs)(`span`, {
                     children: [
@@ -54175,7 +54196,7 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
                   (0, J.jsx)(`button`, {
                     type: `button`,
                     onClick: () => removeMaterial(m.materialId),
-                    style: { background: `none`, border: `none`, color: `#ef4444`, cursor: `pointer`, fontWeight: `bold` },
+                    style: { background: `none`, border: `none`, color: `var(--danger-color)`, cursor: `pointer`, fontWeight: `bold` },
                     children: `Remove`,
                   }),
                 ],
@@ -54184,10 +54205,10 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
           }),
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { paddingTop: `0.75rem`, borderTop: `1px solid #e2e8f0`, fontWeight: `800`, fontSize: `1.15rem` },
+          style: { paddingTop: `0.75rem`, borderTop: `1px solid var(--border)`, fontWeight: `800`, fontSize: `1.15rem` },
           children: [
             (0, J.jsx)(`span`, { children: `Total` }),
-            (0, J.jsxs)(`span`, { style: { color: `#2563eb` }, children: [`₹`, total.toFixed(2)] }),
+            (0, J.jsxs)(`span`, { style: { color: `var(--accent)` }, children: [`₹`, total.toFixed(2)] }),
           ],
         }),
         (0, J.jsxs)(`div`, {
@@ -54433,7 +54454,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
         }),
         (0, J.jsxs)(`h2`, {
           className: `flex-center gap-2 mb-4`,
-          style: { color: `#0f172a` },
+          style: { color: `var(--text-primary)` },
           children: [
             (0, J.jsx)(ur, { className: `text-accent` }),
             ` Scan Purchase Bill / Invoice`,
@@ -54471,7 +54492,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                   maxHeight: `140px`,
                   overflow: `hidden`,
                   borderRadius: `8px`,
-                  border: `1px solid #e2e8f0`,
+                  border: `1px solid var(--border)`,
                 },
                 children: (0, J.jsx)(`img`, {
                   src: a,
@@ -54512,8 +54533,8 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                   className: `glass-panel`,
                   style: {
                     padding: `1rem`,
-                    background: `#f8fafc`,
-                    borderColor: `#2563eb`,
+                    background: `var(--surface-raised)`,
+                    borderColor: `var(--accent)`,
                   },
                   children: [
                     (0, J.jsxs)(`div`, {
@@ -54557,12 +54578,12 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                           `div`,
                           {
                             style: {
-                              background: `#ffffff`,
+                              background: `var(--surface)`,
                               padding: `0.85rem`,
                               borderRadius: `8px`,
                               border: e.selected
-                                ? `1.5px solid #2563eb`
-                                : `1px solid #cbd5e1`,
+                                ? `1.5px solid var(--accent)`
+                                : `1px solid var(--border-strong)`,
                               boxShadow: `0 2px 6px rgba(0,0,0,0.04)`,
                             },
                             children: [
@@ -54592,7 +54613,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                         style: {
                                           fontSize: `0.8rem`,
                                           fontWeight: `800`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                         },
                                         children: [`#`, t + 1],
                                       }),
@@ -54657,7 +54678,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                           fontWeight: `700`,
                                         },
                                         children: `Batch`,
@@ -54681,7 +54702,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                           fontWeight: `700`,
                                         },
                                         children: `Exp (MM/YY)`,
@@ -54706,7 +54727,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                           fontWeight: `700`,
                                         },
                                         children: `Net Rate (₹)`,
@@ -54731,7 +54752,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                           fontWeight: `700`,
                                         },
                                         children: `Pack Size`,
@@ -54761,7 +54782,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                           fontWeight: `700`,
                                         },
                                         children: `Qty (Strips)`,
@@ -54788,7 +54809,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#16a34a`,
+                                          color: `var(--money-pos)`,
                                           fontWeight: `800`,
                                         },
                                         children: `Free (Strips)`,
@@ -54802,8 +54823,8 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                           width: `100%`,
                                           fontSize: `0.85rem`,
                                           fontWeight: `800`,
-                                          border: `1.5px solid #16a34a`,
-                                          background: `#f0fdf4`,
+                                          border: `1.5px solid var(--money-pos)`,
+                                          background: `var(--success-light)`,
                                         },
                                         value: e.freeStrips,
                                         onChange: (t) =>
@@ -54817,7 +54838,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#64748b`,
+                                          color: `var(--text-soft)`,
                                           fontWeight: `700`,
                                         },
                                         children: `Strip MRP (₹)`,
@@ -54842,7 +54863,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                       (0, J.jsx)(`span`, {
                                         style: {
                                           fontSize: `0.7rem`,
-                                          color: `#0284c7`,
+                                          color: `var(--info-strong)`,
                                           fontWeight: `800`,
                                         },
                                         children: `Tablet Stock`,
@@ -54855,8 +54876,8 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                                           width: `100%`,
                                           fontSize: `0.85rem`,
                                           fontWeight: `800`,
-                                          border: `1.5px solid #0284c7`,
-                                          background: `#f0f9ff`,
+                                          border: `1.5px solid var(--info-strong)`,
+                                          background: `var(--info-light)`,
                                         },
                                         value: e.stock,
                                         onChange: (t) =>
@@ -54880,7 +54901,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
                         (0, J.jsxs)(`div`, {
                           style: {
                             fontSize: `0.85rem`,
-                            color: `#475569`,
+                            color: `var(--text-secondary)`,
                             fontWeight: `600`,
                           },
                           children: [
@@ -54966,12 +54987,12 @@ function getExpiryInfo(item) {
 function getExpiryStatusMeta(status) {
   return (
     {
-      expired: { label: `Expired`, color: `#991b1b`, bg: `#fef2f2`, border: `#fca5a5` },
-      critical: { label: `Expiring Soon`, color: `#c2410c`, bg: `#fff7ed`, border: `#fdba74` },
-      warning: { label: `Expiring`, color: `#92400e`, bg: `#fffbeb`, border: `#fde68a` },
-      ok: { label: `Safe`, color: `#166534`, bg: `#f0fdf4`, border: `#bbf7d0` },
-      unknown: { label: `Unknown`, color: `#475569`, bg: `#f8fafc`, border: `#cbd5e1` },
-    }[status] || { label: `Unknown`, color: `#475569`, bg: `#f8fafc`, border: `#cbd5e1` }
+      expired: { label: `Expired`, color: `var(--danger-strong)`, bg: `#fef2f2`, border: `#fca5a5` },
+      critical: { label: `Expiring Soon`, color: `var(--warning-strong)`, bg: `#fff7ed`, border: `#fdba74` },
+      warning: { label: `Expiring`, color: `var(--warning-strong)`, bg: `#fffbeb`, border: `#fde68a` },
+      ok: { label: `Safe`, color: `var(--success-strong)`, bg: `#f0fdf4`, border: `#bbf7d0` },
+      unknown: { label: `Unknown`, color: `var(--text-secondary)`, bg: `#f8fafc`, border: `var(--border-strong)` },
+    }[status] || { label: `Unknown`, color: `var(--text-secondary)`, bg: `#f8fafc`, border: `var(--border-strong)` }
   );
 }
 function getInventoryExpiryAlertItems(inventory) {
@@ -55286,7 +55307,7 @@ function Ih() {
         style: {
           padding: `1.25rem 1.5rem`,
           marginBottom: `1.25rem`,
-          background: `#ffffff`,
+          background: `var(--surface)`,
           borderRadius: `16px`,
         },
         children: [
@@ -55311,7 +55332,7 @@ function Ih() {
                     style: {
                       margin: 0,
                       fontSize: `1.1rem`,
-                      color: `#0f172a`,
+                      color: `var(--text-primary)`,
                       display: `flex`,
                       alignItems: `center`,
                       gap: `0.5rem`,
@@ -55324,13 +55345,13 @@ function Ih() {
                   k.length > 0 &&
                     (0, J.jsxs)(`span`, {
                       style: {
-                        background: `#fef3c7`,
-                        color: `#92400e`,
+                        background: `var(--warning-light)`,
+                        color: `var(--warning-strong)`,
                         padding: `0.2rem 0.65rem`,
                         borderRadius: `20px`,
                         fontSize: `0.8rem`,
                         fontWeight: `800`,
-                        border: `1px solid #fde68a`,
+                        border: `1px solid var(--warning-border)`,
                       },
                       children: [k.length, ` items low`],
                     }),
@@ -55340,11 +55361,11 @@ function Ih() {
                 type: `button`,
                 className: `btn-icon`,
                 style: {
-                  background: `#f8fafc`,
+                  background: `var(--surface-raised)`,
                   padding: `0.35rem 0.65rem`,
                   borderRadius: `8px`,
-                  border: `1.5px solid #cbd5e1`,
-                  color: `#334155`,
+                  border: `1.5px solid var(--border-strong)`,
+                  color: `var(--text-heading)`,
                   display: `flex`,
                   alignItems: `center`,
                   gap: `0.3rem`,
@@ -55374,12 +55395,12 @@ function Ih() {
               style: {
                 marginTop: `1rem`,
                 paddingTop: `1rem`,
-                borderTop: `1px solid #f1f5f9`,
+                borderTop: `1px solid var(--border)`,
               },
               children:
                 k.length === 0
                   ? (0, J.jsx)(`div`, {
-                      style: { fontSize: `0.9rem`, color: `#64748b` },
+                      style: { fontSize: `0.9rem`, color: `var(--text-soft)` },
                       children: `All items have healthy stock levels!`,
                     })
                   : (() => {
@@ -55405,7 +55426,7 @@ function Ih() {
                                         flexShrink: 0,
                                         fontSize: `0.8rem`,
                                         fontWeight: `700`,
-                                        color: `#334155`,
+                                        color: `var(--text-heading)`,
                                         whiteSpace: `nowrap`,
                                         overflow: `hidden`,
                                         textOverflow: `ellipsis`,
@@ -55416,7 +55437,7 @@ function Ih() {
                                     (0, J.jsx)(`div`, {
                                       style: {
                                         flex: 1,
-                                        background: `#f1f5f9`,
+                                        background: `var(--surface-sunken)`,
                                         borderRadius: `6px`,
                                         height: `18px`,
                                         overflow: `hidden`,
@@ -55426,7 +55447,7 @@ function Ih() {
                                           width: `${pct}%`,
                                           height: `100%`,
                                           borderRadius: `6px`,
-                                          background: isCritical ? `#dc2626` : `#d97706`,
+                                          background: isCritical ? `var(--danger-hover)` : `var(--warning-strong)`,
                                         },
                                       }),
                                     }),
@@ -55437,7 +55458,7 @@ function Ih() {
                                         textAlign: `right`,
                                         fontSize: `0.8rem`,
                                         fontWeight: `800`,
-                                        color: isCritical ? `#991b1b` : `#92400e`,
+                                        color: isCritical ? `var(--danger-strong)` : `var(--warning-strong)`,
                                       },
                                       children: [stockVal, ` Nos`],
                                     }),
@@ -55468,7 +55489,7 @@ function Ih() {
         style: {
           padding: `1.25rem 1.5rem`,
           marginBottom: `1.25rem`,
-          background: `#ffffff`,
+          background: `var(--surface)`,
           borderRadius: `16px`,
         },
         children: [
@@ -55489,7 +55510,7 @@ function Ih() {
                     style: {
                       margin: 0,
                       fontSize: `1.1rem`,
-                      color: `#0f172a`,
+                      color: `var(--text-primary)`,
                       display: `flex`,
                       alignItems: `center`,
                       gap: `0.5rem`,
@@ -55499,13 +55520,13 @@ function Ih() {
                   expiryAlertByMedicine.length > 0 &&
                     (0, J.jsxs)(`span`, {
                       style: {
-                        background: `#fee2e2`,
-                        color: `#991b1b`,
+                        background: `var(--danger-light)`,
+                        color: `var(--danger-strong)`,
                         padding: `0.2rem 0.65rem`,
                         borderRadius: `20px`,
                         fontSize: `0.8rem`,
                         fontWeight: `800`,
-                        border: `1px solid #fca5a5`,
+                        border: `1px solid var(--danger-border)`,
                       },
                       children: [expiryAlertByMedicine.length, expiryAlertByMedicine.length === 1 ? ` medicine` : ` medicines`],
                     }),
@@ -55527,11 +55548,11 @@ function Ih() {
                 type: `button`,
                 className: `btn-icon`,
                 style: {
-                  background: `#f8fafc`,
+                  background: `var(--surface-raised)`,
                   padding: `0.35rem 0.65rem`,
                   borderRadius: `8px`,
-                  border: `1.5px solid #cbd5e1`,
-                  color: `#334155`,
+                  border: `1.5px solid var(--border-strong)`,
+                  color: `var(--text-heading)`,
                   display: `flex`,
                   alignItems: `center`,
                   gap: `0.3rem`,
@@ -55554,7 +55575,7 @@ function Ih() {
           expiryAlertOpen &&
             (0, J.jsxs)(`div`, {
               className: `animate-fade-in`,
-              style: { marginTop: `1rem`, paddingTop: `1rem`, borderTop: `1px solid #f1f5f9` },
+              style: { marginTop: `1rem`, paddingTop: `1rem`, borderTop: `1px solid var(--border)` },
               children: [
                 expiryAlertByMedicine.length > 0 &&
                   (0, J.jsx)(`div`, {
@@ -55570,7 +55591,7 @@ function Ih() {
                   }),
                 expiryAlertByMedicine.length === 0
                   ? (0, J.jsx)(`div`, {
-                      style: { fontSize: `0.9rem`, color: `#64748b` },
+                      style: { fontSize: `0.9rem`, color: `var(--text-soft)` },
                       children: `No medicines expiring within 90 days.`,
                     })
                   : (() => {
@@ -55604,11 +55625,11 @@ function Ih() {
                                 style: { flex: 1, minWidth: 0, marginRight: `0.75rem` },
                                 children: [
                                   (0, J.jsx)(`div`, {
-                                    style: { fontWeight: `800`, fontSize: `0.9rem`, color: `#0f172a` },
+                                    style: { fontWeight: `800`, fontSize: `0.9rem`, color: `var(--text-primary)` },
                                     children: group.name,
                                   }),
                                   (0, J.jsxs)(`div`, {
-                                    style: { fontSize: `0.75rem`, color: `#64748b`, marginTop: `0.15rem`, marginBottom: `0.4rem` },
+                                    style: { fontSize: `0.75rem`, color: `var(--text-soft)`, marginTop: `0.15rem`, marginBottom: `0.4rem` },
                                     children: [group.batches.length, group.batches.length === 1 ? ` batch` : ` batches`, ` — click for full details`],
                                   }),
                                   (0, J.jsx)(`div`, {
@@ -55741,7 +55762,7 @@ function Ih() {
                                 (0, J.jsx)(`strong`, {
                                   style: {
                                     fontSize: `0.95rem`,
-                                    color: `#0f172a`,
+                                    color: `var(--text-primary)`,
                                     display: `block`,
                                   },
                                   children: e.name,
@@ -55749,7 +55770,7 @@ function Ih() {
                                 (0, J.jsx)(`span`, {
                                   style: {
                                     fontSize: `0.75rem`,
-                                    color: `#64748b`,
+                                    color: `var(--text-soft)`,
                                   },
                                   children: e.stockist || `General Stock`,
                                 }),
@@ -55760,14 +55781,14 @@ function Ih() {
                                 (0, J.jsx)(`div`, {
                                   style: {
                                     fontWeight: `600`,
-                                    color: `#334155`,
+                                    color: `var(--text-heading)`,
                                   },
                                   children: e.batch || `-`,
                                 }),
                                 (0, J.jsxs)(`span`, {
                                   style: {
                                     fontSize: `0.75rem`,
-                                    color: `#64748b`,
+                                    color: `var(--text-soft)`,
                                     display: `block`,
                                   },
                                   children: [`Exp: `, e.expiry || `-`],
@@ -55780,7 +55801,7 @@ function Ih() {
                                   style: {
                                     fontSize: `0.95rem`,
                                     fontWeight: `800`,
-                                    color: `#0284c7`,
+                                    color: `var(--info-strong)`,
                                   },
                                   children: [
                                     `₹`,
@@ -55790,7 +55811,7 @@ function Ih() {
                                       style: {
                                         fontSize: `0.72rem`,
                                         fontWeight: `600`,
-                                        color: `#64748b`,
+                                        color: `var(--text-soft)`,
                                       },
                                       children: `/unit`,
                                     }),
@@ -55799,7 +55820,7 @@ function Ih() {
                                 (0, J.jsxs)(`span`, {
                                   style: {
                                     fontSize: `0.75rem`,
-                                    color: `#475569`,
+                                    color: `var(--text-secondary)`,
                                     display: `block`,
                                   },
                                   children: [
@@ -55825,7 +55846,7 @@ function Ih() {
                                 (0, J.jsxs)(`span`, {
                                   style: {
                                     fontSize: `0.72rem`,
-                                    color: `#64748b`,
+                                    color: `var(--text-soft)`,
                                     display: `block`,
                                     marginTop: `0.1rem`,
                                   },
@@ -55839,7 +55860,7 @@ function Ih() {
                                   style: {
                                     fontSize: `0.95rem`,
                                     fontWeight: `800`,
-                                    color: `#0369a1`,
+                                    color: `var(--info-strong)`,
                                   },
                                   children: [
                                     `₹`,
@@ -55852,7 +55873,7 @@ function Ih() {
                                 (0, J.jsx)(`span`, {
                                   style: {
                                     fontSize: `0.72rem`,
-                                    color: `#64748b`,
+                                    color: `var(--text-soft)`,
                                     display: `block`,
                                   },
                                   children: `Total Value`,
@@ -55871,7 +55892,7 @@ function Ih() {
                                 (0, J.jsxs)(`span`, {
                                   style: {
                                     fontSize: `0.75rem`,
-                                    color: `#64748b`,
+                                    color: `var(--text-soft)`,
                                     display: `block`,
                                   },
                                   children: [
@@ -55904,9 +55925,9 @@ function Ih() {
                                     style: {
                                       padding: `0.35rem 0.65rem`,
                                       borderRadius: `8px`,
-                                      background: `#eff6ff`,
-                                      color: `#2563eb`,
-                                      border: `1px solid #bfdbfe`,
+                                      background: `var(--accent-light)`,
+                                      color: `var(--accent)`,
+                                      border: `1px solid var(--accent-border)`,
                                       display: `flex`,
                                       alignItems: `center`,
                                       gap: `0.25rem`,
@@ -55930,9 +55951,9 @@ function Ih() {
                                     style: {
                                       padding: `0.35rem 0.5rem`,
                                       borderRadius: `8px`,
-                                      background: `#fef2f2`,
-                                      color: `#dc2626`,
-                                      border: `1px solid #fecaca`,
+                                      background: `var(--danger-light)`,
+                                      color: `var(--danger-hover)`,
+                                      border: `1px solid var(--danger-border)`,
                                       display: `flex`,
                                       alignItems: `center`,
                                       cursor: `pointer`,
@@ -55979,10 +56000,10 @@ function Ih() {
                   position: `sticky`,
                   top: 0,
                   zIndex: 10,
-                  background: `#ffffff`,
+                  background: `var(--surface)`,
                   paddingTop: `0.25rem`,
                   paddingBottom: `0.75rem`,
-                  borderBottom: `1px solid #e2e8f0`,
+                  borderBottom: `1px solid var(--border)`,
                 },
                 children: [
                   (0, J.jsx)(`h2`, {
@@ -56139,7 +56160,7 @@ function Ih() {
                       children: [
                         (0, J.jsx)(`label`, {
                           className: `input-label`,
-                          style: { color: `#0284c7`, fontWeight: `800` },
+                          style: { color: `var(--info-strong)`, fontWeight: `800` },
                           children: `1 Unit Rate (Price/Tablet incl. GST ₹)`,
                         }),
                         (0, J.jsx)(`input`, {
@@ -56147,10 +56168,10 @@ function Ih() {
                           step: `0.01`,
                           className: `input-field`,
                           style: {
-                            border: `2px solid #0284c7`,
-                            background: `#f0f9ff`,
+                            border: `2px solid var(--info-strong)`,
+                            background: `var(--info-light)`,
                             fontWeight: `800`,
-                            color: `#0369a1`,
+                            color: `var(--info-strong)`,
                           },
                           value: (
                             (parseFloat(b.price) || 0) /
@@ -56229,7 +56250,7 @@ function Ih() {
                       children: [
                         (0, J.jsx)(`label`, {
                           className: `input-label`,
-                          style: { color: `#16a34a`, fontWeight: `800` },
+                          style: { color: `var(--money-pos)`, fontWeight: `800` },
                           children: `Free Bonus Strips`,
                         }),
                         (0, J.jsx)(`input`, {
@@ -56237,8 +56258,8 @@ function Ih() {
                           min: `0`,
                           className: `input-field`,
                           style: {
-                            border: `1.5px solid #16a34a`,
-                            background: `#f0fdf4`,
+                            border: `1.5px solid var(--money-pos)`,
+                            background: `var(--success-light)`,
                             fontWeight: `800`,
                           },
                           value: b.freeStrips === void 0 ? `` : b.freeStrips,
@@ -56261,17 +56282,17 @@ function Ih() {
                     children: [
                       (0, J.jsx)(`label`, {
                         className: `input-label`,
-                        style: { color: `#0284c7`, fontWeight: `800` },
+                        style: { color: `var(--info-strong)`, fontWeight: `800` },
                         children: `Total Tablet Stock (Units/Nos)`,
                       }),
                       (0, J.jsx)(`input`, {
                         type: `number`,
                         className: `input-field`,
                         style: {
-                          border: `2px solid #0284c7`,
-                          background: `#f0f9ff`,
+                          border: `2px solid var(--info-strong)`,
+                          background: `var(--info-light)`,
                           fontWeight: `800`,
-                          color: `#0369a1`,
+                          color: `var(--info-strong)`,
                         },
                         value: b.stock,
                         onChange: (e) => {
@@ -56292,13 +56313,13 @@ function Ih() {
                       children: [
                         (0, J.jsxs)(`label`, {
                           className: `input-label`,
-                          style: { color: `#b45309` },
+                          style: { color: `var(--warning-strong)` },
                           children: [`⚠️ Reason for stock change (`, originalStockForEdit, ` → `, parseInt(b.stock, 10) || 0, `) — required`],
                         }),
                         (0, J.jsx)(`input`, {
                           type: `text`,
                           className: `input-field`,
-                          style: { border: `1.5px solid #f59e0b`, background: `#fffbeb` },
+                          style: { border: `1.5px solid #f59e0b`, background: `var(--warning-light)` },
                           value: stockAdjustReason,
                           onChange: (e) => setStockAdjustReason(e.target.value),
                           placeholder: `e.g. Physical stock count correction, damaged goods, etc.`,
@@ -56325,8 +56346,8 @@ function Ih() {
                     (0, J.jsxs)(`div`, {
                     style: {
                       gridColumn: `span 2`,
-                      background: `#f8fafc`,
-                      border: `1.5px dashed #0284c7`,
+                      background: `var(--surface-raised)`,
+                      border: `1.5px dashed var(--info-strong)`,
                       borderRadius: `10px`,
                       padding: `0.85rem 1rem`,
                       display: `flex`,
@@ -56339,7 +56360,7 @@ function Ih() {
                           (0, J.jsx)(`div`, {
                             style: {
                               fontSize: `0.78rem`,
-                              color: `#64748b`,
+                              color: `var(--text-soft)`,
                               fontWeight: `600`,
                             },
                             children: `Calculated Stock & Unit Pricing Details`,
@@ -56348,7 +56369,7 @@ function Ih() {
                             style: {
                               fontSize: `0.95rem`,
                               fontWeight: `800`,
-                              color: `#0369a1`,
+                              color: `var(--info-strong)`,
                               marginTop: `0.15rem`,
                             },
                             children: [
@@ -56386,7 +56407,7 @@ function Ih() {
                         style: {
                           textAlign: `right`,
                           fontSize: `0.8rem`,
-                          color: `#475569`,
+                          color: `var(--text-secondary)`,
                           fontWeight: `700`,
                         },
                         children: [
@@ -56408,10 +56429,10 @@ function Ih() {
                   position: `sticky`,
                   bottom: 0,
                   zIndex: 10,
-                  background: `#ffffff`,
+                  background: `var(--surface)`,
                   paddingTop: `0.75rem`,
                   paddingBottom: `0.25rem`,
-                  borderTop: `1px solid #e2e8f0`,
+                  borderTop: `1px solid var(--border)`,
                 },
                 children: (0, J.jsx)(`button`, {
                   className: `btn btn-primary`,
@@ -56526,8 +56547,8 @@ function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
       style: {
         maxWidth: `620px`,
         padding: `1.5rem`,
-        background: `#ffffff`,
-        color: `#0f172a`,
+        background: `var(--surface)`,
+        color: `var(--text-primary)`,
         borderRadius: `16px`,
         maxHeight: `88vh`,
         overflowY: `auto`,
@@ -56535,13 +56556,13 @@ function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
       children: [
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem` },
+          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem` },
           children: [
             (0, J.jsxs)(`div`, {
               children: [
                 (0, J.jsx)(`h3`, { style: { margin: 0 }, children: medicineName }),
                 (0, J.jsxs)(`p`, {
-                  style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `#64748b` },
+                  style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `var(--text-soft)` },
                   children: [
                     batches.length, batches.length === 1 ? ` batch` : ` batches`,
                     ` · `, totalStock, ` units total in stock`,
@@ -56596,25 +56617,25 @@ function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
                     children: [
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `BATCH NUMBER` }),
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `#0f172a` }, children: item.batch || `N/A` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `BATCH NUMBER` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: item.batch || `N/A` }),
                         ],
                       }),
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `QUANTITY` }),
-                          (0, J.jsxs)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `#0f172a` }, children: [item.stock ?? 0, ` units`] }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `QUANTITY` }),
+                          (0, J.jsxs)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: [item.stock ?? 0, ` units`] }),
                         ],
                       }),
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `EXPIRY DATE` }),
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `#0f172a` }, children: item.expiry || `N/A` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `EXPIRY DATE` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: item.expiry || `N/A` }),
                         ],
                       }),
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `REMAINING DAYS` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `REMAINING DAYS` }),
                           (0, J.jsx)(`div`, {
                             style: { fontSize: `0.95rem`, fontWeight: `800`, color: meta.color },
                             children:
@@ -56628,7 +56649,7 @@ function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
                       }),
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `STATUS` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `STATUS` }),
                           (0, J.jsx)(`span`, {
                             style: {
                               display: `inline-block`,
@@ -56646,14 +56667,14 @@ function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
                       }),
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `UNIT PRICE` }),
-                          (0, J.jsxs)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `#0f172a` }, children: [`₹`, unitPrice.toFixed(2)] }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `UNIT PRICE` }),
+                          (0, J.jsxs)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: [`₹`, unitPrice.toFixed(2)] }),
                         ],
                       }),
                       (0, J.jsxs)(`div`, {
                         children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `#64748b`, fontWeight: `700` }, children: `STOCKIST` }),
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `#0f172a` }, children: item.stockist || `N/A` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `STOCKIST` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: item.stockist || `N/A` }),
                         ],
                       }),
                     ],
@@ -56687,8 +56708,8 @@ function AlertFullListModal({ isOpen, onClose, title, rows }) {
       style: {
         maxWidth: `760px`,
         padding: `1.5rem`,
-        background: `#ffffff`,
-        color: `#0f172a`,
+        background: `var(--surface)`,
+        color: `var(--text-primary)`,
         borderRadius: `16px`,
         maxHeight: `88vh`,
         display: `flex`,
@@ -56697,13 +56718,13 @@ function AlertFullListModal({ isOpen, onClose, title, rows }) {
       children: [
         (0, J.jsxs)(`div`, {
           className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem`, flexShrink: 0 },
+          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem`, flexShrink: 0 },
           children: [
             (0, J.jsxs)(`div`, {
               children: [
                 (0, J.jsx)(`h3`, { style: { margin: 0 }, children: title }),
                 (0, J.jsxs)(`p`, {
-                  style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `#64748b` },
+                  style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `var(--text-soft)` },
                   children: [(rows || []).length, ` record`, (rows || []).length === 1 ? `` : `s`, ` total`],
                 }),
               ],
@@ -56733,12 +56754,12 @@ function AlertFullListModal({ isOpen, onClose, title, rows }) {
                   return (0, J.jsxs)(
                     `tr`,
                     {
-                      style: { borderTop: `1px solid #f1f5f9` },
+                      style: { borderTop: `1px solid var(--border)` },
                       children: [
                         (0, J.jsx)(`td`, { style: { padding: `0.5rem`, fontWeight: `700` }, children: row.name }),
-                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, color: `#475569` }, children: row.batch || `N/A` }),
+                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, color: `var(--text-secondary)` }, children: row.batch || `N/A` }),
                         (0, J.jsx)(`td`, { style: { padding: `0.5rem`, textAlign: `right` }, children: row.qty }),
-                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, color: `#475569` }, children: row.expiry || `N/A` }),
+                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, color: `var(--text-secondary)` }, children: row.expiry || `N/A` }),
                         (0, J.jsx)(`td`, {
                           style: { padding: `0.5rem`, textAlign: `right`, fontWeight: `700`, color: meta.color },
                           children:
@@ -56765,12 +56786,12 @@ function AlertFullListModal({ isOpen, onClose, title, rows }) {
               alignItems: `center`,
               paddingTop: `0.9rem`,
               marginTop: `0.5rem`,
-              borderTop: `1px solid #e2e8f0`,
+              borderTop: `1px solid var(--border)`,
               flexShrink: 0,
             },
             children: [
               (0, J.jsxs)(`span`, {
-                style: { fontSize: `0.8rem`, color: `#64748b` },
+                style: { fontSize: `0.8rem`, color: `var(--text-soft)` },
                 children: [
                   `Showing `, safePage * pageSize + 1, `–`, Math.min((safePage + 1) * pageSize, (rows || []).length),
                   ` of `, (rows || []).length,
@@ -56788,7 +56809,7 @@ function AlertFullListModal({ isOpen, onClose, title, rows }) {
                     children: `Prev`,
                   }),
                   (0, J.jsxs)(`span`, {
-                    style: { fontSize: `0.8rem`, color: `#64748b` },
+                    style: { fontSize: `0.8rem`, color: `var(--text-soft)` },
                     children: [`Page `, safePage + 1, ` of `, totalPages],
                   }),
                   (0, J.jsx)(`button`, {
@@ -56826,7 +56847,7 @@ function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
     children: (0, J.jsxs)(`div`, {
       className: `modal-content glass-panel animate-fade-in`,
       onClick: (e) => e.stopPropagation(),
-      style: { maxWidth: `380px`, padding: `1.75rem`, background: `#ffffff`, color: `#0f172a`, borderRadius: `16px` },
+      style: { maxWidth: `380px`, padding: `1.75rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` },
       children: [
         (0, J.jsxs)(`div`, {
           style: { textAlign: `center`, marginBottom: `1.25rem` },
@@ -56834,7 +56855,7 @@ function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
             (0, J.jsx)(`div`, { style: { fontSize: `2rem`, marginBottom: `0.5rem` }, children: `🔒` }),
             (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.1rem` }, children: title || `Admin Verification` }),
             subtitle &&
-              (0, J.jsx)(`p`, { style: { margin: `0.35rem 0 0`, fontSize: `0.8rem`, color: `#64748b` }, children: subtitle }),
+              (0, J.jsx)(`p`, { style: { margin: `0.35rem 0 0`, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: subtitle }),
           ],
         }),
         (0, J.jsx)(`input`, {
@@ -56847,7 +56868,7 @@ function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
           onKeyDown: (e) => e.key === `Enter` && verifyAuth(),
         }),
         authErr &&
-          (0, J.jsx)(`div`, { style: { color: `#dc2626`, fontSize: `0.8rem`, fontWeight: `700`, marginBottom: `0.75rem` }, children: authErr }),
+          (0, J.jsx)(`div`, { style: { color: `var(--danger-hover)`, fontSize: `0.8rem`, fontWeight: `700`, marginBottom: `0.75rem` }, children: authErr }),
         (0, J.jsxs)(`div`, {
           style: { display: `flex`, gap: `0.6rem`, marginTop: `0.5rem` },
           children: [
@@ -56873,7 +56894,7 @@ function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, require
     children: (0, J.jsxs)(`div`, {
       className: `modal-content glass-panel animate-fade-in`,
       onClick: (e) => e.stopPropagation(),
-      style: { maxWidth: `440px`, padding: `1.75rem`, background: `#ffffff`, color: `#0f172a`, borderRadius: `16px` },
+      style: { maxWidth: `440px`, padding: `1.75rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` },
       children: [
         (0, J.jsxs)(`div`, {
           style: { display: `flex`, alignItems: `flex-start`, gap: `0.75rem`, marginBottom: `1rem` },
@@ -56881,8 +56902,8 @@ function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, require
             (0, J.jsx)(`div`, { style: { fontSize: `1.6rem` }, children: `⚠️` }),
             (0, J.jsxs)(`div`, {
               children: [
-                (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.05rem`, color: `#991b1b` }, children: title || `Confirm Destructive Action` }),
-                (0, J.jsx)(`p`, { style: { margin: `0.35rem 0 0`, fontSize: `0.82rem`, color: `#475569`, whiteSpace: `pre-wrap` }, children: message }),
+                (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.05rem`, color: `var(--danger-strong)` }, children: title || `Confirm Destructive Action` }),
+                (0, J.jsx)(`p`, { style: { margin: `0.35rem 0 0`, fontSize: `0.82rem`, color: `var(--text-secondary)`, whiteSpace: `pre-wrap` }, children: message }),
               ],
             }),
           ],
@@ -56891,8 +56912,8 @@ function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, require
           style: { marginBottom: `1rem` },
           children: [
             (0, J.jsxs)(`label`, {
-              style: { fontSize: `0.8rem`, fontWeight: `700`, color: `#334155`, display: `block`, marginBottom: `0.4rem` },
-              children: [`Type `, (0, J.jsx)(`code`, { style: { color: `#dc2626` }, children: phrase }), ` to confirm:`],
+              style: { fontSize: `0.8rem`, fontWeight: `700`, color: `var(--text-heading)`, display: `block`, marginBottom: `0.4rem` },
+              children: [`Type `, (0, J.jsx)(`code`, { style: { color: `var(--danger-hover)` }, children: phrase }), ` to confirm:`],
             }),
             (0, J.jsx)(`input`, {
               type: `text`,
@@ -56912,7 +56933,7 @@ function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, require
             (0, J.jsx)(`button`, {
               type: `button`,
               className: `btn`,
-              style: { flex: 1, background: isMatch ? `#dc2626` : `#fca5a5`, color: `#ffffff`, fontWeight: `800`, cursor: isMatch ? `pointer` : `not-allowed` },
+              style: { flex: 1, background: isMatch ? `var(--danger-hover)` : `var(--danger-border)`, color: `#ffffff`, fontWeight: `800`, cursor: isMatch ? `pointer` : `not-allowed` },
               disabled: !isMatch,
               onClick: onConfirm,
               children: `Confirm`,
@@ -56960,11 +56981,55 @@ function vhcNormalizeBackup(raw, sourceLabel) {
   );
   return { settings, patients, inventory, salesHistory, isLegacy };
 }
+// ---------------------------------------------------------------------------
+// Theme (Light / Dark) — UI-only. Persisted in its own localStorage key so it
+// survives Google-Drive backup/restore of `pos_settings` untouched. The initial
+// <html data-theme> is set by an inline bootstrap in index.html (no flash); these
+// helpers keep it in sync at runtime and let any component subscribe.
+// ---------------------------------------------------------------------------
+function vhcReadTheme() {
+  try {
+    return localStorage.getItem(`vhc_pos_theme`) === `dark` ? `dark` : `light`;
+  } catch {
+    return `light`;
+  }
+}
+function vhcApplyTheme(mode) {
+  let m = mode === `dark` ? `dark` : `light`;
+  try {
+    document.documentElement.setAttribute(`data-theme`, m);
+  } catch {}
+  try {
+    localStorage.setItem(`vhc_pos_theme`, m);
+  } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent(`vhc-theme-change`, { detail: { theme: m } }));
+  } catch {}
+  return m;
+}
+function vhcUseTheme() {
+  let [theme, setTheme] = (0, _.useState)(vhcReadTheme());
+  return (
+    (0, _.useEffect)(() => {
+      let h = (e) => setTheme((e && e.detail && e.detail.theme) || vhcReadTheme());
+      return (
+        window.addEventListener(`vhc-theme-change`, h),
+        () => window.removeEventListener(`vhc-theme-change`, h)
+      );
+    }, []),
+    [
+      theme,
+      (m) => vhcApplyTheme(m),
+      () => vhcApplyTheme(vhcReadTheme() === `dark` ? `light` : `dark`),
+    ]
+  );
+}
 function Lh() {
   let { settings: e, updateSettings: t } = Ir(),
     { inventory: n, auditLogs: r, addLog: settingsAddLog } = Vr(),
     i = Th(),
     a = Eh(),
+    [themeMode, setThemeMode] = vhcUseTheme(),
     o = (0, _.useRef)(null),
     s = (0, _.useRef)(null),
     [backupManagerOpen, setBackupManagerOpen] = (0, _.useState)(!1),
@@ -57893,6 +57958,111 @@ function Lh() {
           }),
         ],
       }),
+      // Appearance — Light / Dark theme. UI-only; persisted in its own
+      // `vhc_pos_theme` key (see vhcUseTheme). Switch applies instantly.
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4`,
+        style: {
+          padding: `1.25rem 1.5rem`,
+          background: `var(--surface)`,
+          borderRadius: `16px`,
+          border: `1.5px solid var(--border-strong)`,
+        },
+        children: [
+          (0, J.jsxs)(`h3`, {
+            style: {
+              margin: 0,
+              fontSize: `1.1rem`,
+              color: `var(--text-primary)`,
+              display: `flex`,
+              alignItems: `center`,
+              gap: `0.5rem`,
+            },
+            children: [`🎨 Appearance`],
+          }),
+          (0, J.jsx)(`p`, {
+            style: {
+              margin: `0.4rem 0 1rem`,
+              fontSize: `0.85rem`,
+              color: `var(--text-muted)`,
+            },
+            children: `Choose how VHC Pharmacy POS looks. Your choice is remembered on this computer.`,
+          }),
+          (0, J.jsxs)(`div`, {
+            style: {
+              display: `flex`,
+              gap: `0.75rem`,
+              flexWrap: `wrap`,
+            },
+            children: [
+              (0, J.jsxs)(`button`, {
+                type: `button`,
+                onClick: () => setThemeMode(`light`),
+                style: {
+                  flex: `1 1 200px`,
+                  cursor: `pointer`,
+                  textAlign: `left`,
+                  padding: `1rem 1.25rem`,
+                  borderRadius: `12px`,
+                  background: themeMode === `light` ? `var(--accent-light)` : `var(--surface-raised)`,
+                  border: themeMode === `light` ? `2px solid var(--accent)` : `2px solid var(--border)`,
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: `0.85rem`,
+                  transition: `all 0.15s ease`,
+                },
+                children: [
+                  (0, J.jsx)(`span`, { style: { fontSize: `1.6rem`, lineHeight: 1 }, children: `☀️` }),
+                  (0, J.jsxs)(`div`, {
+                    children: [
+                      (0, J.jsx)(`div`, {
+                        style: { fontWeight: `800`, color: `var(--text-primary)`, fontSize: `0.95rem` },
+                        children: `Light Mode`,
+                      }),
+                      (0, J.jsx)(`div`, {
+                        style: { fontSize: `0.78rem`, color: `var(--text-muted)`, marginTop: `0.1rem` },
+                        children: themeMode === `light` ? `Currently active` : `Bright, default look`,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+              (0, J.jsxs)(`button`, {
+                type: `button`,
+                onClick: () => setThemeMode(`dark`),
+                style: {
+                  flex: `1 1 200px`,
+                  cursor: `pointer`,
+                  textAlign: `left`,
+                  padding: `1rem 1.25rem`,
+                  borderRadius: `12px`,
+                  background: themeMode === `dark` ? `var(--accent-light)` : `var(--surface-raised)`,
+                  border: themeMode === `dark` ? `2px solid var(--accent)` : `2px solid var(--border)`,
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: `0.85rem`,
+                  transition: `all 0.15s ease`,
+                },
+                children: [
+                  (0, J.jsx)(`span`, { style: { fontSize: `1.6rem`, lineHeight: 1 }, children: `🌙` }),
+                  (0, J.jsxs)(`div`, {
+                    children: [
+                      (0, J.jsx)(`div`, {
+                        style: { fontWeight: `800`, color: `var(--text-primary)`, fontSize: `0.95rem` },
+                        children: `Dark Mode`,
+                      }),
+                      (0, J.jsx)(`div`, {
+                        style: { fontSize: `0.78rem`, color: `var(--text-muted)`, marginTop: `0.1rem` },
+                        children: themeMode === `dark` ? `Currently active` : `Dimmed, easier for long shifts`,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
       // Account type is derived from the real, server-verified isPlatformAdmin state (see
       // the useEffect above, backed by profiles.is_platform_admin via RLS) — never a
       // hardcoded email check. Logout uses the app's own Promise-based confirm dialog (Eh(),
@@ -57906,14 +58076,14 @@ function Lh() {
         children: [
           (0, J.jsxs)(`div`, {
             children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `#64748b`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Signed in as` }),
-              (0, J.jsx)(`div`, { style: { fontSize: `1.05rem`, fontWeight: `800`, color: isPlatformAdmin ? `#7c3aed` : `#0369a1`, marginTop: `0.2rem` }, children: isPlatformAdmin ? `Platform Admin` : `Clinic Admin` }),
+              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Signed in as` }),
+              (0, J.jsx)(`div`, { style: { fontSize: `1.05rem`, fontWeight: `800`, color: isPlatformAdmin ? `var(--purple-strong)` : `var(--info-strong)`, marginTop: `0.2rem` }, children: isPlatformAdmin ? `Platform Admin` : `Clinic Admin` }),
             ],
           }),
           (0, J.jsx)(`button`, {
             type: `button`,
             className: `btn`,
-            style: { background: `#fef2f2`, color: `#dc2626`, border: `1px solid #fca5a5`, fontWeight: `800` },
+            style: { background: `var(--danger-light)`, color: `var(--danger-hover)`, border: `1px solid var(--danger-border)`, fontWeight: `800` },
             onClick: async () => {
               if (!(await a(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`))) return;
               await window.VHC_CLOUD.signOut();
@@ -58003,8 +58173,8 @@ function Lh() {
         className: `glass-panel mb-4`,
         style: {
           padding: `1.5rem`,
-          border: c ? `2px solid #ef4444` : `1px solid var(--panel-border)`,
-          background: c ? `#fff1f2` : `#ffffff`,
+          border: c ? `2px solid var(--danger-color)` : `1px solid var(--panel-border)`,
+          background: c ? `var(--danger-light)` : `var(--surface)`,
         },
         children: [
           (0, J.jsxs)(`div`, {
@@ -58014,7 +58184,7 @@ function Lh() {
                 className: `flex-center gap-2`,
                 style: {
                   justifyContent: `flex-start`,
-                  color: c ? `#991b1b` : `#1e293b`,
+                  color: c ? `var(--danger-strong)` : `var(--text-primary)`,
                   margin: 0,
                 },
                 children: [
@@ -58033,8 +58203,8 @@ function Lh() {
                   style: {
                     fontSize: `0.78rem`,
                     padding: `0.35rem 0.75rem`,
-                    borderColor: `#ef4444`,
-                    color: `#991b1b`,
+                    borderColor: `var(--danger-color)`,
+                    color: `var(--danger-strong)`,
                   },
                   onClick: () => l(!1),
                   children: `🔒 Lock Admin Session`,
@@ -58047,19 +58217,19 @@ function Lh() {
                   (0, J.jsx)(StockValuationAdminComponent, {}),
                   (0, J.jsxs)(`div`, {
                     style: {
-                      background: `#ffffff`,
+                      background: `var(--surface)`,
                       padding: `1rem`,
                       borderRadius: `8px`,
-                      border: `1px solid #93c5fd`,
+                      border: `1px solid var(--accent-border)`,
                       marginBottom: `1rem`,
                     },
                     children: [
                       (0, J.jsx)(`h4`, {
-                        style: { margin: `0 0 0.3rem`, color: `#1e3a8a`, fontSize: `0.95rem` },
+                        style: { margin: `0 0 0.3rem`, color: `var(--accent-strong)`, fontSize: `0.95rem` },
                         children: `🧾 GST Mode`,
                       }),
                       (0, J.jsx)(`p`, {
-                        style: { fontSize: `0.82rem`, color: `#475569`, margin: `0 0 0.75rem` },
+                        style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, margin: `0 0 0.75rem` },
                         children: `Controls whether bills show full GST tax calculations, or are issued as a Bill of Supply under the Composition Scheme (no tax columns, mandatory declaration printed). This does not affect existing saved bills.`,
                       }),
                       (0, J.jsxs)(`div`, {
@@ -58073,9 +58243,9 @@ function Lh() {
                               borderRadius: `10px`,
                               fontWeight: `800`,
                               fontSize: `0.9rem`,
-                              border: (e.gstMode || `composition`) === `composition` ? `2.5px solid #2563eb` : `1.5px solid #cbd5e1`,
-                              background: (e.gstMode || `composition`) === `composition` ? `#eff6ff` : `#ffffff`,
-                              color: (e.gstMode || `composition`) === `composition` ? `#1d4ed8` : `#475569`,
+                              border: (e.gstMode || `composition`) === `composition` ? `2.5px solid var(--accent)` : `1.5px solid var(--border-strong)`,
+                              background: (e.gstMode || `composition`) === `composition` ? `var(--accent-light)` : `var(--surface)`,
+                              color: (e.gstMode || `composition`) === `composition` ? `var(--accent-strong)` : `var(--text-secondary)`,
                               cursor: `pointer`,
                             },
                             children: `Composition GST (Default)`,
@@ -58088,9 +58258,9 @@ function Lh() {
                               borderRadius: `10px`,
                               fontWeight: `800`,
                               fontSize: `0.9rem`,
-                              border: e.gstMode === `regular` ? `2.5px solid #2563eb` : `1.5px solid #cbd5e1`,
-                              background: e.gstMode === `regular` ? `#eff6ff` : `#ffffff`,
-                              color: e.gstMode === `regular` ? `#1d4ed8` : `#475569`,
+                              border: e.gstMode === `regular` ? `2.5px solid var(--accent)` : `1.5px solid var(--border-strong)`,
+                              background: e.gstMode === `regular` ? `var(--accent-light)` : `var(--surface)`,
+                              color: e.gstMode === `regular` ? `var(--accent-strong)` : `var(--text-secondary)`,
                               cursor: `pointer`,
                             },
                             children: `Regular GST`,
@@ -58098,7 +58268,7 @@ function Lh() {
                         ],
                       }),
                       (0, J.jsx)(`p`, {
-                        style: { fontSize: `0.75rem`, color: `#64748b`, margin: `0.6rem 0 0` },
+                        style: { fontSize: `0.75rem`, color: `var(--text-soft)`, margin: `0.6rem 0 0` },
                         children:
                           (e.gstMode || `composition`) === `composition`
                             ? `Currently: Composition Scheme — bills print as "Bill of Supply" with item, quantity, price & total only, plus the required composition declaration.`
@@ -58113,7 +58283,7 @@ function Lh() {
                   (0, J.jsx)(`p`, {
                     style: {
                       fontSize: `0.85rem`,
-                      color: `#475569`,
+                      color: `var(--text-secondary)`,
                       marginBottom: `0.75rem`,
                     },
                     children: `Enter Admin Password to unlock database reset, password settings, and data clearing options:`,
@@ -58144,7 +58314,7 @@ function Lh() {
                   f &&
                     (0, J.jsx)(`div`, {
                       style: {
-                        color: `#dc2626`,
+                        color: `var(--danger-hover)`,
                         fontSize: `0.82rem`,
                         marginTop: `0.4rem`,
                         fontWeight: `700`,
@@ -58159,9 +58329,9 @@ function Lh() {
         className: `glass-panel mb-4`,
         style: {
           padding: `1.25rem 1.5rem`,
-          background: `#ffffff`,
+          background: `var(--surface)`,
           borderRadius: `16px`,
-          border: `1.5px solid #cbd5e1`,
+          border: `1.5px solid var(--border-strong)`,
         },
         children: [
           (0, J.jsxs)(`div`, {
@@ -58186,7 +58356,7 @@ function Lh() {
                     style: {
                       margin: 0,
                       fontSize: `1.1rem`,
-                      color: `#0f172a`,
+                      color: `var(--text-primary)`,
                       display: `flex`,
                       alignItems: `center`,
                       gap: `0.5rem`,
@@ -58196,13 +58366,13 @@ function Lh() {
                   isStoreConfigMinimized &&
                     (0, J.jsxs)(`span`, {
                       style: {
-                        background: `#f1f5f9`,
-                        color: `#475569`,
+                        background: `var(--surface-sunken)`,
+                        color: `var(--text-secondary)`,
                         padding: `0.25rem 0.75rem`,
                         borderRadius: `20px`,
                         fontSize: `0.82rem`,
                         fontWeight: `700`,
-                        border: `1px solid #cbd5e1`,
+                        border: `1px solid var(--border-strong)`,
                       },
                       children: [
                         e.storeName || `VARNIKA HEALTH CARE`,
@@ -58216,11 +58386,11 @@ function Lh() {
                 type: `button`,
                 className: `btn-icon`,
                 style: {
-                  background: `#f8fafc`,
+                  background: `var(--surface-raised)`,
                   padding: `0.35rem 0.65rem`,
                   borderRadius: `8px`,
-                  border: `1.5px solid #cbd5e1`,
-                  color: `#334155`,
+                  border: `1.5px solid var(--border-strong)`,
+                  color: `var(--text-heading)`,
                   display: `flex`,
                   alignItems: `center`,
                   gap: `0.3rem`,
@@ -58251,7 +58421,7 @@ function Lh() {
               style: {
                 marginTop: `1.25rem`,
                 paddingTop: `1.25rem`,
-                borderTop: `1px solid #f1f5f9`,
+                borderTop: `1px solid var(--border)`,
               },
               children: (0, J.jsxs)(`div`, {
                 className: `dashboard-grid`,
@@ -58596,9 +58766,9 @@ function Lh() {
         className: `glass-panel mb-4`,
         style: {
           padding: `1.25rem 1.5rem`,
-          background: `#ffffff`,
+          background: `var(--surface)`,
           borderRadius: `16px`,
-          border: `1.5px solid #cbd5e1`,
+          border: `1.5px solid var(--border-strong)`,
           marginTop: `1.5rem`,
         },
         children: [
@@ -58625,7 +58795,7 @@ function Lh() {
                       margin: 0,
                       fontSize: `1.15rem`,
                       fontWeight: `800`,
-                      color: `#0f172a`,
+                      color: `var(--text-primary)`,
                       display: `flex`,
                       alignItems: `center`,
                       gap: `0.5rem`,
@@ -58635,13 +58805,13 @@ function Lh() {
                   isCloudSyncMinimized &&
                     (0, J.jsx)(`span`, {
                       style: {
-                        background: `#f0f9ff`,
-                        color: `#0369a1`,
+                        background: `var(--info-light)`,
+                        color: `var(--info-strong)`,
                         padding: `0.25rem 0.75rem`,
                         borderRadius: `20px`,
                         fontSize: `0.82rem`,
                         fontWeight: `700`,
-                        border: `1px solid #bae6fd`,
+                        border: `1px solid var(--info-border)`,
                       },
                       children: `Patient Sync (Live) • POS Export • G-Drive Backup • Telegram Bot`,
                     }),
@@ -58651,11 +58821,11 @@ function Lh() {
                 type: `button`,
                 className: `btn-icon`,
                 style: {
-                  background: `#f8fafc`,
+                  background: `var(--surface-raised)`,
                   padding: `0.35rem 0.65rem`,
                   borderRadius: `8px`,
-                  border: `1.5px solid #cbd5e1`,
-                  color: `#334155`,
+                  border: `1.5px solid var(--border-strong)`,
+                  color: `var(--text-heading)`,
                   display: `flex`,
                   alignItems: `center`,
                   gap: `0.3rem`,
@@ -58686,7 +58856,7 @@ function Lh() {
               style: {
                 marginTop: `1.25rem`,
                 paddingTop: `1.25rem`,
-                borderTop: `1px solid #f1f5f9`,
+                borderTop: `1px solid var(--border)`,
               },
               children: (0, J.jsxs)(`div`, {
                 style: {
@@ -58699,8 +58869,8 @@ function Lh() {
             className: `glass-panel`,
             style: {
               padding: `1.5rem`,
-              background: `#f0fdf4`,
-              border: `1.5px solid #4ade80`,
+              background: `var(--success-light)`,
+              border: `1.5px solid var(--money-pos)`,
               display: `flex`,
               flexDirection: `column`,
               justifyContent: `space-between`,
@@ -58711,7 +58881,7 @@ function Lh() {
                   (0, J.jsx)(`h3`, {
                     className: `flex-center gap-2 mb-2`,
                     style: {
-                      color: `#14532d`,
+                      color: `var(--success-strong)`,
                       justifyContent: `flex-start`,
                       fontSize: `1.05rem`,
                     },
@@ -58720,7 +58890,7 @@ function Lh() {
                   (0, J.jsx)(`p`, {
                     style: {
                       fontSize: `0.82rem`,
-                      color: `#166534`,
+                      color: `var(--success-strong)`,
                       marginBottom: `0.85rem`,
                     },
                     children: `Link your export Google Sheet to save sales bills, stock inventory, and financial report logs.`,
@@ -58731,7 +58901,7 @@ function Lh() {
                       (0, J.jsx)(`label`, {
                         className: `input-label`,
                         style: {
-                          color: `#166534`,
+                          color: `var(--success-strong)`,
                           fontWeight: `800`,
                           fontSize: `0.82rem`,
                         },
@@ -58743,8 +58913,8 @@ function Lh() {
                         className: `input-field`,
                         style: {
                           fontSize: `0.85rem`,
-                          border: `1.5px solid #22c55e`,
-                          background: `#ffffff`,
+                          border: `1.5px solid var(--money-pos)`,
+                          background: `var(--surface)`,
                           fontWeight: `600`,
                         },
                         value:
@@ -58821,8 +58991,8 @@ function Lh() {
             className: `glass-panel`,
             style: {
               padding: `1.5rem`,
-              background: `#f8fafc`,
-              border: `1.5px solid #cbd5e1`,
+              background: `var(--surface-raised)`,
+              border: `1.5px solid var(--border-strong)`,
               display: `flex`,
               flexDirection: `column`,
               justifyContent: `space-between`,
@@ -58833,7 +59003,7 @@ function Lh() {
                   (0, J.jsx)(`h3`, {
                     className: `flex-center gap-2 mb-2`,
                     style: {
-                      color: `#0369a1`,
+                      color: `var(--info-strong)`,
                       justifyContent: `flex-start`,
                       fontSize: `1.05rem`,
                     },
@@ -58842,7 +59012,7 @@ function Lh() {
                   (0, J.jsx)(`p`, {
                     style: {
                       fontSize: `0.82rem`,
-                      color: `#475569`,
+                      color: `var(--text-secondary)`,
                       marginBottom: `0.75rem`,
                     },
                     children: `Connect your store to Telegram for instant sales notifications, automated stock alerts, and remote reports.`,
@@ -58850,7 +59020,7 @@ function Lh() {
                   (0, J.jsxs)(`div`, {
                     style: {
                       fontSize: `0.82rem`,
-                      color: `#334155`,
+                      color: `var(--text-heading)`,
                       marginBottom: `0.75rem`,
                       fontWeight: `600`,
                     },
@@ -58865,7 +59035,7 @@ function Lh() {
                         // to hardcode "🟢 Polling Active" unconditionally, regardless of
                         // whether that was true — replaced with an honest label rather than
                         // asserting a status this section can't actually verify.
-                        style: { color: `#64748b`, fontWeight: `800` },
+                        style: { color: `var(--text-soft)`, fontWeight: `800` },
                         children: `⚪ Configured (see the @Vhcpharm_bot chat for delivery status)`,
                       }),
                     ],
@@ -58915,25 +59085,25 @@ function Lh() {
                   }),
                   telegramBotAvailable &&
                     (0, J.jsxs)(`div`, {
-                      style: { marginTop: `0.9rem`, paddingTop: `0.9rem`, borderTop: `1px solid #bae6fd` },
+                      style: { marginTop: `0.9rem`, paddingTop: `0.9rem`, borderTop: `1px solid var(--info-border)` },
                       children: [
-                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, fontSize: `0.85rem`, color: `#0369a1` }, children: `📊 Remote Reports Bot (@vhcpharma_bot)` }),
+                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, fontSize: `0.85rem`, color: `var(--info-strong)` }, children: `📊 Remote Reports Bot (@vhcpharma_bot)` }),
                         (() => {
                           if (!telegramLiveStatus) return null;
                           let liveMeta = {
                             starting: { label: `Starting…`, color: `#f59e0b` },
                             running: { label: `Running`, color: `#059669` },
                             error: { label: `Error — retrying`, color: `#ea580c` },
-                            disconnected: { label: `Disconnected`, color: `#dc2626` },
-                            stopped: { label: `Stopped`, color: `#64748b` },
-                          }[telegramLiveStatus.state] || { label: `Unknown`, color: `#64748b` };
+                            disconnected: { label: `Disconnected`, color: `var(--danger-hover)` },
+                            stopped: { label: `Stopped`, color: `var(--text-soft)` },
+                          }[telegramLiveStatus.state] || { label: `Unknown`, color: `var(--text-soft)` };
                           let lastPollLabel = telegramLiveStatus.lastPollAt
                             ? new Date(telegramLiveStatus.lastPollAt).toLocaleTimeString()
                             : `—`;
                           return (0, J.jsxs)(`div`, {
                             style: {
                               display: `flex`, flexWrap: `wrap`, gap: `0.4rem 1rem`, alignItems: `center`,
-                              background: `#fff`, border: `1px solid #bae6fd`, borderRadius: `8px`,
+                              background: `var(--surface)`, border: `1px solid var(--info-border)`, borderRadius: `8px`,
                               padding: `0.5rem 0.7rem`, marginBottom: `0.6rem`, fontSize: `0.75rem`,
                             },
                             children: [
@@ -58944,14 +59114,14 @@ function Lh() {
                                   `Service: ${liveMeta.label}`,
                                 ],
                               }),
-                              (0, J.jsx)(`span`, { style: { color: `#64748b` }, children: `Last poll: ${lastPollLabel}` }),
+                              (0, J.jsx)(`span`, { style: { color: `var(--text-soft)` }, children: `Last poll: ${lastPollLabel}` }),
                               telegramLiveStatus.lastError &&
-                                (0, J.jsx)(`span`, { style: { color: `#dc2626` }, title: telegramLiveStatus.lastError, children: `Last error: ${String(telegramLiveStatus.lastError).slice(0, 60)}` }),
+                                (0, J.jsx)(`span`, { style: { color: `var(--danger-hover)` }, title: telegramLiveStatus.lastError, children: `Last error: ${String(telegramLiveStatus.lastError).slice(0, 60)}` }),
                             ],
                           });
                         })(),
                         (0, J.jsxs)(`p`, {
-                          style: { fontSize: `0.76rem`, color: `#475569`, marginBottom: `0.6rem` },
+                          style: { fontSize: `0.76rem`, color: `var(--text-secondary)`, marginBottom: `0.6rem` },
                           children: [
                             telegramChannelConfigured ? `Channel configured. ` : `⚠️ No report channel configured yet — automatic reports won't send until one is set up (see telegram-bot/README.md). `,
                             `${telegramAuthorizedUserCount} authorized user${telegramAuthorizedUserCount === 1 ? `` : `s`} can use /report, /today, /inventory, /expiry, /backup, /credit.`,
@@ -58973,7 +59143,7 @@ function Lh() {
                         (0, J.jsxs)(`div`, {
                           style: { display: `flex`, gap: `0.5rem`, alignItems: `center` },
                           children: [
-                            (0, J.jsx)(`label`, { style: { fontSize: `0.78rem`, color: `#334155`, fontWeight: `600` }, children: `Report time:` }),
+                            (0, J.jsx)(`label`, { style: { fontSize: `0.78rem`, color: `var(--text-heading)`, fontWeight: `600` }, children: `Report time:` }),
                             (0, J.jsx)(`input`, {
                               type: `time`,
                               className: `input-field`,
@@ -59036,8 +59206,8 @@ function Lh() {
               maxWidth: `1280px`,
               width: `96vw`,
               padding: 0,
-              background: `#ffffff`,
-              color: `#0f172a`,
+              background: `var(--surface)`,
+              color: `var(--text-primary)`,
               borderRadius: `16px`,
               height: `92vh`,
               maxHeight: `92vh`,
@@ -59052,7 +59222,7 @@ function Lh() {
                   justifyContent: `space-between`,
                   alignItems: `center`,
                   padding: `1.25rem 1.5rem`,
-                  borderBottom: `1px solid #e2e8f0`,
+                  borderBottom: `1px solid var(--border)`,
                   flexShrink: 0,
                 },
                 children: [
@@ -59061,7 +59231,7 @@ function Lh() {
                 ],
               }),
               (0, J.jsx)(`div`, {
-                style: { display: `flex`, gap: `0.4rem`, padding: `0.75rem 1.5rem 0`, borderBottom: `1px solid #e2e8f0`, flexShrink: 0 },
+                style: { display: `flex`, gap: `0.4rem`, padding: `0.75rem 1.5rem 0`, borderBottom: `1px solid var(--border)`, flexShrink: 0 },
                 children: [
                   { id: `local`, label: `💾 Local` },
                   { id: `gdrive`, label: `☁️ Google Drive` },
@@ -59076,8 +59246,8 @@ function Lh() {
                         padding: `0.6rem 1rem`,
                         border: `none`,
                         background: `none`,
-                        borderBottom: backupManagerTab === tabDef.id ? `3px solid #0284c7` : `3px solid transparent`,
-                        color: backupManagerTab === tabDef.id ? `#0284c7` : `#64748b`,
+                        borderBottom: backupManagerTab === tabDef.id ? `3px solid var(--info-strong)` : `3px solid transparent`,
+                        color: backupManagerTab === tabDef.id ? `var(--info-strong)` : `var(--text-soft)`,
                         fontWeight: `700`,
                         fontSize: `0.85rem`,
                         cursor: `pointer`,
@@ -59097,18 +59267,18 @@ function Lh() {
                       className: `animate-fade-in`,
                       children: [
                         (0, J.jsx)(`p`, {
-                          style: { fontSize: `0.85rem`, color: `#475569`, marginBottom: `1rem` },
+                          style: { fontSize: `0.85rem`, color: `var(--text-secondary)`, marginBottom: `1rem` },
                           children: `Download a full backup of settings, inventory, sales history & patients to this device, or restore from a previously saved local backup file.`,
                         }),
                         m &&
                           (0, J.jsx)(`div`, {
                             style: {
                               fontSize: `0.78rem`,
-                              color: `#047857`,
-                              background: `#ecfdf5`,
+                              color: `var(--success-strong)`,
+                              background: `var(--success-light)`,
                               padding: `0.4rem 0.6rem`,
                               borderRadius: `6px`,
-                              border: `1px solid #a7f3d0`,
+                              border: `1px solid var(--success-border)`,
                               fontWeight: `700`,
                               marginBottom: `0.75rem`,
                             },
@@ -59128,7 +59298,7 @@ function Lh() {
                             (0, J.jsx)(`button`, {
                               type: `button`,
                               className: `btn`,
-                              style: { background: isRestoringData ? `#94a3b8` : `#166534`, color: `#ffffff`, fontWeight: `800`, justifyContent: `center`, padding: `0.75rem` },
+                              style: { background: isRestoringData ? `var(--text-faint)` : `var(--success-strong)`, color: `#ffffff`, fontWeight: `800`, justifyContent: `center`, padding: `0.75rem` },
                               disabled: isRestoringData,
                               onClick: () => { s.current && s.current.click(); },
                               children: isRestoringData ? `⏳ Restoring...` : `📥 Restore From Local File`,
@@ -59142,17 +59312,17 @@ function Lh() {
                       className: `animate-fade-in`,
                       children: [
                         (0, J.jsxs)(`div`, {
-                          style: { background: `#f8fafc`, borderRadius: `12px`, border: `1px solid #e2e8f0`, padding: `1.1rem`, marginBottom: `1rem` },
+                          style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
                           children: [
                             (0, J.jsxs)(`div`, {
                               style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
                               children: [
                                 (0, J.jsxs)(`div`, {
                                   children: [
-                                    (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `#0f172a` }, children: `Google Drive Account` }),
+                                    (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Google Drive Account` }),
                                     gdriveSignedIn
-                                      ? (0, J.jsxs)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `#475569` }, children: [`Signed in as `, (0, J.jsx)(`strong`, { children: gdriveEmail })] })
-                                      : (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `#64748b` }, children: `Sign in to enable one-click Google Drive backup & restore.` }),
+                                      ? (0, J.jsxs)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: [`Signed in as `, (0, J.jsx)(`strong`, { children: gdriveEmail })] })
+                                      : (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: `Sign in to enable one-click Google Drive backup & restore.` }),
                                   ],
                                 }),
                                 gdriveSignedIn
@@ -59160,7 +59330,7 @@ function Lh() {
                                       style: { display: `flex`, alignItems: `center`, gap: `0.6rem` },
                                       children: [
                                         (0, J.jsx)(`span`, {
-                                          style: { background: `#dcfce7`, color: `#166534`, fontSize: `0.72rem`, fontWeight: `800`, padding: `0.25rem 0.6rem`, borderRadius: `20px` },
+                                          style: { background: `var(--success-light)`, color: `var(--success-strong)`, fontSize: `0.72rem`, fontWeight: `800`, padding: `0.25rem 0.6rem`, borderRadius: `20px` },
                                           children: `Signed in`,
                                         }),
                                         (0, J.jsx)(`button`, {
@@ -59186,12 +59356,12 @@ function Lh() {
                         }),
                         gdriveSignedIn &&
                           (0, J.jsxs)(`div`, {
-                            style: { background: `#f8fafc`, borderRadius: `12px`, border: `1px solid #e2e8f0`, padding: `1.1rem`, marginBottom: `1rem`, display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
+                            style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem`, display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
                             children: [
                               (0, J.jsxs)(`div`, {
                                 children: [
-                                  (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `#0f172a` }, children: `Backup Now to Drive` }),
-                                  (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `#475569` }, children: `Uploads a fresh backup of settings, inventory, sales & patients to your configured Drive folder.` }),
+                                  (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Backup Now to Drive` }),
+                                  (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: `Uploads a fresh backup of settings, inventory, sales & patients to your configured Drive folder.` }),
                                 ],
                               }),
                               (0, J.jsx)(`button`, {
@@ -59206,16 +59376,16 @@ function Lh() {
                           }),
                         gdriveSignedIn &&
                           (0, J.jsxs)(`div`, {
-                            style: { background: `#f8fafc`, borderRadius: `12px`, border: `1px solid #e2e8f0`, padding: `1.1rem`, marginBottom: `1rem` },
+                            style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
                             children: [
                               (0, J.jsxs)(`div`, {
                                 style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `0.75rem` },
                                 children: [
-                                  (0, J.jsx)(`h4`, { style: { margin: 0, fontSize: `0.95rem`, color: `#0f172a` }, children: `Drive Backups` }),
+                                  (0, J.jsx)(`h4`, { style: { margin: 0, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Drive Backups` }),
                                   (0, J.jsx)(`button`, {
                                     type: `button`,
                                     className: `btn-icon`,
-                                    style: { fontSize: `0.75rem`, fontWeight: `700`, color: `#0369a1` },
+                                    style: { fontSize: `0.75rem`, fontWeight: `700`, color: `var(--info-strong)` },
                                     onClick: loadGdriveFiles,
                                     disabled: gdriveFilesLoading,
                                     children: gdriveFilesLoading ? `⏳ Refreshing...` : `🔄 Refresh`,
@@ -59224,10 +59394,10 @@ function Lh() {
                               }),
                               getGdriveDuplicateGroups().length > 0 &&
                                 (0, J.jsxs)(`div`, {
-                                  style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap`, background: `#fffbeb`, border: `1px solid #fde68a`, borderRadius: `8px`, padding: `0.6rem 0.8rem`, marginBottom: `0.75rem` },
+                                  style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap`, background: `var(--warning-light)`, border: `1px solid var(--warning-border)`, borderRadius: `8px`, padding: `0.6rem 0.8rem`, marginBottom: `0.75rem` },
                                   children: [
                                     (0, J.jsxs)(`span`, {
-                                      style: { fontSize: `0.78rem`, color: `#92400e`, fontWeight: `600` },
+                                      style: { fontSize: `0.78rem`, color: `var(--warning-strong)`, fontWeight: `600` },
                                       children: [
                                         `⚠️ `,
                                         getGdriveDuplicateGroups().reduce((sum, list) => sum + list.length - 1, 0),
@@ -59237,16 +59407,16 @@ function Lh() {
                                     (0, J.jsx)(`button`, {
                                       type: `button`,
                                       className: `btn btn-outline`,
-                                      style: { fontSize: `0.75rem`, padding: `0.35rem 0.7rem`, borderColor: `#d97706`, color: `#92400e`, whiteSpace: `nowrap` },
+                                      style: { fontSize: `0.75rem`, padding: `0.35rem 0.7rem`, borderColor: `var(--warning-strong)`, color: `var(--warning-strong)`, whiteSpace: `nowrap` },
                                       onClick: handleGdriveCleanupDuplicates,
                                       children: `Clean Up Duplicates`,
                                     }),
                                   ],
                                 }),
                               !getDriveFolderId()
-                                ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `#64748b` }, children: `Set a Google Drive folder link in the section below to see backups here.` })
+                                ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-soft)` }, children: `Set a Google Drive folder link in the section below to see backups here.` })
                                 : gdriveFilesList.length === 0
-                                  ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `#64748b` }, children: gdriveFilesLoading ? `Loading...` : `No backups found in this folder yet.` })
+                                  ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-soft)` }, children: gdriveFilesLoading ? `Loading...` : `No backups found in this folder yet.` })
                                   : (0, J.jsx)(`div`, {
                                       style: { overflowX: `auto` },
                                       children: (0, J.jsxs)(`table`, {
@@ -59255,9 +59425,9 @@ function Lh() {
                                           (0, J.jsx)(`thead`, {
                                             children: (0, J.jsxs)(`tr`, {
                                               children: [
-                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `#64748b`, fontSize: `0.7rem` }, children: `NAME` }),
-                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `#64748b`, fontSize: `0.7rem` }, children: `DATE` }),
-                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `#64748b`, fontSize: `0.7rem` }, children: `SIZE` }),
+                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `NAME` }),
+                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `DATE` }),
+                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `SIZE` }),
                                                 (0, J.jsx)(`th`, { style: { padding: `0.4rem` }, children: `` }),
                                               ],
                                             }),
@@ -59267,11 +59437,11 @@ function Lh() {
                                               (0, J.jsxs)(
                                                 `tr`,
                                                 {
-                                                  style: { borderTop: `1px solid #e2e8f0` },
+                                                  style: { borderTop: `1px solid var(--border)` },
                                                   children: [
-                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, fontWeight: `700`, color: `#0f172a`, wordBreak: `break-all` }, children: file.name }),
-                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `#475569`, whiteSpace: `nowrap` }, children: file.modifiedTime ? new Date(file.modifiedTime).toLocaleString(`en-IN`) : `` }),
-                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `#475569`, whiteSpace: `nowrap` }, children: file.size ? `${(parseInt(file.size, 10) / 1024).toFixed(1)} KB` : `—` }),
+                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, fontWeight: `700`, color: `var(--text-primary)`, wordBreak: `break-all` }, children: file.name }),
+                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: file.modifiedTime ? new Date(file.modifiedTime).toLocaleString(`en-IN`) : `` }),
+                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: file.size ? `${(parseInt(file.size, 10) / 1024).toFixed(1)} KB` : `—` }),
                                                     (0, J.jsx)(`td`, {
                                                       style: { padding: `0.5rem 0.4rem`, whiteSpace: `nowrap` },
                                                       children: (0, J.jsxs)(`div`, {
@@ -59295,7 +59465,7 @@ function Lh() {
                                                           (0, J.jsx)(`button`, {
                                                             type: `button`,
                                                             className: `btn btn-outline`,
-                                                            style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem`, color: `#dc2626`, borderColor: `#fca5a5` },
+                                                            style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem`, color: `var(--danger-hover)`, borderColor: `var(--danger-border)` },
                                                             onClick: () => handleGdriveDelete(file),
                                                             children: `Delete`,
                                                           }),
@@ -59318,9 +59488,9 @@ function Lh() {
                           onClick: () => setGdriveLegacyExpanded((prev) => !prev),
                           style: {
                             background: `none`,
-                            border: `1px dashed #cbd5e1`,
+                            border: `1px dashed var(--border-strong)`,
                             borderRadius: `6px`,
-                            color: `#64748b`,
+                            color: `var(--text-soft)`,
                             fontSize: `0.78rem`,
                             fontWeight: `700`,
                             cursor: `pointer`,
@@ -59334,21 +59504,21 @@ function Lh() {
                         gdriveLegacyExpanded &&
                           (0, J.jsxs)(`div`, {
                             className: `animate-fade-in`,
-                            style: { marginTop: `0.25rem`, paddingTop: `0.75rem`, borderTop: `1px solid #e2e8f0` },
+                            style: { marginTop: `0.25rem`, paddingTop: `0.75rem`, borderTop: `1px solid var(--border)` },
                             children: [
                         (0, J.jsx)(`p`, {
-                          style: { fontSize: `0.82rem`, color: `#0c4a6e`, marginBottom: `0.75rem` },
+                          style: { fontSize: `0.82rem`, color: `var(--info-strong)`, marginBottom: `0.75rem` },
                           children: `Configure Google Drive folder link & Web App Script URL for cloud backup options.`,
                         }),
                         (0, J.jsxs)(`div`, {
                           className: `input-group mb-2`,
                           children: [
-                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `#0369a1`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Google Drive Folder Link` }),
+                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Google Drive Folder Link` }),
                             (0, J.jsx)(`input`, {
                               type: `text`,
                               name: `googleDriveUrl`,
                               className: `input-field`,
-                              style: { fontSize: `0.82rem`, border: `1.5px solid #0284c7`, background: `#ffffff`, fontWeight: `600` },
+                              style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
                               value: e.googleDriveUrl || e.oneDriveUrl || ``,
                               onChange: (n) => t({ ...e, googleDriveUrl: n.target.value, oneDriveUrl: n.target.value }),
                               placeholder: `https://drive.google.com/drive/folders/...`,
@@ -59358,12 +59528,12 @@ function Lh() {
                         (0, J.jsxs)(`div`, {
                           className: `input-group mb-2`,
                           children: [
-                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `#0369a1`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Backup Script URL` }),
+                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Backup Script URL` }),
                             (0, J.jsx)(`input`, {
                               type: `text`,
                               name: `gDriveScriptUrl`,
                               className: `input-field`,
-                              style: { fontSize: `0.82rem`, border: `1.5px solid #38bdf8`, background: `#ffffff`, fontWeight: `600` },
+                              style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
                               value: e.gDriveScriptUrl || ``,
                               onChange: B,
                               placeholder: `Paste Google Apps Script Web App URL...`,
@@ -59375,9 +59545,9 @@ function Lh() {
                           onClick: () => S((prev) => !prev),
                           style: {
                             background: `none`,
-                            border: `1px dashed #0284c7`,
+                            border: `1px dashed var(--info-strong)`,
                             borderRadius: `6px`,
-                            color: `#0369a1`,
+                            color: `var(--info-strong)`,
                             fontSize: `0.78rem`,
                             fontWeight: `700`,
                             cursor: `pointer`,
@@ -59391,13 +59561,13 @@ function Lh() {
                         x &&
                           (0, J.jsxs)(`div`, {
                             style: {
-                              background: `#f8fafc`,
-                              border: `1px solid #bae6fd`,
+                              background: `var(--surface-raised)`,
+                              border: `1px solid var(--info-border)`,
                               borderRadius: `8px`,
                               padding: `0.75rem`,
                               marginBottom: `0.75rem`,
                               fontSize: `0.75rem`,
-                              color: `#0c4a6e`,
+                              color: `var(--info-strong)`,
                               maxHeight: `220px`,
                               overflowY: `auto`,
                             },
@@ -59409,7 +59579,7 @@ function Lh() {
                                   (0, J.jsxs)(`li`, {
                                     children: [
                                       `Go to `,
-                                      (0, J.jsx)(`a`, { href: `https://script.google.com`, target: `_blank`, rel: `noopener noreferrer`, style: { color: `#0284c7`, fontWeight: `700` }, children: `script.google.com` }),
+                                      (0, J.jsx)(`a`, { href: `https://script.google.com`, target: `_blank`, rel: `noopener noreferrer`, style: { color: `var(--info-strong)`, fontWeight: `700` }, children: `script.google.com` }),
                                       ` → `,
                                       (0, J.jsx)(`strong`, { children: `New Project` }),
                                     ],
@@ -59422,11 +59592,11 @@ function Lh() {
                             ],
                           }),
                         (0, J.jsx)(`div`, {
-                          style: { background: `#f8fafc`, padding: `0.75rem`, borderRadius: `10px`, border: `1px solid #bae6fd` },
+                          style: { background: `var(--surface-raised)`, padding: `0.75rem`, borderRadius: `10px`, border: `1px solid var(--info-border)` },
                           children: (0, J.jsxs)(`div`, {
                               style: { display: `flex`, flexDirection: `column`, gap: `0.5rem`, maxWidth: `280px` },
                               children: [
-                                (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, fontWeight: `800`, color: `#0369a1` }, children: `☁️ Cloud Sync` }),
+                                (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, fontWeight: `800`, color: `var(--info-strong)` }, children: `☁️ Cloud Sync` }),
                                 g !== `idle` &&
                                   (0, J.jsx)(`div`, {
                                     style: {
@@ -59434,15 +59604,15 @@ function Lh() {
                                       fontWeight: `700`,
                                       padding: `0.35rem 0.5rem`,
                                       borderRadius: `6px`,
-                                      background: g === `syncing` ? `#e0f2fe` : g === `success` ? `#dcfce7` : `#fee2e2`,
-                                      color: g === `syncing` ? `#0369a1` : g === `success` ? `#166534` : `#991b1b`,
+                                      background: g === `syncing` ? `var(--info-light)` : g === `success` ? `var(--success-light)` : `var(--danger-light)`,
+                                      color: g === `syncing` ? `var(--info-strong)` : g === `success` ? `var(--success-strong)` : `var(--danger-strong)`,
                                     },
                                     children: y,
                                   }),
                                 (0, J.jsx)(`button`, {
                                   type: `button`,
                                   className: `btn`,
-                                  style: { width: `100%`, justifyContent: `center`, background: g === `syncing` ? `#93c5fd` : `#0284c7`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
+                                  style: { width: `100%`, justifyContent: `center`, background: g === `syncing` ? `var(--accent-border)` : `var(--info-strong)`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
                                   disabled: g === `syncing`,
                                   onClick: N,
                                   children: g === `syncing` ? `⏳ Syncing...` : `☁️ G-Drive Backup`,
@@ -59450,14 +59620,14 @@ function Lh() {
                                 (0, J.jsx)(`button`, {
                                   type: `button`,
                                   className: `btn`,
-                                  style: { width: `100%`, justifyContent: `center`, background: C !== `idle` && C !== `selecting` ? `#93c5fd` : `#075985`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
+                                  style: { width: `100%`, justifyContent: `center`, background: C !== `idle` && C !== `selecting` ? `var(--accent-border)` : `var(--info-strong)`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
                                   disabled: C === `fetching` || C === `restoring`,
                                   onClick: P,
                                   children: C === `fetching` ? `⏳ Fetching...` : `☁️ G-Drive Restore`,
                                 }),
                                 C !== `idle` &&
                                   (0, J.jsxs)(`div`, {
-                                    style: { fontSize: `0.72rem`, fontWeight: `700`, padding: `0.35rem 0.5rem`, borderRadius: `6px`, background: `#e0f2fe`, color: `#0369a1` },
+                                    style: { fontSize: `0.72rem`, fontWeight: `700`, padding: `0.35rem 0.5rem`, borderRadius: `6px`, background: `var(--info-light)`, color: `var(--info-strong)` },
                                     children: [
                                       T,
                                       C === `selecting` &&
@@ -59475,7 +59645,7 @@ function Lh() {
                                               type: `button`,
                                               disabled: isRestoringData,
                                               onClick: F,
-                                              style: { background: isRestoringData ? `#94a3b8` : `#166534`, color: `#fff`, fontSize: `0.72rem`, border: `none`, borderRadius: `4px`, padding: `0.3rem`, fontWeight: `700`, cursor: isRestoringData ? `not-allowed` : `pointer` },
+                                              style: { background: isRestoringData ? `var(--text-faint)` : `var(--success-strong)`, color: `#fff`, fontSize: `0.72rem`, border: `none`, borderRadius: `4px`, padding: `0.3rem`, fontWeight: `700`, cursor: isRestoringData ? `not-allowed` : `pointer` },
                                               children: isRestoringData ? `⏳ Restoring...` : `✅ Restore Selected`,
                                             }),
                                           ],
@@ -59494,21 +59664,21 @@ function Lh() {
                       className: `animate-fade-in`,
                       children: [
                         (0, J.jsxs)(`div`, {
-                          style: { background: `#f8fafc`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #e2e8f0`, marginBottom: `1rem` },
+                          style: { background: `var(--surface-raised)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--border)`, marginBottom: `1rem` },
                           children: [
-                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, color: `#334155`, fontSize: `0.9rem` }, children: `⏱️ Auto-Backup Status` }),
+                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, color: `var(--text-heading)`, fontSize: `0.9rem` }, children: `⏱️ Auto-Backup Status` }),
                             (0, J.jsx)(`p`, {
-                              style: { fontSize: `0.78rem`, color: `#64748b`, margin: `0 0 0.75rem` },
+                              style: { fontSize: `0.78rem`, color: `var(--text-soft)`, margin: `0 0 0.75rem` },
                               children: `A background job automatically syncs your data to Google Drive ~35 seconds after any change (settings, inventory, sales, patients). This runs continuously and needs no manual action.`,
                             }),
                             (0, J.jsx)(AutoSyncBadgeComponent, {}),
                           ],
                         }),
                         (0, J.jsxs)(`div`, {
-                          style: { background: `#ffffff`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #93c5fd`, marginBottom: `1rem` },
+                          style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--accent-border)`, marginBottom: `1rem` },
                           children: [
-                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `#0369a1`, fontSize: `0.9rem`, fontWeight: `800` }, children: `🔑 Change Admin Password` }),
-                            (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.65rem` }, children: `Set a custom security password for the admin PIN gate & database resets.` }),
+                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--info-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `🔑 Change Admin Password` }),
+                            (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.65rem` }, children: `Set a custom security password for the admin PIN gate & database resets.` }),
                             (0, J.jsx)(`input`, {
                               type: `password`,
                               className: `input-field mb-2`,
@@ -59527,26 +59697,26 @@ function Lh() {
                           ],
                         }),
                         (0, J.jsxs)(`div`, {
-                          style: { background: `#fff1f2`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fca5a5`, marginBottom: `0.5rem` },
+                          style: { background: `var(--danger-light)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, marginBottom: `0.5rem` },
                           children: [
-                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.5rem`, color: `#991b1b`, fontSize: `0.95rem` }, children: `⚠️ Danger Zone` }),
-                            (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `#7f1d1d`, margin: `0 0 0.9rem` }, children: `Destructive actions. A safety backup is created before any reset. Requires typing DELETE to confirm.` }),
+                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.5rem`, color: `var(--danger-strong)`, fontSize: `0.95rem` }, children: `⚠️ Danger Zone` }),
+                            (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--danger-strong)`, margin: `0 0 0.9rem` }, children: `Destructive actions. A safety backup is created before any reset. Requires typing DELETE to confirm.` }),
                             // Gated on the real Supabase profiles.is_platform_admin flag (see isPlatformAdmin
                             // state above), not the local admin-password PIN this modal already sits behind —
                             // these four actions wipe cloud data and are Platform-Admin-only regardless of who
                             // knows the local PIN.
-                            !isPlatformAdmin && (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `#991b1b`, fontWeight: `800`, margin: `0 0 0.9rem` }, children: `🔒 Platform Admin access required — these actions are locked for clinic accounts.` }),
+                            !isPlatformAdmin && (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--danger-strong)`, fontWeight: `800`, margin: `0 0 0.9rem` }, children: `🔒 Platform Admin access required — these actions are locked for clinic accounts.` }),
                             isPlatformAdmin && (0, J.jsxs)(`div`, {
                               style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`, gap: `1rem` },
                               children: [
                                 (0, J.jsxs)(`div`, {
-                                  style: { background: `#ffffff`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fed7aa`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fed7aa`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
                                   children: [
                                     (0, J.jsxs)(`div`, {
                                       children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `#c2410c`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📊 Clear Sales History Only` }),
+                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--warning-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📊 Clear Sales History Only` }),
                                         (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.75rem` },
+                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
                                           children: [`Clears all bill records & daily sales reports. `, (0, J.jsx)(`strong`, { children: `Keeps all medicine inventory stock intact.` })],
                                         }),
                                       ],
@@ -59561,13 +59731,13 @@ function Lh() {
                                   ],
                                 }),
                                 (0, J.jsxs)(`div`, {
-                                  style: { background: `#ffffff`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fca5a5`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
                                   children: [
                                     (0, J.jsxs)(`div`, {
                                       children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `#991b1b`, fontSize: `0.9rem`, fontWeight: `800` }, children: `💥 Reset Full POS System` }),
+                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `💥 Reset Full POS System` }),
                                         (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.75rem` },
+                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
                                           children: [`Clears this terminal's local sales history, audit logs and in-progress bills. `, (0, J.jsx)(`strong`, { children: `Inventory is synced from the cloud and is not affected.` })],
                                         }),
                                       ],
@@ -59582,13 +59752,13 @@ function Lh() {
                                   ],
                                 }),
                                 (0, J.jsxs)(`div`, {
-                                  style: { background: `#ffffff`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fca5a5`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
                                   children: [
                                     (0, J.jsxs)(`div`, {
                                       children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `#991b1b`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📦 Clear Inventory` }),
+                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📦 Clear Inventory` }),
                                         (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.75rem` },
+                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
                                           children: [`Permanently deletes this pharmacy's stock levels, batches & stock movement history from the cloud database. `, (0, J.jsx)(`strong`, { children: `Settings, users, licenses and the shared product catalog are not affected.` })],
                                         }),
                                       ],
@@ -59603,13 +59773,13 @@ function Lh() {
                                   ],
                                 }),
                                 (0, J.jsxs)(`div`, {
-                                  style: { background: `#ffffff`, padding: `1rem`, borderRadius: `8px`, border: `2px solid #991b1b`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `2px solid var(--danger-strong)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
                                   children: [
                                     (0, J.jsxs)(`div`, {
                                       children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `#991b1b`, fontSize: `0.9rem`, fontWeight: `800` }, children: `☢️ Factory Reset` }),
+                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `☢️ Factory Reset` }),
                                         (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `#475569`, marginBottom: `0.75rem` },
+                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
                                           children: [`Permanently wipes this pharmacy's sales, bills and inventory from the cloud database. `, (0, J.jsx)(`strong`, { children: `Patients and the shared product catalog are preserved (shared with OPD/Warehouse)` }), `. App activation, credentials, clinic profile and cloud/Google Drive settings are never touched.`],
                                         }),
                                       ],
@@ -61340,13 +61510,13 @@ function paymentStatusColor(status) {
 }
 function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill }) {
   let cards = [
-    { label: `Total Billing`, value: summary.totalBilling, color: `#0f172a` },
-    { label: `Total Collected`, value: summary.totalCollected, color: `#16a34a` },
-    { label: `Outstanding / Balance`, value: summary.outstandingTotal, color: `#dc2626` },
-    { label: `Cash Collection`, value: summary.cashCollection, color: `#2563eb` },
-    { label: `UPI Collection`, value: summary.upiCollection, color: `#0891b2` },
-    { label: `Card Collection`, value: summary.cardCollection, color: `#7e22ce` },
-    { label: `Other Collection`, value: summary.otherCollection, color: `#64748b` },
+    { label: `Total Billing`, value: summary.totalBilling, color: `var(--text-primary)` },
+    { label: `Total Collected`, value: summary.totalCollected, color: `var(--money-pos)` },
+    { label: `Outstanding / Balance`, value: summary.outstandingTotal, color: `var(--danger-hover)` },
+    { label: `Cash Collection`, value: summary.cashCollection, color: `var(--accent)` },
+    { label: `UPI Collection`, value: summary.upiCollection, color: `var(--info-strong)` },
+    { label: `Card Collection`, value: summary.cardCollection, color: `var(--purple-strong)` },
+    { label: `Other Collection`, value: summary.otherCollection, color: `var(--text-soft)` },
   ];
   return (0, J.jsxs)(`div`, {
     style: { padding: `1rem`, display: `flex`, flexDirection: `column`, gap: `1rem` },
@@ -61359,7 +61529,7 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
             className: `glass-panel`,
             style: { padding: `1rem 1.1rem` },
             children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `#64748b`, fontWeight: `700` }, children: card.label }),
+              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: card.label }),
               (0, J.jsxs)(`div`, { style: { fontSize: `1.4rem`, fontWeight: `800`, color: card.color, marginTop: `0.2rem` }, children: [`₹`, card.value.toFixed(2)] }),
             ],
           }),
@@ -61369,7 +61539,7 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
         className: `glass-panel`,
         style: { padding: `1rem 1.1rem`, display: `flex`, flexWrap: `wrap`, gap: `0.75rem`, alignItems: `center` },
         children: [
-          (0, J.jsx)(`span`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `#334155` }, children: `Filters:` }),
+          (0, J.jsx)(`span`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `var(--text-heading)` }, children: `Filters:` }),
           (0, J.jsxs)(`select`, {
             className: `input-field`, style: { width: `auto`, padding: `0.35rem 0.6rem`, fontSize: `0.82rem` },
             value: methodFilter, onChange: (e) => setMethodFilter(e.target.value),
@@ -61401,23 +61571,23 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
               (0, J.jsx)(`option`, { value: `split`, children: `Split Payment` }),
             ],
           }),
-          (0, J.jsx)(`span`, { style: { fontSize: `0.76rem`, color: `#94a3b8` }, children: `Patient/Customer and Bill No. use the search box above.` }),
+          (0, J.jsx)(`span`, { style: { fontSize: `0.76rem`, color: `var(--text-faint)` }, children: `Patient/Customer and Bill No. use the search box above.` }),
         ],
       }),
       (0, J.jsxs)(`div`, {
         className: `glass-panel`,
-        style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` },
+        style: { padding: `1.25rem`, background: `var(--surface)`, borderRadius: `12px`, border: `1px solid var(--panel-border)` },
         children: [
           (0, J.jsxs)(`div`, {
-            style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` },
+            style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid var(--border)` },
             children: [
               (0, J.jsxs)(`div`, {
                 children: [
-                  (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a` }, children: `💰 Payment Transaction History` }),
-                  (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Every payment recorded separately — a split payment shows one row per method. Click a row for the full breakdown.` }),
+                  (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `var(--text-primary)` }, children: `💰 Payment Transaction History` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: `Every payment recorded separately — a split payment shows one row per method. Click a row for the full breakdown.` }),
                 ],
               }),
-              (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Transactions: `, (0, J.jsx)(`strong`, { children: transactions.length })] }),
+              (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `var(--text-secondary)` }, children: [`Transactions: `, (0, J.jsx)(`strong`, { children: transactions.length })] }),
             ],
           }),
           (0, J.jsx)(`div`, {
@@ -61427,7 +61597,7 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
               children: [
                 (0, J.jsx)(`thead`, {
                   children: (0, J.jsxs)(`tr`, {
-                    style: { background: `#f8fafc` },
+                    style: { background: `var(--surface-raised)` },
                     children: [
                       (0, J.jsx)(`th`, { children: `Date & Time` }),
                       (0, J.jsx)(`th`, { children: `Bill No.` }),
@@ -61450,15 +61620,15 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
                           style: { cursor: `pointer` },
                           onClick: () => onSelectBill(t.billId),
                           children: [
-                            (0, J.jsx)(`td`, { style: { color: `#475569`, whiteSpace: `nowrap` }, children: t.date ? new Date(t.date).toLocaleString() : `—` }),
-                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: `#1e293b` }, children: t.billId }),
+                            (0, J.jsx)(`td`, { style: { color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: t.date ? new Date(t.date).toLocaleString() : `—` }),
+                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: `var(--text-primary)` }, children: t.billId }),
                             (0, J.jsx)(`td`, { children: t.patientName }),
-                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: t.isCredit ? `#dc2626` : `#0f172a` }, children: t.method }),
-                            (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: t.isCredit ? `#dc2626` : `#16a34a` }, children: t.amount.toFixed(2) }),
-                            (0, J.jsx)(`td`, { style: { color: `#94a3b8` }, children: t.reference || `—` }),
+                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: t.isCredit ? `var(--danger-hover)` : `var(--text-primary)` }, children: t.method }),
+                            (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: t.isCredit ? `var(--danger-hover)` : `var(--money-pos)` }, children: t.amount.toFixed(2) }),
+                            (0, J.jsx)(`td`, { style: { color: `var(--text-faint)` }, children: t.reference || `—` }),
                             (0, J.jsx)(`td`, { children: (0, J.jsx)(`span`, { style: { background: statusColors.bg, color: statusColors.fg, fontWeight: `800`, fontSize: `0.72rem`, padding: `0.15rem 0.55rem`, borderRadius: `99px` }, children: t.billStatus }) }),
-                            (0, J.jsx)(`td`, { style: { color: `#475569` }, children: t.paymentType }),
-                            (0, J.jsx)(`td`, { style: { color: `#94a3b8` }, children: t.recordedBy || `—` }),
+                            (0, J.jsx)(`td`, { style: { color: `var(--text-secondary)` }, children: t.paymentType }),
+                            (0, J.jsx)(`td`, { style: { color: `var(--text-faint)` }, children: t.recordedBy || `—` }),
                           ],
                         });
                       })
@@ -62142,12 +62312,12 @@ function a_() {
       D.length === 0 && f !== `all` && n.length > 0 &&
         (0, J.jsxs)(`div`, {
           className: `glass-panel mb-4`,
-          style: { padding: `1.25rem 1.5rem`, background: `#f0f9ff`, border: `1px solid #93c5fd`, display: `flex`, alignItems: `center`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `1rem` },
+          style: { padding: `1.25rem 1.5rem`, background: `var(--info-light)`, border: `1px solid var(--accent-border)`, display: `flex`, alignItems: `center`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `1rem` },
           children: [
             (0, J.jsxs)(`div`, {
               children: [
-                (0, J.jsx)(`div`, { style: { fontWeight: `800`, color: `#0369a1`, fontSize: `1rem` }, children: `No bills match this filter yet` }),
-                (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `#475569`, marginTop: `0.25rem` }, children: `Your billing history is intact — ${n.length} total bill(s) on record. This period just doesn't have any yet.` }),
+                (0, J.jsx)(`div`, { style: { fontWeight: `800`, color: `var(--info-strong)`, fontSize: `1rem` }, children: `No bills match this filter yet` }),
+                (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `var(--text-secondary)`, marginTop: `0.25rem` }, children: `Your billing history is intact — ${n.length} total bill(s) on record. This period just doesn't have any yet.` }),
               ],
             }),
             (0, J.jsx)(`button`, {
@@ -62174,7 +62344,7 @@ function a_() {
                   fontSize: `1.75rem`,
                   fontWeight: `bold`,
                   marginTop: `0.25rem`,
-                  color: `#2563eb`,
+                  color: `var(--accent)`,
                 },
                 children: O.length,
               }),
@@ -62212,7 +62382,7 @@ function a_() {
                   fontSize: `1.75rem`,
                   fontWeight: `bold`,
                   marginTop: `0.25rem`,
-                  color: `#8b5cf6`,
+                  color: `var(--purple-strong)`,
                 },
                 children: [`₹`, k.toFixed(2)],
               }),
@@ -62246,7 +62416,7 @@ function a_() {
                     style: {
                       display: `flex`,
                       gap: `0.5rem`,
-                      background: `#f1f5f9`,
+                      background: `var(--surface-sunken)`,
                       padding: `0.25rem`,
                       borderRadius: `8px`,
                     },
@@ -62348,10 +62518,10 @@ function a_() {
                       display: `flex`,
                       alignItems: `center`,
                       gap: `0.5rem`,
-                      background: `#ffffff`,
+                      background: `var(--surface)`,
                       padding: `0.2rem 0.5rem`,
                       borderRadius: `8px`,
-                      border: `1px solid #cbd5e1`,
+                      border: `1px solid var(--border-strong)`,
                     },
                     children: [
                       (0, J.jsx)(Hn, { size: 16, className: `text-accent` }),
@@ -62448,7 +62618,7 @@ function a_() {
                               onChange: (e) => S(e.target.value),
                             }),
                             (0, J.jsx)(`span`, {
-                              style: { fontSize: `0.8rem`, color: `#64748b` },
+                              style: { fontSize: `0.8rem`, color: `var(--text-soft)` },
                               children: `to`,
                             }),
                             (0, J.jsx)(`input`, {
@@ -62470,8 +62640,8 @@ function a_() {
                           style: {
                             padding: `0.2rem 0.5rem`,
                             fontSize: `0.75rem`,
-                            color: `#ef4444`,
-                            borderColor: `#fca5a5`,
+                            color: `var(--danger-color)`,
+                            borderColor: `var(--danger-border)`,
                           },
                           onClick: () => {
                             (p(`all`), S(``), w(``));
@@ -62486,14 +62656,14 @@ function a_() {
                       display: `flex`,
                       alignItems: `center`,
                       gap: `0.5rem`,
-                      background: `#ffffff`,
+                      background: `var(--surface)`,
                       padding: `0.2rem 0.5rem`,
                       borderRadius: `8px`,
-                      border: `1px solid #cbd5e1`,
+                      border: `1px solid var(--border-strong)`,
                     },
                     children: [
                       (0, J.jsx)(`span`, {
-                        style: { fontSize: `0.8rem`, color: `#64748b`, fontWeight: `600` },
+                        style: { fontSize: `0.8rem`, color: `var(--text-soft)`, fontWeight: `600` },
                         children: `Tablet:`,
                       }),
                       (0, J.jsxs)(`select`, {
@@ -62532,8 +62702,8 @@ function a_() {
                           style: {
                             padding: `0.2rem 0.5rem`,
                             fontSize: `0.75rem`,
-                            color: `#ef4444`,
-                            borderColor: `#fca5a5`,
+                            color: `var(--danger-color)`,
+                            borderColor: `var(--danger-border)`,
                           },
                           onClick: () => setTabletFilter(`all`),
                           title: `Clear Tablet Filter`,
@@ -62585,11 +62755,11 @@ function a_() {
                 onSelectBill: (billId) => setSelectedPaymentBill(n.find((bill) => bill.billId === billId) || null),
               })
             : c === `product_wise`
-            ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `📦 Product-Wise Sale Count & Rate Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Product names with total sale count, unit rate, and total sales amount` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Total Products: `, (0, J.jsx)(`strong`, { children: (productSalesReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `#f8fafc` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Product Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Unit Rate (₹)` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Sale Count` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Bills` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Sales Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (productSalesReportData && productSalesReportData.length > 0) ? productSalesReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `#64748b` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `#1e293b` }, children: item.productName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `600`, color: `#2563eb` }, children: item.unitRate > 0 ? `₹` + item.unitRate.toFixed(2) : `N/A` }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#059669` }, children: item.saleCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `#475569` }, children: item.billCount + ` Bills` }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `#0f172a` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `6`, className: `text-center text-secondary py-4`, children: `No matching product records found.` }) }) })] }) })] }) })
+            ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `var(--surface)`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid var(--border)` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `📦 Product-Wise Sale Count & Rate Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: `Product names with total sale count, unit rate, and total sales amount` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `var(--text-secondary)` }, children: [`Total Products: `, (0, J.jsx)(`strong`, { children: (productSalesReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `var(--surface-raised)` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Product Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Unit Rate (₹)` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Sale Count` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Bills` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Sales Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (productSalesReportData && productSalesReportData.length > 0) ? productSalesReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `var(--text-soft)` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `var(--text-primary)` }, children: item.productName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `600`, color: `var(--accent)` }, children: item.unitRate > 0 ? `₹` + item.unitRate.toFixed(2) : `N/A` }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#059669` }, children: item.saleCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `var(--text-secondary)` }, children: item.billCount + ` Bills` }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `var(--text-primary)` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `6`, className: `text-center text-secondary py-4`, children: `No matching product records found.` }) }) })] }) })] }) })
             : c === `injection_wise`
-            ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `💉 Injection Billing Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Medicines administered as injections, with total count and total amount charged` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Total Medicines: `, (0, J.jsx)(`strong`, { children: (injectionReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `#f8fafc` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Medicine Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Injections Given` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Qty Used` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (injectionReportData && injectionReportData.length > 0) ? injectionReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `#64748b` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `#1e293b` }, children: item.medicineName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#db2777` }, children: item.injectionCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `#475569` }, children: item.totalQty }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `#0f172a` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `5`, className: `text-center text-secondary py-4`, children: `No injection records found.` }) }) })] }) })] }) })
+            ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `var(--surface)`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid var(--border)` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `💉 Injection Billing Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: `Medicines administered as injections, with total count and total amount charged` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `var(--text-secondary)` }, children: [`Total Medicines: `, (0, J.jsx)(`strong`, { children: (injectionReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `var(--surface-raised)` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Medicine Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Injections Given` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Qty Used` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (injectionReportData && injectionReportData.length > 0) ? injectionReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `var(--text-soft)` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `var(--text-primary)` }, children: item.medicineName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#db2777` }, children: item.injectionCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `var(--text-secondary)` }, children: item.totalQty }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `var(--text-primary)` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `5`, className: `text-center text-secondary py-4`, children: `No injection records found.` }) }) })] }) })] }) })
             : c === `procedure_wise`
-            ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `#ffffff`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid #e2e8f0` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `#0f172a`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `🏥 Procedure Billing Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: `Procedures performed, with total count and total amount charged (including materials)` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `#475569` }, children: [`Total Procedures: `, (0, J.jsx)(`strong`, { children: (procedureReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `#f8fafc` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Procedure Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Times Performed` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (procedureReportData && procedureReportData.length > 0) ? procedureReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `#64748b` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `#1e293b` }, children: item.procedureName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#0891b2` }, children: item.procedureCount }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `#0f172a` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `4`, className: `text-center text-secondary py-4`, children: `No procedure records found.` }) }) })] }) })] }) })
+            ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `var(--surface)`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid var(--border)` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `🏥 Procedure Billing Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: `Procedures performed, with total count and total amount charged (including materials)` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `var(--text-secondary)` }, children: [`Total Procedures: `, (0, J.jsx)(`strong`, { children: (procedureReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `var(--surface-raised)` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Procedure Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Times Performed` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (procedureReportData && procedureReportData.length > 0) ? procedureReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `var(--text-soft)` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `var(--text-primary)` }, children: item.procedureName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `var(--info-strong)` }, children: item.procedureCount }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `var(--text-primary)` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `4`, className: `text-center text-secondary py-4`, children: `No procedure records found.` }) }) })] }) })] }) })
             : c === `patient_wise`
             ? (0, J.jsx)(`div`, {
                 style: { padding: `1rem` },
@@ -62613,7 +62783,7 @@ function a_() {
                               style: {
                                 padding: `1.25rem`,
                                 border: `1px solid var(--panel-border)`,
-                                background: `#ffffff`,
+                                background: `var(--surface)`,
                                 borderRadius: `12px`,
                               },
                               children: [
@@ -62624,7 +62794,7 @@ function a_() {
                                     alignItems: `center`,
                                     marginBottom: `1rem`,
                                     paddingBottom: `0.75rem`,
-                                    borderBottom: `1px solid #e2e8f0`,
+                                    borderBottom: `1px solid var(--border)`,
                                   },
                                   children: [
                                     (0, J.jsxs)(`div`, {
@@ -62633,7 +62803,7 @@ function a_() {
                                           style: {
                                             margin: 0,
                                             fontSize: `1.15rem`,
-                                            color: `#0f172a`,
+                                            color: `var(--text-primary)`,
                                             display: `flex`,
                                             alignItems: `center`,
                                             gap: `0.5rem`,
@@ -62649,7 +62819,7 @@ function a_() {
                                         (0, J.jsxs)(`div`, {
                                           style: {
                                             fontSize: `0.8rem`,
-                                            color: `#64748b`,
+                                            color: `var(--text-soft)`,
                                             marginTop: `0.2rem`,
                                           },
                                           children: [
@@ -62676,7 +62846,7 @@ function a_() {
                                         (0, J.jsx)(`div`, {
                                           style: {
                                             fontSize: `0.75rem`,
-                                            color: `#64748b`,
+                                            color: `var(--text-soft)`,
                                           },
                                           children: `Total Patient Spend`,
                                         }),
@@ -62702,7 +62872,7 @@ function a_() {
                                     children: [
                                       (0, J.jsx)(`thead`, {
                                         children: (0, J.jsxs)(`tr`, {
-                                          style: { background: `#f8fafc` },
+                                          style: { background: `var(--surface-raised)` },
                                           children: [
                                             (0, J.jsx)(`th`, {
                                               children: `Bill ID & Date`,
@@ -62739,7 +62909,7 @@ function a_() {
                                                     (0, J.jsx)(`div`, {
                                                       style: {
                                                         fontSize: `0.75rem`,
-                                                        color: `#64748b`,
+                                                        color: `var(--text-soft)`,
                                                         fontWeight: `normal`,
                                                       },
                                                       children: i_(e.date),
@@ -62768,7 +62938,7 @@ function a_() {
                                                                   style: {
                                                                     display: `flex`,
                                                                     justifyContent: `space-between`,
-                                                                    background: `#f1f5f9`,
+                                                                    background: `var(--surface-sunken)`,
                                                                     padding: `0.3rem 0.6rem`,
                                                                     borderRadius: `4px`,
                                                                     fontSize: `0.8rem`,
@@ -62798,7 +62968,7 @@ function a_() {
                                                                       `span`,
                                                                       {
                                                                         style: {
-                                                                          color: `#0284c7`,
+                                                                          color: `var(--info-strong)`,
                                                                           fontWeight: `600`,
                                                                         },
                                                                         children:
@@ -62819,7 +62989,7 @@ function a_() {
                                                           )
                                                         : (0, J.jsx)(`span`, {
                                                             style: {
-                                                              color: `#64748b`,
+                                                              color: `var(--text-soft)`,
                                                             },
                                                             children: `Medicines`,
                                                           }),
@@ -62829,7 +62999,7 @@ function a_() {
                                                   style: {
                                                     textAlign: `right`,
                                                     fontWeight: `bold`,
-                                                    color: `#0f172a`,
+                                                    color: `var(--text-primary)`,
                                                   },
                                                   children: [
                                                     `₹`,
@@ -63001,10 +63171,10 @@ function a_() {
                                                       display: `flex`,
                                                       justifyContent: `space-between`,
                                                       gap: `1rem`,
-                                                      background: `#f8fafc`,
+                                                      background: `var(--surface-raised)`,
                                                       padding: `0.35rem 0.6rem`,
                                                       borderRadius: `6px`,
-                                                      border: `1px solid #e2e8f0`,
+                                                      border: `1px solid var(--border)`,
                                                     },
                                                     children: [
                                                       (0, J.jsxs)(`span`, {
@@ -63020,7 +63190,7 @@ function a_() {
                                                       }),
                                                       (0, J.jsxs)(`span`, {
                                                         style: {
-                                                          color: `#0284c7`,
+                                                          color: `var(--info-strong)`,
                                                           fontWeight: `600`,
                                                         },
                                                         children: [
@@ -63055,7 +63225,7 @@ function a_() {
                                         }),
                                         (e.discount || 0) > 0 &&
                                           (0, J.jsxs)(`div`, {
-                                            style: { fontSize: `0.72rem`, color: `#dc2626`, fontWeight: `700` },
+                                            style: { fontSize: `0.72rem`, color: `var(--danger-hover)`, fontWeight: `700` },
                                             children: [
                                               `Discount: −₹`,
                                               e.discount.toFixed(2),
@@ -63089,9 +63259,9 @@ function a_() {
                                               style: {
                                                 padding: `0.4rem 0.75rem`,
                                                 fontSize: `0.8rem`,
-                                                color: `#dc2626`,
-                                                borderColor: `#fca5a5`,
-                                                background: `#fef2f2`,
+                                                color: `var(--danger-hover)`,
+                                                borderColor: `var(--danger-border)`,
+                                                background: `var(--danger-light)`,
                                                 borderRadius: `6px`,
                                                 fontWeight: `500`,
                                               },
@@ -63175,7 +63345,7 @@ function a_() {
           children: (0, J.jsxs)(`div`, {
             className: `modal-content glass-panel animate-fade-in`,
             onClick: (evt) => evt.stopPropagation(),
-            style: { maxWidth: `440px`, padding: `1.5rem`, background: `#ffffff`, color: `#0f172a`, borderRadius: `16px` },
+            style: { maxWidth: `440px`, padding: `1.5rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` },
             children: (() => {
               let rows = expandBillToPaymentTransactions(selectedPaymentBill),
                 collected = rows.filter((r) => !r.isCredit).reduce((sum, r) => sum + r.amount, 0),
@@ -63186,12 +63356,12 @@ function a_() {
                 (0, J.jsxs)(`div`, {
                   key: `header`,
                   className: `flex-between mb-4`,
-                  style: { borderBottom: `1px solid #e2e8f0`, paddingBottom: `0.75rem` },
+                  style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem` },
                   children: [
                     (0, J.jsxs)(`div`, {
                       children: [
                         (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `Payment Details` }),
-                        (0, J.jsxs)(`div`, { style: { fontSize: `0.8rem`, color: `#64748b`, marginTop: `0.2rem` }, children: [`Bill #`, selectedPaymentBill.billId, ` · `, selectedPaymentBill.patientName || `Walk-in Patient`] }),
+                        (0, J.jsxs)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: [`Bill #`, selectedPaymentBill.billId, ` · `, selectedPaymentBill.patientName || `Walk-in Patient`] }),
                       ],
                     }),
                     (0, J.jsx)(`button`, { className: `btn-icon`, onClick: () => setSelectedPaymentBill(null), children: `✕` }),
@@ -63200,9 +63370,9 @@ function a_() {
                 (0, J.jsxs)(`div`, {
                   key: `total`,
                   className: `flex-between`,
-                  style: { padding: `0.6rem 0`, borderBottom: `1px dashed #e2e8f0` },
+                  style: { padding: `0.6rem 0`, borderBottom: `1px dashed var(--border)` },
                   children: [
-                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Invoice Total` }),
+                    (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Invoice Total` }),
                     (0, J.jsxs)(`span`, { style: { fontWeight: `800`, fontSize: `1.1rem` }, children: [`₹`, (selectedPaymentBill.totalAmount || 0).toFixed(2)] }),
                   ],
                 }),
@@ -63210,27 +63380,27 @@ function a_() {
                   key: `payments`,
                   style: { padding: `0.75rem 0`, display: `flex`, flexDirection: `column`, gap: `0.5rem` },
                   children: [
-                    (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `#334155`, textTransform: `uppercase`, letterSpacing: `0.04em` }, children: `Payments` }),
+                    (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `var(--text-heading)`, textTransform: `uppercase`, letterSpacing: `0.04em` }, children: `Payments` }),
                     ...rows.map((r, idx) =>
                       (0, J.jsxs)(`div`, {
                         key: idx,
                         style: { display: `flex`, justifyContent: `space-between`, fontSize: `0.9rem` },
                         children: [
-                          (0, J.jsxs)(`span`, { style: { fontWeight: r.isCredit ? `700` : `600`, color: r.isCredit ? `#dc2626` : `#1e293b` }, children: [r.method, r.isCredit ? ` (Outstanding)` : ``] }),
-                          (0, J.jsxs)(`span`, { style: { fontWeight: `700`, color: r.isCredit ? `#dc2626` : `#16a34a` }, children: [`₹`, r.amount.toFixed(2)] }),
+                          (0, J.jsxs)(`span`, { style: { fontWeight: r.isCredit ? `700` : `600`, color: r.isCredit ? `var(--danger-hover)` : `var(--text-primary)` }, children: [r.method, r.isCredit ? ` (Outstanding)` : ``] }),
+                          (0, J.jsxs)(`span`, { style: { fontWeight: `700`, color: r.isCredit ? `var(--danger-hover)` : `var(--money-pos)` }, children: [`₹`, r.amount.toFixed(2)] }),
                         ],
                       }),
                     ),
                     rows.length === 0 &&
-                      (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `#94a3b8` }, children: `No payment recorded for this bill.` }),
+                      (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `var(--text-faint)` }, children: `No payment recorded for this bill.` }),
                   ],
                 }),
                 (0, J.jsxs)(`div`, {
                   key: `paid`,
                   className: `flex-between`,
-                  style: { padding: `0.5rem 0`, borderTop: `1px solid #e2e8f0` },
+                  style: { padding: `0.5rem 0`, borderTop: `1px solid var(--border)` },
                   children: [
-                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Total Paid` }),
+                    (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Total Paid` }),
                     (0, J.jsxs)(`span`, { style: { fontWeight: `800` }, children: [`₹`, collected.toFixed(2)] }),
                   ],
                 }),
@@ -63239,8 +63409,8 @@ function a_() {
                   className: `flex-between`,
                   style: { padding: `0.5rem 0` },
                   children: [
-                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Balance` }),
-                    (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: outstanding > 0 ? `#dc2626` : `#16a34a` }, children: [`₹`, outstanding.toFixed(2)] }),
+                    (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Balance` }),
+                    (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: outstanding > 0 ? `var(--danger-hover)` : `var(--money-pos)` }, children: [`₹`, outstanding.toFixed(2)] }),
                   ],
                 }),
                 (0, J.jsxs)(`div`, {
@@ -63248,13 +63418,13 @@ function a_() {
                   className: `flex-between`,
                   style: { padding: `0.5rem 0 0` },
                   children: [
-                    (0, J.jsx)(`span`, { style: { color: `#64748b`, fontWeight: `700` }, children: `Status` }),
+                    (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Status` }),
                     (0, J.jsx)(`span`, { style: { background: statusColors.bg, color: statusColors.fg, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.2rem 0.65rem`, borderRadius: `99px`, textTransform: `uppercase` }, children: billStatus }),
                   ],
                 }),
                 (0, J.jsxs)(`div`, {
                   key: `meta`,
-                  style: { marginTop: `0.9rem`, paddingTop: `0.75rem`, borderTop: `1px solid #e2e8f0`, fontSize: `0.78rem`, color: `#94a3b8`, display: `flex`, flexDirection: `column`, gap: `0.2rem` },
+                  style: { marginTop: `0.9rem`, paddingTop: `0.75rem`, borderTop: `1px solid var(--border)`, fontSize: `0.78rem`, color: `var(--text-faint)`, display: `flex`, flexDirection: `column`, gap: `0.2rem` },
                   children: [
                     (0, J.jsxs)(`span`, { children: [`Date & Time: `, selectedPaymentBill.date ? new Date(selectedPaymentBill.date).toLocaleString() : `—`] }),
                     (0, J.jsxs)(`span`, { children: [`Reference / Transaction No.: `, selectedPaymentBill.paymentReference || `— (not recorded for this bill)`] }),
@@ -64205,7 +64375,7 @@ function VhcCloudAuthGate({ children }) {
   };
   return !ready
     ? (0, J.jsx)(`div`, {
-        style: { display: `flex`, alignItems: `center`, justifyContent: `center`, height: `100vh`, color: `#64748b`, fontSize: `0.9rem` },
+        style: { display: `flex`, alignItems: `center`, justifyContent: `center`, height: `100vh`, color: `var(--text-soft)`, fontSize: `0.9rem` },
         children: `Loading…`,
       })
     : session
@@ -64214,11 +64384,11 @@ function VhcCloudAuthGate({ children }) {
           style: { display: `flex`, alignItems: `center`, justifyContent: `center`, height: `100vh`, background: `#0f172a` },
           children: (0, J.jsxs)(`form`, {
             onSubmit: handleSignIn,
-            style: { background: `#ffffff`, borderRadius: `16px`, padding: `2rem`, width: `320px`, display: `flex`, flexDirection: `column`, gap: `0.85rem`, boxShadow: `0 20px 50px rgba(0,0,0,0.4)` },
+            style: { background: `var(--surface)`, borderRadius: `16px`, padding: `2rem`, width: `320px`, display: `flex`, flexDirection: `column`, gap: `0.85rem`, boxShadow: `0 20px 50px rgba(0,0,0,0.4)` },
             children: [
               (0, J.jsx)(`h2`, { style: { margin: 0, fontSize: `1.2rem` }, children: `VHC Pharmacy POS` }),
-              (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `#64748b` }, children: `Sign in to sync with the cloud.` }),
-              err && (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `#dc2626` }, children: err }),
+              (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: `Sign in to sync with the cloud.` }),
+              err && (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--danger-hover)` }, children: err }),
               (0, J.jsx)(`input`, { type: `email`, required: !0, autoFocus: !0, placeholder: `Email`, className: `input-field`, value: email, onChange: (e) => setEmail(e.target.value) }),
               (0, J.jsx)(`input`, { type: `password`, required: !0, placeholder: `Password`, className: `input-field`, value: password, onChange: (e) => setPassword(e.target.value) }),
               (0, J.jsx)(`button`, { type: `submit`, disabled: loading, className: `btn btn-primary`, children: loading ? `Signing in…` : `Sign In` }),
