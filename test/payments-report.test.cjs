@@ -4,13 +4,15 @@
 // package.json) and the renderer is a single minified bundle with no module
 // system to import from, so this is a plain Node script using the built-in
 // `assert` module — run it directly with `node test/payments-report.test.cjs`.
-// It does not exercise the real bundle; it mirrors the three pure functions
-// added to dist/assets/index-doBKNLAj.js (expandBillToPaymentTransactions,
-// filterPaymentTransactions, computePaymentSummary) line-for-line. If that
-// logic changes, update this file to match — see the comment above those
-// functions in the bundle, which points back here.
+// It does not exercise the real bundle; it mirrors the pure functions added to
+// dist/assets/index-doBKNLAj.js (computeCreditSettlement,
+// expandBillToPaymentTransactions, filterPaymentTransactions,
+// computePaymentSummary) line-for-line. If that logic changes, update this
+// file to match — see the comment above those functions in the bundle, which
+// points back here.
 //
-// Covers the 17 regression scenarios from the Payments Report spec.
+// Covers the 17 regression scenarios from the Payments Report spec, plus the
+// Credit Repayment / Settlement scenarios added afterward (tests 19+).
 
 const assert = require('assert');
 
@@ -26,25 +28,49 @@ function paymentMethodLabel(key) {
   return key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Other';
 }
 
-function expandBillToPaymentTransactions(bill) {
-  if (!bill || !bill.billId) return [];
-  let breakdown = bill.paymentBreakdown;
+function round2(n) {
+  return Math.round((parseFloat(n) || 0) * 100) / 100;
+}
+
+// Credit-repayment settlement math (mirrors dist/assets/index-doBKNLAj.js's
+// computeCreditSettlement — keep in sync). Never mutates `bill`.
+function computeCreditSettlement(bill) {
+  let breakdown = bill && bill.paymentBreakdown;
   if (!breakdown || typeof breakdown !== 'object') {
-    // Legacy bill, or a Split bill synced cross-terminal via the cloud only (its
-    // paymentBreakdown never reached Supabase — see createSale) — "Split" itself
-    // must never become a fake payment-method bucket.
     breakdown = bill.paymentMode === 'Credit'
       ? { credit: bill.totalAmount || 0 }
       : bill.paymentMode === 'Split'
         ? { unspecified: bill.totalAmount || 0 }
         : { [bill.paymentMode || 'Cash']: bill.totalAmount || 0 };
   }
+  const originalCredit = round2(breakdown.credit);
+  const collectedAtCheckout = round2(Object.keys(breakdown).reduce(
+    (sum, k) => (String(k).toLowerCase() === 'credit' ? sum : sum + (parseFloat(breakdown[k]) || 0)), 0,
+  ));
+  const repayments = (Array.isArray(bill.creditRepayments) ? bill.creditRepayments : []).filter((r) => r && parseFloat(r.amount) > 0);
+  const totalRepaid = round2(repayments.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0));
+  const outstanding = round2(Math.max(0, originalCredit - totalRepaid));
+  let status;
+  if (originalCredit <= 0) status = bill.paymentStatus === 'Credit' ? 'Pending/Unpaid' : (bill.paymentStatus || 'Paid');
+  else if (outstanding <= 0) status = 'Paid';
+  else if (collectedAtCheckout > 0 || totalRepaid > 0) status = 'Partially Paid';
+  else status = 'Pending/Unpaid';
+  const latestPaymentDate = repayments.reduce(
+    (latest, r) => (r.date && (!latest || new Date(r.date) > new Date(latest)) ? r.date : latest), null,
+  ) || bill.date;
+  return { breakdown, originalCredit, collectedAtCheckout, repayments, totalRepaid, outstanding, status, latestPaymentDate };
+}
+
+function expandBillToPaymentTransactions(bill) {
+  if (!bill || !bill.billId) return [];
+  const settlement = computeCreditSettlement(bill);
+  const breakdown = settlement.breakdown;
   const paymentType = bill.paymentMode === 'Split' ? 'Split' : 'Single';
-  const rawStatus = bill.paymentStatus || (bill.paymentMode === 'Credit' ? 'Credit' : 'Paid');
-  const billStatus = rawStatus === 'Credit' ? 'Pending/Unpaid' : rawStatus;
+  const billStatus = settlement.status;
   const rows = [];
   Object.keys(breakdown).forEach((key) => {
-    const amount = parseFloat(breakdown[key]) || 0;
+    const isCreditKey = String(key).toLowerCase() === 'credit';
+    const amount = isCreditKey ? settlement.outstanding : (parseFloat(breakdown[key]) || 0);
     if (amount <= 0) return;
     rows.push({
       billId: bill.billId,
@@ -52,12 +78,32 @@ function expandBillToPaymentTransactions(bill) {
       date: bill.date,
       patientName: bill.patientName || 'Walk-in Patient',
       method: paymentMethodLabel(key),
-      isCredit: String(key).toLowerCase() === 'credit',
+      isCredit: isCreditKey,
+      isRepayment: false,
       amount,
       billStatus,
       paymentType,
       recordedBy: bill.recordedBy || null,
       reference: bill.paymentReference || null,
+    });
+  });
+  settlement.repayments.forEach((rp, idx) => {
+    const amount = round2(rp.amount);
+    if (amount <= 0) return;
+    rows.push({
+      billId: bill.billId,
+      billTotal: bill.totalAmount || 0,
+      date: rp.date || bill.date,
+      patientName: bill.patientName || 'Walk-in Patient',
+      method: paymentMethodLabel(rp.method),
+      isCredit: false,
+      isRepayment: true,
+      repaymentId: rp.id || `${bill.billId}-repayment-${idx}`,
+      amount,
+      billStatus,
+      paymentType: 'Single',
+      recordedBy: rp.recordedBy || null,
+      reference: rp.reference || null,
     });
   });
   return rows;
@@ -273,6 +319,114 @@ test('18. Cross-terminal Split bill with no local paymentBreakdown never reports
   assert.strictEqual(rows[0].method, 'Other (split detail unavailable)');
   const summary = computePaymentSummary(rows);
   assert.strictEqual(summary.otherCollection, 300, 'must fall into Other, not silently vanish or double up elsewhere');
+});
+
+// ---- Credit Repayment / Settlement scenarios ----
+
+// 19. Regression guard: a Split bill that collected SOME money at checkout
+// (Cash+UPI) with a Credit remainder must show "Partially Paid" even with
+// ZERO repayments made since — it must NOT be downgraded to "Pending/Unpaid"
+// just because no repayment transaction exists yet.
+test('19. Split bill partially paid at checkout (no repayments yet) stays "Partially Paid"', () => {
+  const b = bill({ paymentMode: 'Split', totalAmount: 1000, paymentStatus: 'Partially Paid', paymentBreakdown: { cash: 500, upi: 300, credit: 200 } });
+  const settlement = computeCreditSettlement(b);
+  assert.strictEqual(settlement.status, 'Partially Paid');
+  assert.strictEqual(settlement.outstanding, 200);
+  const rows = expandBillToPaymentTransactions(b);
+  assert.strictEqual(rows.find((r) => r.isCredit).billStatus, 'Partially Paid');
+});
+
+// 20. Exact worked example from the spec: Original 1203, repayment 500 ->
+// remaining 703, status "Partially Paid".
+test('20. Partial credit repayment (Original 1203, pay 500, remaining 703)', () => {
+  const b = bill({ paymentMode: 'Credit', totalAmount: 1203, paymentStatus: 'Credit', paymentBreakdown: { credit: 1203 },
+    creditRepayments: [{ id: 'PMT-1', amount: 500, method: 'cash', reference: null, date: '2026-09-10T10:00:00.000Z', recordedBy: 'a@b.com' }] });
+  const settlement = computeCreditSettlement(b);
+  assert.strictEqual(settlement.outstanding, 703);
+  assert.strictEqual(settlement.status, 'Partially Paid');
+  assert.strictEqual(settlement.totalRepaid, 500);
+});
+
+// 21. Full settlement -> status automatically becomes "Paid", balance 0.
+test('21. Full credit repayment settles the bill (status -> Paid, balance -> 0)', () => {
+  const b = bill({ paymentMode: 'Credit', totalAmount: 1203, paymentStatus: 'Credit', paymentBreakdown: { credit: 1203 },
+    creditRepayments: [{ id: 'PMT-1', amount: 703, method: 'upi', date: '2026-09-10T10:00:00.000Z' }, { id: 'PMT-2', amount: 500, method: 'cash', date: '2026-09-11T10:00:00.000Z' }] });
+  const settlement = computeCreditSettlement(b);
+  assert.strictEqual(settlement.outstanding, 0);
+  assert.strictEqual(settlement.status, 'Paid');
+  const rows = expandBillToPaymentTransactions(b);
+  assert.ok(!rows.some((r) => r.isCredit), 'no outstanding-Credit row should remain once fully settled');
+});
+
+// 22. Multiple repayments are an append-only audit trail: every one of them
+// remains its own individually traceable transaction row — never merged,
+// never overwritten, and the ORIGINAL paymentBreakdown is untouched.
+test('22. Multiple repayments each remain a separate, traceable transaction', () => {
+  const originalBreakdown = { credit: 2000 };
+  const b = bill({ paymentMode: 'Credit', totalAmount: 2000, paymentStatus: 'Credit', paymentBreakdown: originalBreakdown,
+    creditRepayments: [
+      { id: 'PMT-1', amount: 800, method: 'cash', reference: 'RCPT-1', date: '2026-09-01T09:00:00.000Z', recordedBy: 'staff1@vhc.com' },
+      { id: 'PMT-2', amount: 700, method: 'upi', reference: 'UPI-REF-2', date: '2026-09-05T09:00:00.000Z', recordedBy: 'staff2@vhc.com' },
+    ] });
+  const rows = expandBillToPaymentTransactions(b);
+  const repaymentRows = rows.filter((r) => r.isRepayment);
+  assert.strictEqual(repaymentRows.length, 2, 'each repayment must be its own row');
+  assert.deepStrictEqual(repaymentRows.map((r) => r.reference).sort(), ['RCPT-1', 'UPI-REF-2']);
+  assert.deepStrictEqual(repaymentRows.map((r) => r.recordedBy).sort(), ['staff1@vhc.com', 'staff2@vhc.com']);
+  // The original bill's paymentBreakdown object must never be mutated by settlement math.
+  assert.deepStrictEqual(b.paymentBreakdown, { credit: 2000 });
+  assert.strictEqual(computeCreditSettlement(b).outstanding, 500);
+});
+
+// 23. Defensive floor: outstanding must never go negative even if repayment
+// data somehow sums to more than the original credit (should not happen once
+// the UI enforces "cannot exceed outstanding balance", but the pure math must
+// still be safe against it).
+test('23. Outstanding balance floors at 0, never goes negative', () => {
+  const b = bill({ paymentMode: 'Credit', totalAmount: 100, paymentStatus: 'Credit', paymentBreakdown: { credit: 100 },
+    creditRepayments: [{ id: 'PMT-1', amount: 60, method: 'cash' }, { id: 'PMT-2', amount: 60, method: 'cash' }] });
+  const settlement = computeCreditSettlement(b);
+  assert.strictEqual(settlement.outstanding, 0);
+  assert.strictEqual(settlement.status, 'Paid');
+});
+
+// 24. Latest Payment Date reflects the most recent repayment activity, not
+// the original bill/checkout date, once repayments exist.
+test('24. Latest Payment Date reflects the most recent repayment', () => {
+  const b = bill({ date: '2026-08-01T00:00:00.000Z', paymentMode: 'Credit', totalAmount: 500, paymentStatus: 'Credit', paymentBreakdown: { credit: 500 },
+    creditRepayments: [{ id: 'PMT-1', amount: 200, method: 'cash', date: '2026-08-15T00:00:00.000Z' }, { id: 'PMT-2', amount: 100, method: 'cash', date: '2026-09-01T00:00:00.000Z' }] });
+  assert.strictEqual(computeCreditSettlement(b).latestPaymentDate, '2026-09-01T00:00:00.000Z');
+});
+test('24b. Latest Payment Date falls back to the bill date when there are no repayments', () => {
+  const b = bill({ date: '2026-08-01T00:00:00.000Z', paymentMode: 'Credit', totalAmount: 500, paymentStatus: 'Credit', paymentBreakdown: { credit: 500 } });
+  assert.strictEqual(computeCreditSettlement(b).latestPaymentDate, '2026-08-01T00:00:00.000Z');
+});
+
+// 25. Collection summary picks up repayments automatically: a repayment made
+// via UPI must count toward UPI/Total Collected, and outstanding must shrink
+// by exactly that amount — Total Billing (the invoice total) never changes.
+test('25. Repayments flow into the collection summary correctly', () => {
+  const b = bill({ paymentMode: 'Credit', totalAmount: 1000, paymentStatus: 'Credit', paymentBreakdown: { credit: 1000 },
+    creditRepayments: [{ id: 'PMT-1', amount: 400, method: 'upi', date: '2026-09-10T00:00:00.000Z' }] });
+  const rows = expandBillToPaymentTransactions(b);
+  const summary = computePaymentSummary(rows);
+  assert.strictEqual(summary.totalBilling, 1000, 'invoice total must never change because of a repayment');
+  assert.strictEqual(summary.upiCollection, 400);
+  assert.strictEqual(summary.totalCollected, 400);
+  assert.strictEqual(summary.outstandingTotal, 600);
+  assert.strictEqual(summary.totalCollected + summary.outstandingTotal, 1000);
+});
+
+// 26. A repayment against a bill never affects any OTHER bill's totals.
+test('26. Repayments are isolated to their own bill only', () => {
+  const paid = bill({ billId: 'B-OTHER', paymentMode: 'Cash', totalAmount: 300, paymentBreakdown: { Cash: 300 } });
+  const credit = bill({ billId: 'B-CREDIT', paymentMode: 'Credit', totalAmount: 1000, paymentStatus: 'Credit', paymentBreakdown: { credit: 1000 },
+    creditRepayments: [{ id: 'PMT-1', amount: 1000, method: 'cash', date: '2026-09-10T00:00:00.000Z' }] });
+  const rows = [...expandBillToPaymentTransactions(paid), ...expandBillToPaymentTransactions(credit)];
+  const summary = computePaymentSummary(rows);
+  assert.strictEqual(summary.totalBilling, 1300);
+  assert.strictEqual(summary.totalCollected, 1300, 'the other bill\'s Cash payment plus the fully-repaid credit bill');
+  assert.strictEqual(summary.outstandingTotal, 0);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

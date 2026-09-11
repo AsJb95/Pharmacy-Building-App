@@ -61416,22 +61416,20 @@ function paymentMethodLabel(key) {
   if (k === `unspecified`) return `Other (split detail unavailable)`;
   return key ? key.charAt(0).toUpperCase() + key.slice(1) : `Other`;
 }
-// One bill -> one row per non-zero payment method actually in its breakdown
-// (Cash/UPI/Card/Other = money that moved; Credit = the outstanding portion,
-// never "collected"). This is exactly what makes a two- or three-method split
-// payment show as separate, individually traceable rows instead of one
-// combined figure, and is the sole source both the transaction table and the
-// collection summary read from — so a row can never be counted in one and
-// missed in the other.
-function expandBillToPaymentTransactions(bill) {
-  if (!bill || !bill.billId) return [];
-  let breakdown = bill.paymentBreakdown;
+function round2(n) {
+  return Math.round((parseFloat(n) || 0) * 100) / 100;
+}
+// Credit-repayment settlement math — pure, no hooks/DOM (mirrored in
+// test/payments-report.test.cjs, keep in sync if this changes). NEVER mutates
+// `bill` and NEVER overwrites the ORIGINAL paymentBreakdown / amountReceived /
+// outstandingAmount fields ae() wrote at checkout — those stay untouched
+// forever. A later repayment is layered on top via bill.creditRepayments, an
+// append-only array of {id, amount, method, reference, date, recordedBy}
+// entries, so the full history is always reconstructable and no earlier
+// transaction can be silently altered (see the Credit Settlement feature).
+function computeCreditSettlement(bill) {
+  let breakdown = bill && bill.paymentBreakdown;
   if (!breakdown || typeof breakdown !== `object`) {
-    // Legacy bill, or a Split bill that reached this terminal only via the cloud
-    // (createSale's payload never included paymentBreakdown, so a cross-terminal
-    // sync can't reconstruct it) — "Split" itself is never a real payment method,
-    // so it must not become a fake bucket named "Split" the way the other modes
-    // safely become their own name.
     breakdown =
       bill.paymentMode === `Credit`
         ? { credit: bill.totalAmount || 0 }
@@ -61439,12 +61437,51 @@ function expandBillToPaymentTransactions(bill) {
           ? { unspecified: bill.totalAmount || 0 }
           : { [bill.paymentMode || `Cash`]: bill.totalAmount || 0 };
   }
-  let paymentType = bill.paymentMode === `Split` ? `Split` : `Single`,
-    rawStatus = bill.paymentStatus || (bill.paymentMode === `Credit` ? `Credit` : `Paid`),
-    billStatus = rawStatus === `Credit` ? `Pending/Unpaid` : rawStatus,
+  let originalCredit = round2(breakdown.credit),
+    collectedAtCheckout = round2(
+      Object.keys(breakdown).reduce(
+        (sum, k) => (String(k).toLowerCase() === `credit` ? sum : sum + (parseFloat(breakdown[k]) || 0)),
+        0,
+      ),
+    ),
+    repayments = (Array.isArray(bill.creditRepayments) ? bill.creditRepayments : []).filter((r) => r && parseFloat(r.amount) > 0),
+    totalRepaid = round2(repayments.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0)),
+    outstanding = round2(Math.max(0, originalCredit - totalRepaid)),
+    status;
+  if (originalCredit <= 0)
+    // No credit portion at all — nothing to settle, status was decided at checkout.
+    status = bill.paymentStatus === `Credit` ? `Pending/Unpaid` : bill.paymentStatus || `Paid`;
+  else if (outstanding <= 0) status = `Paid`;
+  // "Partially Paid" whenever SOME money has moved — either collected via
+  // another method at checkout (a Split bill) or via a repayment made since —
+  // never just because a repayment hasn't happened yet.
+  else if (collectedAtCheckout > 0 || totalRepaid > 0) status = `Partially Paid`;
+  else status = `Pending/Unpaid`;
+  let latestPaymentDate = repayments.reduce(
+    (latest, r) => (r.date && (!latest || new Date(r.date) > new Date(latest)) ? r.date : latest),
+    null,
+  ) || bill.date;
+  return { breakdown, originalCredit, collectedAtCheckout, repayments, totalRepaid, outstanding, status, latestPaymentDate };
+}
+// One bill -> one row per non-zero payment method actually in its breakdown
+// (Cash/UPI/Card/Other = money that moved; Credit = the CURRENT remaining
+// outstanding balance after any repayments, never "collected") -- plus one
+// additional row per credit-repayment transaction recorded since. This is
+// exactly what makes a two- or three-method split payment, and every later
+// repayment against a credit bill, show up as separate, individually
+// traceable rows instead of one combined figure, and is the sole source both
+// the transaction table and the collection summary read from — so a row can
+// never be counted in one and missed in the other.
+function expandBillToPaymentTransactions(bill) {
+  if (!bill || !bill.billId) return [];
+  let settlement = computeCreditSettlement(bill),
+    breakdown = settlement.breakdown,
+    paymentType = bill.paymentMode === `Split` ? `Split` : `Single`,
+    billStatus = settlement.status,
     rows = [];
   Object.keys(breakdown).forEach((key) => {
-    let amount = parseFloat(breakdown[key]) || 0;
+    let isCreditKey = String(key).toLowerCase() === `credit`,
+      amount = isCreditKey ? settlement.outstanding : parseFloat(breakdown[key]) || 0;
     if (amount <= 0) return;
     rows.push({
       billId: bill.billId,
@@ -61452,12 +61489,32 @@ function expandBillToPaymentTransactions(bill) {
       date: bill.date,
       patientName: bill.patientName || `Walk-in Patient`,
       method: paymentMethodLabel(key),
-      isCredit: String(key).toLowerCase() === `credit`,
+      isCredit: isCreditKey,
+      isRepayment: !1,
       amount,
       billStatus,
       paymentType,
       recordedBy: bill.recordedBy || null,
       reference: bill.paymentReference || null,
+    });
+  });
+  settlement.repayments.forEach((rp, idx) => {
+    let amount = round2(rp.amount);
+    if (amount <= 0) return;
+    rows.push({
+      billId: bill.billId,
+      billTotal: bill.totalAmount || 0,
+      date: rp.date || bill.date,
+      patientName: bill.patientName || `Walk-in Patient`,
+      method: paymentMethodLabel(rp.method),
+      isCredit: !1,
+      isRepayment: !0,
+      repaymentId: rp.id || `${bill.billId}-repayment-${idx}`,
+      amount,
+      billStatus,
+      paymentType: `Single`,
+      recordedBy: rp.recordedBy || null,
+      reference: rp.reference || null,
     });
   });
   return rows;
@@ -61508,7 +61565,7 @@ function paymentStatusColor(status) {
   if (status === `Partially Paid`) return { bg: `#fffbeb`, fg: `#b45309` };
   return { bg: `#fef2f2`, fg: `#dc2626` };
 }
-function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill }) {
+function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill, onSettleBill }) {
   let cards = [
     { label: `Total Billing`, value: summary.totalBilling, color: `var(--text-primary)` },
     { label: `Total Collected`, value: summary.totalCollected, color: `var(--money-pos)` },
@@ -61608,31 +61665,59 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
                       (0, J.jsx)(`th`, { children: `Status` }),
                       (0, J.jsx)(`th`, { children: `Type` }),
                       (0, J.jsx)(`th`, { children: `Recorded By` }),
+                      (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Action` }),
                     ],
                   }),
                 }),
                 (0, J.jsx)(`tbody`, {
                   children: transactions.length > 0
                     ? transactions.map((t, idx) => {
-                        let statusColors = paymentStatusColor(t.billStatus);
+                        let statusColors = paymentStatusColor(t.billStatus),
+                          // A bill can be settled from any of its rows once it still
+                          // owes money — not just from its own Credit/outstanding row —
+                          // since that's the one most naturally clicked from the table.
+                          canSettle = t.billStatus !== `Paid` && (t.isCredit ? t.amount > 0 : true);
                         return (0, J.jsxs)(`tr`, {
-                          key: `${t.billId}-${t.method}-${idx}`,
+                          key: `${t.billId}-${t.method}-${idx}${t.isRepayment ? `-rp` : ``}`,
                           style: { cursor: `pointer` },
                           onClick: () => onSelectBill(t.billId),
                           children: [
                             (0, J.jsx)(`td`, { style: { color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: t.date ? new Date(t.date).toLocaleString() : `—` }),
                             (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: `var(--text-primary)` }, children: t.billId }),
                             (0, J.jsx)(`td`, { children: t.patientName }),
-                            (0, J.jsx)(`td`, { style: { fontWeight: `700`, color: t.isCredit ? `var(--danger-hover)` : `var(--text-primary)` }, children: t.method }),
+                            (0, J.jsxs)(`td`, {
+                              style: { fontWeight: `700`, color: t.isCredit ? `var(--danger-hover)` : `var(--text-primary)` },
+                              children: [
+                                t.method,
+                                t.isRepayment &&
+                                  (0, J.jsx)(`span`, {
+                                    style: { marginLeft: `0.4rem`, fontSize: `0.68rem`, fontWeight: `800`, color: `var(--money-pos)`, background: `var(--success-light)`, padding: `0.05rem 0.4rem`, borderRadius: `99px`, verticalAlign: `middle` },
+                                    children: `↩ Repayment`,
+                                  }),
+                              ],
+                            }),
                             (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: t.isCredit ? `var(--danger-hover)` : `var(--money-pos)` }, children: t.amount.toFixed(2) }),
                             (0, J.jsx)(`td`, { style: { color: `var(--text-faint)` }, children: t.reference || `—` }),
                             (0, J.jsx)(`td`, { children: (0, J.jsx)(`span`, { style: { background: statusColors.bg, color: statusColors.fg, fontWeight: `800`, fontSize: `0.72rem`, padding: `0.15rem 0.55rem`, borderRadius: `99px` }, children: t.billStatus }) }),
                             (0, J.jsx)(`td`, { style: { color: `var(--text-secondary)` }, children: t.paymentType }),
                             (0, J.jsx)(`td`, { style: { color: `var(--text-faint)` }, children: t.recordedBy || `—` }),
+                            (0, J.jsx)(`td`, {
+                              style: { textAlign: `center` },
+                              children: canSettle
+                                ? (0, J.jsx)(`button`, {
+                                    type: `button`,
+                                    className: `btn`,
+                                    style: { padding: `0.25rem 0.6rem`, fontSize: `0.72rem`, background: `var(--accent-light)`, color: `var(--accent-strong)`, fontWeight: `800`, whiteSpace: `nowrap` },
+                                    title: `Record a repayment against this credit bill`,
+                                    onClick: (evt) => { evt.stopPropagation(); onSettleBill(t.billId); },
+                                    children: `💳 Settle`,
+                                  })
+                                : (0, J.jsx)(`span`, { style: { color: `var(--text-faint)` }, children: `—` }),
+                            }),
                           ],
                         });
                       })
-                    : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `9`, className: `text-center text-secondary py-4`, children: `No payment transactions match the current filters.` }) }),
+                    : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `10`, className: `text-center text-secondary py-4`, children: `No payment transactions match the current filters.` }) }),
                 }),
               ],
             }),
@@ -61642,9 +61727,168 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
     ],
   });
 }
+// Credit Settlement modal — presentation + local form state only, same split
+// as PaymentsReportPanel above: all persistence, validation-against-fresh-data,
+// and audit logging happens in the caller's onSubmit (a_()), which re-reads the
+// bill from localStorage right before writing so this can never race against a
+// stale in-memory balance. Never lets the amount exceed the outstanding
+// balance shown, and never edits an existing repayment — it only appends one.
+function CreditSettlementModal({ bill, recordedByLabel, notify, onClose, onSubmit }) {
+  let [amountInput, setAmountInput] = (0, _.useState)(``),
+    [method, setMethod] = (0, _.useState)(`cash`),
+    [reference, setReference] = (0, _.useState)(``),
+    [submitting, setSubmitting] = (0, _.useState)(!1);
+  if (!bill) return null;
+  let settlement = computeCreditSettlement(bill),
+    paidSoFar = round2((bill.totalAmount || 0) - settlement.outstanding),
+    amountVal = parseFloat(amountInput) || 0,
+    overAmount = amountVal > settlement.outstanding + 0.004,
+    submit = async () => {
+      if (submitting) return;
+      if (!amountInput || amountVal <= 0) {
+        notify(`Please enter a valid payment amount.`, `warning`);
+        return;
+      }
+      if (overAmount) {
+        notify(`Payment amount cannot exceed the outstanding balance.`, `warning`);
+        return;
+      }
+      setSubmitting(!0);
+      try {
+        await onSubmit({ amount: round2(amountVal), method, reference: reference.trim() });
+      } finally {
+        setSubmitting(!1);
+      }
+    };
+  return (0, J.jsx)(`div`, {
+    className: `modal-overlay`,
+    onClick: () => !submitting && onClose(),
+    children: (0, J.jsxs)(`div`, {
+      className: `modal-content glass-panel animate-fade-in`,
+      onClick: (evt) => evt.stopPropagation(),
+      style: { maxWidth: `440px`, padding: `1.5rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` },
+      children: [
+        (0, J.jsxs)(`div`, {
+          className: `flex-between mb-4`,
+          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem` },
+          children: [
+            (0, J.jsxs)(`div`, {
+              children: [
+                (0, J.jsx)(`h3`, { style: { margin: 0 }, children: `💳 Record Credit Payment` }),
+                (0, J.jsxs)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: [`Bill #`, bill.billId, ` · `, bill.patientName || `Walk-in Patient`] }),
+              ],
+            }),
+            (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, disabled: submitting, children: `✕` }),
+          ],
+        }),
+        (0, J.jsxs)(`div`, {
+          style: { display: `grid`, gridTemplateColumns: `1fr 1fr`, gap: `0.5rem 1rem`, padding: `0.25rem 0 1rem`, fontSize: `0.85rem` },
+          children: [
+            (0, J.jsx)(`div`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Original Bill Amount` }),
+            (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontWeight: `800` }, children: [`₹`, (bill.totalAmount || 0).toFixed(2)] }),
+            (0, J.jsx)(`div`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Already Paid` }),
+            (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontWeight: `800`, color: `var(--money-pos)` }, children: [`₹`, paidSoFar.toFixed(2)] }),
+            (0, J.jsx)(`div`, { style: { color: `var(--text-soft)`, fontWeight: `700` }, children: `Outstanding Balance` }),
+            (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontWeight: `800`, color: `var(--danger-hover)` }, children: [`₹`, settlement.outstanding.toFixed(2)] }),
+          ],
+        }),
+        settlement.outstanding <= 0
+          ? (0, J.jsx)(`div`, {
+              style: { padding: `1rem`, textAlign: `center`, color: `var(--money-pos)`, fontWeight: `700`, background: `var(--success-light)`, borderRadius: `10px` },
+              children: `✓ This bill is already fully paid — nothing left to settle.`,
+            })
+          : (0, J.jsxs)(J.Fragment, {
+              children: [
+                (0, J.jsxs)(`div`, {
+                  className: `input-group`,
+                  children: [
+                    (0, J.jsxs)(`label`, { className: `input-label`, children: [`Payment Amount (max ₹`, settlement.outstanding.toFixed(2), `)`] }),
+                    (0, J.jsx)(`input`, {
+                      type: `number`, step: `0.01`, min: `0`, max: settlement.outstanding,
+                      className: `input-field`, placeholder: `0.00`,
+                      value: amountInput,
+                      onChange: (e) => setAmountInput(e.target.value),
+                      style: overAmount ? { borderColor: `var(--danger-hover)` } : void 0,
+                    }),
+                    overAmount &&
+                      (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--danger-hover)`, fontWeight: `700`, marginTop: `0.2rem` }, children: `Cannot exceed the outstanding balance.` }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  style: { display: `flex`, gap: `0.75rem` },
+                  children: [
+                    (0, J.jsxs)(`div`, {
+                      className: `input-group`,
+                      style: { flex: 1 },
+                      children: [
+                        (0, J.jsx)(`label`, { className: `input-label`, children: `Payment Method` }),
+                        (0, J.jsxs)(`select`, {
+                          className: `input-field`, value: method, onChange: (e) => setMethod(e.target.value),
+                          children: [
+                            (0, J.jsx)(`option`, { value: `cash`, children: `Cash` }),
+                            (0, J.jsx)(`option`, { value: `upi`, children: `UPI` }),
+                            (0, J.jsx)(`option`, { value: `card`, children: `Card` }),
+                            (0, J.jsx)(`option`, { value: `other`, children: `Other` }),
+                          ],
+                        }),
+                      ],
+                    }),
+                    (0, J.jsxs)(`div`, {
+                      className: `input-group`,
+                      style: { flex: 1 },
+                      children: [
+                        (0, J.jsx)(`label`, { className: `input-label`, children: `Reference / Txn No. (optional)` }),
+                        (0, J.jsx)(`input`, { type: `text`, className: `input-field`, placeholder: `e.g. UPI ref / receipt no.`, value: reference, onChange: (e) => setReference(e.target.value) }),
+                      ],
+                    }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  style: { fontSize: `0.78rem`, color: `var(--text-faint)`, marginBottom: `1rem` },
+                  children: [`Payment Date & Time: `, new Date().toLocaleString(), ` (now) · Recorded By: `, recordedByLabel || `— (not signed in)`],
+                }),
+              ],
+            }),
+        settlement.repayments.length > 0 &&
+          (0, J.jsxs)(`div`, {
+            style: { marginBottom: `1rem`, paddingTop: `0.75rem`, borderTop: `1px dashed var(--border)` },
+            children: [
+              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `var(--text-heading)`, textTransform: `uppercase`, letterSpacing: `0.04em`, marginBottom: `0.4rem` }, children: `Previous Repayments` }),
+              ...settlement.repayments.map((rp, idx) =>
+                (0, J.jsxs)(`div`, {
+                  key: rp.id || idx,
+                  style: { display: `flex`, justifyContent: `space-between`, fontSize: `0.8rem`, padding: `0.15rem 0` },
+                  children: [
+                    (0, J.jsxs)(`span`, { style: { color: `var(--text-secondary)` }, children: [rp.date ? new Date(rp.date).toLocaleString() : `—`, ` · `, paymentMethodLabel(rp.method)] }),
+                    (0, J.jsxs)(`span`, { style: { fontWeight: `700`, color: `var(--money-pos)` }, children: [`₹`, round2(rp.amount).toFixed(2)] }),
+                  ],
+                }),
+              ),
+            ],
+          }),
+        settlement.outstanding > 0 &&
+          (0, J.jsxs)(`div`, {
+            className: `flex-between`,
+            style: { gap: `0.75rem` },
+            children: [
+              (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, style: { flex: 1 }, onClick: onClose, disabled: submitting, children: `Cancel` }),
+              (0, J.jsx)(`button`, {
+                type: `button`,
+                className: `btn btn-primary`,
+                style: { flex: 1 },
+                disabled: submitting || !amountInput || amountVal <= 0 || overAmount,
+                onClick: submit,
+                children: submitting ? `Saving…` : `Record Payment`,
+              }),
+            ],
+          }),
+      ],
+    }),
+  });
+}
 function a_() {
   let { settings: e } = Ir(),
-    { inventory: reportsInventory, updateItemsBulk: reportsUpdateItemsBulk } = Vr(),
+    { inventory: reportsInventory, updateItemsBulk: reportsUpdateItemsBulk, addLog: reportsAddLog } = Vr(),
     t = Th(),
     confirmAction = Eh(),
     [n, r] = (0, _.useState)([]),
@@ -61670,6 +61914,11 @@ function a_() {
     [paymentStatusFilter, setPaymentStatusFilter] = (0, _.useState)(`all`),
     [paymentTypeFilter, setPaymentTypeFilter] = (0, _.useState)(`all`),
     [selectedPaymentBill, setSelectedPaymentBill] = (0, _.useState)(null),
+    // Credit Settlement — separate from selectedPaymentBill (the read-only
+    // details modal) so "view details" and "record a repayment" stay two
+    // distinct, individually reachable actions per the spec.
+    [settleBill, setSettleBill] = (0, _.useState)(null),
+    [settleRecordedByLabel, setSettleRecordedByLabel] = (0, _.useState)(null),
     T = () => {
       a(!0);
       let e = [];
@@ -61704,6 +61953,105 @@ function a_() {
       () => window.removeEventListener(`vhc-cloud-change`, onCloudChange)
     );
   }, []);
+  // Who is signed in right now, resolved once whenever the settlement modal opens —
+  // shown in the modal so "Recorded By" is visible before the user even submits.
+  // Reads the already-cached local session (no network round trip); the actual
+  // save re-resolves it again at submit time for the record itself.
+  (0, _.useEffect)(() => {
+    if (!settleBill) {
+      setSettleRecordedByLabel(null);
+      return;
+    }
+    let cancelled = !1;
+    (async () => {
+      try {
+        let session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
+        cancelled || setSettleRecordedByLabel((session && session.user && session.user.email) || null);
+      } catch {
+        cancelled || setSettleRecordedByLabel(null);
+      }
+    })();
+    return () => {
+      cancelled = !0;
+    };
+  }, [settleBill]);
+  // Records one credit repayment as its OWN append-only transaction — never
+  // overwrites the bill's original paymentBreakdown/amountReceived/
+  // outstandingAmount (recorded at checkout) and never edits a previous
+  // repayment. Re-reads the bill fresh from localStorage right before
+  // validating/writing (same defensive pattern as handleDeleteBill below) so
+  // the "cannot exceed outstanding balance" check is always against the
+  // latest known balance, not a possibly-stale value already on screen.
+  let handleRecordCreditPayment = async ({ amount, method, reference }) => {
+    if (!settleBill || !settleBill.billId) return;
+    try {
+      let persisted = [];
+      try {
+        let raw = localStorage.getItem(`vhc_pos_sales_history`);
+        if (raw) persisted = JSON.parse(raw);
+      } catch {}
+      if (!Array.isArray(persisted)) persisted = [];
+      let idx = persisted.findIndex((b) => b && b.billId === settleBill.billId);
+      if (idx === -1) {
+        t(`Bill ${settleBill.billId} could not be found — it may have been deleted.`, `error`);
+        return;
+      }
+      let freshBill = persisted[idx],
+        before = computeCreditSettlement(freshBill);
+      if (before.outstanding <= 0) {
+        t(`This bill is already fully paid — nothing left to settle.`, `warning`);
+        setSettleBill(null);
+        return;
+      }
+      let amt = round2(amount);
+      if (!amt || amt <= 0) {
+        t(`Please enter a valid payment amount.`, `warning`);
+        return;
+      }
+      if (amt > before.outstanding + 0.004) {
+        t(`Payment amount cannot exceed the outstanding balance.`, `warning`);
+        return;
+      }
+      let recordedByEmail = null;
+      try {
+        let session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
+        recordedByEmail = (session && session.user && session.user.email) || null;
+      } catch {}
+      let repaymentEntry = {
+          id: `PMT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          amount: amt,
+          method: method || `cash`,
+          reference: reference || null,
+          date: new Date().toISOString(),
+          recordedBy: recordedByEmail,
+        },
+        updatedBill = {
+          ...freshBill,
+          creditRepayments: [...(Array.isArray(freshBill.creditRepayments) ? freshBill.creditRepayments : []), repaymentEntry],
+        },
+        updatedPersisted = persisted.slice();
+      updatedPersisted[idx] = updatedBill;
+      localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(updatedPersisted));
+      let after = computeCreditSettlement(updatedBill);
+      reportsAddLog(
+        `CREDIT_REPAYMENT_RECORDED`,
+        `₹${amt.toFixed(2)} via ${paymentMethodLabel(method)} recorded against Bill ${settleBill.billId} (${freshBill.patientName || `Walk-in Patient`}).${repaymentEntry.reference ? ` Ref: ${repaymentEntry.reference}.` : ``} New balance: ₹${after.outstanding.toFixed(2)} (${after.status}). Recorded by ${recordedByEmail || `unknown`}.`,
+      );
+      (r((prev) => (Array.isArray(prev) ? prev.map((b) => (b && b.billId === updatedBill.billId ? updatedBill : b)) : prev)),
+        setSelectedPaymentBill((prev) => (prev && prev.billId === updatedBill.billId ? updatedBill : prev)),
+        window.dispatchEvent(new CustomEvent(`vhc-cloud-change`, { detail: { table: `salesHistory` } })),
+        t(
+          after.status === `Paid`
+            ? `Payment of ₹${amt.toFixed(2)} recorded. Bill ${settleBill.billId} is now fully paid!`
+            : `Payment of ₹${amt.toFixed(2)} recorded. Remaining balance: ₹${after.outstanding.toFixed(2)} (${after.status}).`,
+          `success`,
+        ),
+        setSettleBill(null));
+    } catch (err) {
+      console.error(`Error recording credit repayment:`, err);
+      t(`Failed to record payment: ` + err.message, `error`);
+    }
+  };
   let handleDeleteBill = async (billToDelete) => {
     if (!billToDelete || !billToDelete.billId) return;
     let confirmMsg = "Are you sure you want to remove Bill \"" + billToDelete.billId + "\"?\n\nThis will remove the bill record and return all item quantities back into your inventory stock count.";
@@ -62753,6 +63101,7 @@ function a_() {
                 typeFilter: paymentTypeFilter,
                 setTypeFilter: setPaymentTypeFilter,
                 onSelectBill: (billId) => setSelectedPaymentBill(n.find((bill) => bill.billId === billId) || null),
+                onSettleBill: (billId) => setSettleBill(n.find((bill) => bill.billId === billId) || null),
               })
             : c === `product_wise`
             ? (0, J.jsx)(`div`, { style: { padding: `1rem` }, children: (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1.25rem`, background: `var(--surface)`, borderRadius: `12px`, border: `1px solid var(--panel-border)` }, children: [(0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `1rem`, paddingBottom: `0.75rem`, borderBottom: `1px solid var(--border)` }, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` }, children: `📦 Product-Wise Sale Count & Rate Report` }), (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)`, marginTop: `0.2rem` }, children: `Product names with total sale count, unit rate, and total sales amount` })] }), (0, J.jsxs)(`div`, { style: { textAlign: `right`, fontSize: `0.85rem`, color: `var(--text-secondary)` }, children: [`Total Products: `, (0, J.jsx)(`strong`, { children: (productSalesReportData || []).length })] })] }), (0, J.jsx)(`div`, { className: `table-container`, children: (0, J.jsxs)(`table`, { style: { fontSize: `0.875rem`, width: `100%` }, children: [(0, J.jsx)(`thead`, { children: (0, J.jsxs)(`tr`, { style: { background: `var(--surface-raised)` }, children: [(0, J.jsx)(`th`, { style: { width: `50px` }, children: `#` }), (0, J.jsx)(`th`, { children: `Product Name` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Unit Rate (₹)` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Sale Count` }), (0, J.jsx)(`th`, { style: { textAlign: `center` }, children: `Total Bills` }), (0, J.jsx)(`th`, { style: { textAlign: `right` }, children: `Total Sales Amount (₹)` })] }) }), (0, J.jsx)(`tbody`, { children: (productSalesReportData && productSalesReportData.length > 0) ? productSalesReportData.map((item, idx) => (0, J.jsxs)(`tr`, { key: idx, children: [(0, J.jsx)(`td`, { style: { color: `var(--text-soft)` }, children: idx + 1 }), (0, J.jsx)(`td`, { style: { fontWeight: `600`, color: `var(--text-primary)` }, children: item.productName }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `600`, color: `var(--accent)` }, children: item.unitRate > 0 ? `₹` + item.unitRate.toFixed(2) : `N/A` }), (0, J.jsx)(`td`, { style: { textAlign: `center`, fontWeight: `700`, color: `#059669` }, children: item.saleCount }), (0, J.jsx)(`td`, { style: { textAlign: `center`, color: `var(--text-secondary)` }, children: item.billCount + ` Bills` }), (0, J.jsx)(`td`, { style: { textAlign: `right`, fontWeight: `700`, color: `var(--text-primary)` }, children: `₹` + item.totalAmount.toFixed(2) })] })) : (0, J.jsx)(`tr`, { children: (0, J.jsx)(`td`, { colSpan: `6`, className: `text-center text-secondary py-4`, children: `No matching product records found.` }) }) })] }) })] }) })
@@ -63347,10 +63696,13 @@ function a_() {
             onClick: (evt) => evt.stopPropagation(),
             style: { maxWidth: `440px`, padding: `1.5rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` },
             children: (() => {
-              let rows = expandBillToPaymentTransactions(selectedPaymentBill),
-                collected = rows.filter((r) => !r.isCredit).reduce((sum, r) => sum + r.amount, 0),
-                outstanding = rows.filter((r) => r.isCredit).reduce((sum, r) => sum + r.amount, 0),
-                billStatus = rows[0] ? rows[0].billStatus : (selectedPaymentBill.paymentStatus === `Credit` ? `Pending/Unpaid` : selectedPaymentBill.paymentStatus || `Paid`),
+              let settlement = computeCreditSettlement(selectedPaymentBill),
+                rows = expandBillToPaymentTransactions(selectedPaymentBill),
+                originalRows = rows.filter((r) => !r.isRepayment),
+                repaymentRows = rows.filter((r) => r.isRepayment),
+                collected = round2((selectedPaymentBill.totalAmount || 0) - settlement.outstanding),
+                outstanding = settlement.outstanding,
+                billStatus = settlement.status,
                 statusColors = paymentStatusColor(billStatus);
               return [
                 (0, J.jsxs)(`div`, {
@@ -63381,7 +63733,7 @@ function a_() {
                   style: { padding: `0.75rem 0`, display: `flex`, flexDirection: `column`, gap: `0.5rem` },
                   children: [
                     (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `var(--text-heading)`, textTransform: `uppercase`, letterSpacing: `0.04em` }, children: `Payments` }),
-                    ...rows.map((r, idx) =>
+                    ...originalRows.map((r, idx) =>
                       (0, J.jsxs)(`div`, {
                         key: idx,
                         style: { display: `flex`, justifyContent: `space-between`, fontSize: `0.9rem` },
@@ -63391,10 +63743,34 @@ function a_() {
                         ],
                       }),
                     ),
-                    rows.length === 0 &&
+                    originalRows.length === 0 &&
                       (0, J.jsx)(`div`, { style: { fontSize: `0.85rem`, color: `var(--text-faint)` }, children: `No payment recorded for this bill.` }),
                   ],
                 }),
+                repaymentRows.length > 0 &&
+                  (0, J.jsxs)(`div`, {
+                    key: `repayhistory`,
+                    style: { padding: `0.75rem 0`, borderTop: `1px dashed var(--border)`, display: `flex`, flexDirection: `column`, gap: `0.55rem` },
+                    children: [
+                      (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, fontWeight: `800`, color: `var(--text-heading)`, textTransform: `uppercase`, letterSpacing: `0.04em` }, children: `↩ Repayment History` }),
+                      ...repaymentRows.map((r, idx) =>
+                        (0, J.jsxs)(`div`, {
+                          key: r.repaymentId || idx,
+                          style: { fontSize: `0.85rem`, background: `var(--surface-raised)`, borderRadius: `8px`, padding: `0.5rem 0.65rem` },
+                          children: [
+                            (0, J.jsxs)(`div`, {
+                              className: `flex-between`,
+                              children: [
+                                (0, J.jsx)(`span`, { style: { fontWeight: `700`, color: `var(--text-primary)` }, children: r.method }),
+                                (0, J.jsxs)(`span`, { style: { fontWeight: `800`, color: `var(--money-pos)` }, children: [`₹`, r.amount.toFixed(2)] }),
+                              ],
+                            }),
+                            (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-faint)`, marginTop: `0.15rem` }, children: `${r.date ? new Date(r.date).toLocaleString() : `—`} · Ref: ${r.reference || `—`} · By: ${r.recordedBy || `—`}` }),
+                          ],
+                        }),
+                      ),
+                    ],
+                  }),
                 (0, J.jsxs)(`div`, {
                   key: `paid`,
                   className: `flex-between`,
@@ -63422,11 +63798,21 @@ function a_() {
                     (0, J.jsx)(`span`, { style: { background: statusColors.bg, color: statusColors.fg, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.2rem 0.65rem`, borderRadius: `99px`, textTransform: `uppercase` }, children: billStatus }),
                   ],
                 }),
+                outstanding > 0 &&
+                  (0, J.jsx)(`button`, {
+                    key: `settle-btn`,
+                    type: `button`,
+                    className: `btn btn-primary`,
+                    style: { width: `100%`, marginTop: `0.9rem` },
+                    onClick: () => setSettleBill(selectedPaymentBill),
+                    children: `💳 Record Payment / Settle Credit`,
+                  }),
                 (0, J.jsxs)(`div`, {
                   key: `meta`,
                   style: { marginTop: `0.9rem`, paddingTop: `0.75rem`, borderTop: `1px solid var(--border)`, fontSize: `0.78rem`, color: `var(--text-faint)`, display: `flex`, flexDirection: `column`, gap: `0.2rem` },
                   children: [
                     (0, J.jsxs)(`span`, { children: [`Date & Time: `, selectedPaymentBill.date ? new Date(selectedPaymentBill.date).toLocaleString() : `—`] }),
+                    (0, J.jsxs)(`span`, { children: [`Latest Payment: `, settlement.latestPaymentDate ? new Date(settlement.latestPaymentDate).toLocaleString() : `—`] }),
                     (0, J.jsxs)(`span`, { children: [`Reference / Transaction No.: `, selectedPaymentBill.paymentReference || `— (not recorded for this bill)`] }),
                     (0, J.jsxs)(`span`, { children: [`Recorded By: `, selectedPaymentBill.recordedBy || `— (not recorded for this bill)`] }),
                   ],
@@ -63434,6 +63820,14 @@ function a_() {
               ];
             })(),
           }),
+        }),
+      settleBill &&
+        (0, J.jsx)(CreditSettlementModal, {
+          bill: settleBill,
+          recordedByLabel: settleRecordedByLabel,
+          notify: t,
+          onClose: () => setSettleBill(null),
+          onSubmit: handleRecordCreditPayment,
         }),
     ],
   });
