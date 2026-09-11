@@ -61991,13 +61991,40 @@ function a_() {
         if (raw) persisted = JSON.parse(raw);
       } catch {}
       if (!Array.isArray(persisted)) persisted = [];
-      let idx = persisted.findIndex((b) => b && b.billId === settleBill.billId);
-      if (idx === -1) {
+      let idx = persisted.findIndex((b) => b && b.billId === settleBill.billId),
+        freshBill = idx !== -1 ? persisted[idx] : null;
+      // ROOT CAUSE of "Bill ... could not be found": this device's own
+      // vhc_pos_sales_history only ever contains bills BILLED on this same
+      // terminal. A bill that reached Reports & Financials via the live cloud
+      // sync only (created — or already partly repaid — on a different
+      // terminal; see mergeCloudSalesIntoLocal / bill.fromCloudOnly) is 100%
+      // real and correctly displayed there, but was never mistakenly treated
+      // as "not found" just because idx === -1 above. It is looked up here by
+      // the SAME identifier the UI shows and Supabase actually stores it
+      // under — sales.bill_id (a human-readable business key) — never the
+      // unrelated sales.id UUID primary key, so there is no field-name
+      // mismatch to fix there; the missing piece was simply falling back to
+      // the cloud source of truth instead of stopping at "not in localStorage".
+      if (!freshBill) {
+        let cloudRows = (window.VHC_CLOUD && window.VHC_CLOUD.getSalesHistory && window.VHC_CLOUD.getSalesHistory()) || [],
+          cloudRow = cloudRows.find((row) => row && row.bill_id === settleBill.billId) || null;
+        if (!cloudRow && window.VHC_CLOUD && window.VHC_CLOUD.fetchSalesHistory) {
+          // Not even in the already-loaded cloud cache — refetch once before
+          // concluding it truly doesn't exist (closes the race where it was
+          // created/synced moments ago and hasn't reached this cache yet).
+          try {
+            await window.VHC_CLOUD.fetchSalesHistory();
+          } catch {}
+          cloudRows = (window.VHC_CLOUD.getSalesHistory && window.VHC_CLOUD.getSalesHistory()) || [];
+          cloudRow = cloudRows.find((row) => row && row.bill_id === settleBill.billId) || null;
+        }
+        if (cloudRow) freshBill = mapDbSaleToLocalBill(cloudRow);
+      }
+      if (!freshBill) {
         t(`Bill ${settleBill.billId} could not be found — it may have been deleted.`, `error`);
         return;
       }
-      let freshBill = persisted[idx],
-        before = computeCreditSettlement(freshBill);
+      let before = computeCreditSettlement(freshBill);
       if (before.outstanding <= 0) {
         t(`This bill is already fully paid — nothing left to settle.`, `warning`);
         setSettleBill(null);
@@ -62027,10 +62054,16 @@ function a_() {
         },
         updatedBill = {
           ...freshBill,
+          fromCloudOnly: !1,
           creditRepayments: [...(Array.isArray(freshBill.creditRepayments) ? freshBill.creditRepayments : []), repaymentEntry],
         },
         updatedPersisted = persisted.slice();
-      updatedPersisted[idx] = updatedBill;
+      // idx === -1 means this bill had no local record yet (see the cloud
+      // fallback above) — this is its first local copy on this device, not a
+      // duplicate: the same billId can only ever appear once in
+      // vhc_pos_sales_history, since we already searched for it above.
+      if (idx === -1) updatedPersisted.push(updatedBill);
+      else updatedPersisted[idx] = updatedBill;
       localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(updatedPersisted));
       let after = computeCreditSettlement(updatedBill);
       reportsAddLog(
