@@ -1,3 +1,3 @@
 !macro customInit
-  StrCpy $INSTDIR "$PROGRAMFILES64\VHC Pharmacy"
+  StrCpy $INSTDIR "$PROGRAMFILES64\NHC Pharmacy"
 !macroend

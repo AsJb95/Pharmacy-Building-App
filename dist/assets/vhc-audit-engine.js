@@ -1,4 +1,4 @@
-// VHC Pharmacy POS — Audit Engine & Patient Fix Module v1.1
+// NHC Pharmacy POS — Audit Engine & Patient Fix Module v1.1
 // Loaded via <script> tag in index.html, runs before React
 // This module provides:
 //   1. window.VHC_AUDIT — stock movement audit utilities

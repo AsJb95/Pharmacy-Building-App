@@ -20256,7 +20256,7 @@ ${suffix}`;
   // cloud-src/vhc-cloud-sync.js
   var SUPABASE_URL = "https://yrgtnhvnwkqudxdcrkhm.supabase.co";
   var SUPABASE_ANON_KEY = "sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC";
-  var PHARMACY_LOCATION_NAME = "VHC Pharmacy Counter";
+  var PHARMACY_LOCATION_NAME = "NHC Pharmacy Counter";
   var supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true }
   });

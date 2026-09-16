@@ -16012,7 +16012,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
                   fontWeight: `800`,
                   lineHeight: 1.1,
                 },
-                children: `VARNIKA`,
+                children: `NARPAVI`,
               }),
               (0, J.jsx)(`span`, {
                 style: {
@@ -16248,7 +16248,7 @@ var Fr = (0, _.createContext)(),
   Ir = () => (0, _.useContext)(Fr),
   Lr = ({ children: e }) => {
     let [t, n] = (0, _.useState)({
-      storeName: `VARNIKA HEALTH CARE`,
+      storeName: `NARPAVI HEALTH CARE`,
       tagline: `Fast, accurate billing`,
       contact: `9159998099`,
       drugLicense: ``,
@@ -16660,7 +16660,7 @@ function Wr() {
                   letterSpacing: `-0.02em`,
                   margin: 0,
                 },
-                children: e.storeName || `VARNIKA HEALTH CARE`,
+                children: e.storeName || `NARPAVI HEALTH CARE`,
               }),
               (0, J.jsx)(`p`, {
                 style: {
@@ -16746,7 +16746,7 @@ function Wr() {
           }),
           (0, J.jsx)(`p`, {
             style: { color: `var(--text-soft)`, fontSize: `0.88rem`, margin: 0 },
-            children: `VHC Pharmacy POS is operational. Connected to Live Patient Sync and Telegram Bot integration.`,
+            children: `NHC Pharmacy POS is operational. Connected to Live Patient Sync and Telegram Bot integration.`,
           }),
         ],
       }),
@@ -50825,7 +50825,7 @@ function Dh({
                   onError: (e) => {
                     e.target.style.display = `none`;
                   },
-                  alt: `Varnika Health Care Logo`,
+                  alt: `Narpavi Health Care Logo`,
                   style: {
                     height: `55px`,
                     width: `auto`,
@@ -50837,7 +50837,7 @@ function Dh({
                 (0, J.jsx)(`br`, {}),
                 `====================================`,
                 (0, J.jsx)(`br`, {}),
-                `VARNIKA HEALTH CARE`,
+                `NARPAVI HEALTH CARE`,
                 (0, J.jsx)(`br`, {}),
                 `====================================`,
                 (0, J.jsx)(`br`, {}),
@@ -57104,7 +57104,7 @@ function Lh() {
       return (
         (!Array.isArray(r) || r.length === 0) && (r = n),
         {
-          appName: `VHC Pharmacy POS`,
+          appName: `NHC Pharmacy POS`,
           backupType: t,
           timestamp: new Date().toISOString(),
           formattedDate: new Date().toLocaleString(`en-IN`),
@@ -57755,7 +57755,7 @@ function Lh() {
       setResetSystemConfirmOpen(!1);
       try {
         let backupSnapshot = {
-          appName: `VHC Pharmacy POS Safety Backup`,
+          appName: `NHC Pharmacy POS Safety Backup`,
           timestamp: new Date().toISOString(),
           settings: e,
           patients: (window.VHC_CLOUD && window.VHC_CLOUD.getAllPatients()) || [],
@@ -57792,7 +57792,7 @@ function Lh() {
       i(`⏳ Clearing inventory — this can take a moment...`, `info`, 6e3);
       try {
         let backupSnapshot = {
-          appName: `VHC Pharmacy POS Safety Backup`,
+          appName: `NHC Pharmacy POS Safety Backup`,
           backupType: `Pre_ClearInventory`,
           timestamp: new Date().toISOString(),
           inventory: JSON.parse(localStorage.getItem(`vhc_pos_inventory`) || localStorage.getItem(`pos_inventory`) || `[]`),
@@ -57831,7 +57831,7 @@ function Lh() {
       i(`⏳ Performing factory reset — this can take a moment for large datasets...`, `info`, 8e3);
       try {
         let backupSnapshot = {
-          appName: `VHC Pharmacy POS Safety Backup`,
+          appName: `NHC Pharmacy POS Safety Backup`,
           backupType: `Pre_FactoryReset`,
           timestamp: new Date().toISOString(),
           settings: e,
@@ -57986,7 +57986,7 @@ function Lh() {
               fontSize: `0.85rem`,
               color: `var(--text-muted)`,
             },
-            children: `Choose how VHC Pharmacy POS looks. Your choice is remembered on this computer.`,
+            children: `Choose how NHC Pharmacy POS looks. Your choice is remembered on this computer.`,
           }),
           (0, J.jsxs)(`div`, {
             style: {
@@ -58085,7 +58085,7 @@ function Lh() {
             className: `btn`,
             style: { background: `var(--danger-light)`, color: `var(--danger-hover)`, border: `1px solid var(--danger-border)`, fontWeight: `800` },
             onClick: async () => {
-              if (!(await a(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`))) return;
+              if (!(await a(`Log out of NHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`))) return;
               await window.VHC_CLOUD.signOut();
             },
             children: `🚪 Logout`,
@@ -58375,7 +58375,7 @@ function Lh() {
                         border: `1px solid var(--border-strong)`,
                       },
                       children: [
-                        e.storeName || `VARNIKA HEALTH CARE`,
+                        e.storeName || `NARPAVI HEALTH CARE`,
                         ` • Contact: `,
                         e.contact || `9159998099`,
                       ],
@@ -62545,7 +62545,7 @@ function a_() {
                     let t = new Q();
                     if (
                       (t.setFontSize(18),
-                      t.text(e.storeName || `VARNIKA HEALTH CARE`, 14, 20),
+                      t.text(e.storeName || `NARPAVI HEALTH CARE`, 14, 20),
                       t.setFontSize(11),
                       t.setTextColor(100),
                       t.text(
@@ -64813,7 +64813,7 @@ function VhcCloudAuthGate({ children }) {
             onSubmit: handleSignIn,
             style: { background: `var(--surface)`, borderRadius: `16px`, padding: `2rem`, width: `320px`, display: `flex`, flexDirection: `column`, gap: `0.85rem`, boxShadow: `0 20px 50px rgba(0,0,0,0.4)` },
             children: [
-              (0, J.jsx)(`h2`, { style: { margin: 0, fontSize: `1.2rem` }, children: `VHC Pharmacy POS` }),
+              (0, J.jsx)(`h2`, { style: { margin: 0, fontSize: `1.2rem` }, children: `NHC Pharmacy POS` }),
               (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: `Sign in to sync with the cloud.` }),
               err && (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, color: `var(--danger-hover)` }, children: err }),
               (0, J.jsx)(`input`, { type: `email`, required: !0, autoFocus: !0, placeholder: `Email`, className: `input-field`, value: email, onChange: (e) => setEmail(e.target.value) }),

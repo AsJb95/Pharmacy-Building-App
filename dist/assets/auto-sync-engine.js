@@ -1,5 +1,5 @@
 /**
- * VHC Pharmacy POS - Automatic Background Backup Engine
+ * NHC Pharmacy POS - Automatic Background Backup Engine
  * Maintains a single auto-backup file: VHC_POS_AutoBackup.json in Google Drive.
  */
 
@@ -87,7 +87,7 @@
     } catch (e) {}
 
     return {
-      appName: 'VHC Pharmacy POS',
+      appName: 'NHC Pharmacy POS',
       backupType: 'AutoBackup',
       timestamp: new Date().toISOString(),
       formattedDate: new Date().toLocaleString('en-IN'),

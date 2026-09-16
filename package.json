@@ -59,7 +59,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "NHC Pharmacy POS",
       "include": "build/installer.nsh",
-      "artifactName": "VHC_Pharmacy_POS_Setup_${version}.exe"
+      "artifactName": "NHC_Pharmacy_POS_Setup_${version}.exe"
     }
   }
 }
