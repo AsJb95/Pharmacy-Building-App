@@ -4,7 +4,7 @@ function loadSnapshot(cfg) {
   if (!fs.existsSync(cfg.dataFile)) {
     throw new Error(
       `Data file not found at ${cfg.dataFile}\n` +
-      `Open the VHC Pharmacy POS app at least once so it writes an auto-backup, then try again.`
+      `Open the NHC Pharmacy POS app at least once so it writes an auto-backup, then try again.`
     );
   }
   const raw = fs.readFileSync(cfg.dataFile, 'utf8');

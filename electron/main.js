@@ -123,7 +123,7 @@ function createWindow() {
     height: 850,
     minWidth: 1024,
     minHeight: 700,
-    title: 'VHC Pharmacy-POS',
+    title: 'NHC Pharmacy-POS',
     icon: appIcon,
     autoHideMenuBar: true,
     webPreferences: {
@@ -212,7 +212,7 @@ ipcMain.handle('show-alert', async (event, message) => {
   await dialog.showMessageBox(mainWindow, {
     type: 'info',
     buttons: ['OK'],
-    title: 'VHC Pharmacy POS',
+    title: 'NHC Pharmacy POS',
     message: String(message)
   });
   // After a dialog closes, restore the window if it got minimized during the dialog
@@ -764,7 +764,7 @@ function createTray() {
   try {
     const iconPath = path.join(__dirname, 'icon.ico');
     tray = new Tray(nativeImage.createFromPath(iconPath));
-    tray.setToolTip('VHC Pharmacy POS');
+    tray.setToolTip('NHC Pharmacy POS');
     tray.on('click', () => showMainWindow());
     rebuildTrayMenu();
   } catch (e) {
@@ -777,7 +777,7 @@ function createTray() {
 function rebuildTrayMenu() {
   if (!tray) return;
   const menu = Menu.buildFromTemplate([
-    { label: 'Open VHC Pharmacy', click: () => showMainWindow() },
+    { label: 'Open NHC Pharmacy', click: () => showMainWindow() },
     { label: `Telegram: ${trayStatusLabel(telegramBotStatus)}`, enabled: false },
     { type: 'separator' },
     { label: 'Settings', click: () => { showMainWindow(); if (mainWindow) mainWindow.webContents.send('open-settings-page'); } },
@@ -833,7 +833,7 @@ ipcMain.handle('silent-print', async (event, htmlContent) => {
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.vhc.pharmacypos');
+    app.setAppUserModelId('com.narpavi.nhcpharmacy');
   }
 
   // Any child window (print dialogs, about:blank popups, etc.) — restore focus when it closes

@@ -2,8 +2,8 @@
   "name": "vhc-pharmacy-pos",
   "private": true,
   "version": "3.18.1",
-  "description": "VARNIKA HEALTH CARE POS Pharmacy Software",
-  "author": "VHC Pharmacy",
+  "description": "NARPAVI HEALTH CARE POS Pharmacy Software",
+  "author": "NHC Pharmacy",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -29,8 +29,8 @@
     "esbuild": "^0.28.2"
   },
   "build": {
-    "appId": "com.vhc.pharmacypos",
-    "productName": "VHC Pharmacy POS",
+    "appId": "com.narpavi.nhcpharmacy",
+    "productName": "NHC Pharmacy POS",
     "electronVersion": "34.0.0",
     "directories": {
       "output": "C:/New VHC/release-Pharmacy"
@@ -57,7 +57,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "VHC Pharmacy POS",
+      "shortcutName": "NHC Pharmacy POS",
       "include": "build/installer.nsh",
       "artifactName": "VHC_Pharmacy_POS_Setup_${version}.exe"
     }

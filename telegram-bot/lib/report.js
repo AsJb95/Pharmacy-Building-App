@@ -153,7 +153,7 @@ function buildEveningMessage(dateLabel, summary, refunds, discounts) {
   const netSales = summary.totalAmount - refundTotal;
   const netProfit = summary.estimatedProfit - refundTotal;
 
-  let msg = `🌙 <b>End of Day Summary — ${dateLabel}</b>\n<i>VARNIKA HEALTH CARE</i>\n\n`;
+  let msg = `🌙 <b>End of Day Summary — ${dateLabel}</b>\n<i>NARPAVI HEALTH CARE</i>\n\n`;
 
   msg += `🧾 Bills: <b>${num(summary.billCount)}</b>\n`;
   msg += `💊 Tablets/Units Sold: <b>${num(summary.totalUnits)}</b>\n`;
@@ -194,7 +194,7 @@ function buildEveningMessage(dateLabel, summary, refunds, discounts) {
 }
 
 function buildMorningMessage(dateLabel, yesterdayLabel, summary, refunds, discounts, alerts) {
-  let msg = `🌅 <b>Good Morning — Daily Brief — ${dateLabel}</b>\n<i>VARNIKA HEALTH CARE</i>\n\n`;
+  let msg = `🌅 <b>Good Morning — Daily Brief — ${dateLabel}</b>\n<i>NARPAVI HEALTH CARE</i>\n\n`;
 
   msg += `📋 <b>Yesterday's Recap (${yesterdayLabel})</b>\n`;
   if (summary.billCount === 0) {
@@ -316,7 +316,7 @@ function buildSystemStatusSection(backupStatus) {
 // summary, top sellers, expiring meds, and system status — everything in one message. Used
 // both for /report on demand and for the scheduled automatic close report.
 function buildCloseReport(dateLabel, summary, alerts, backupStatus, totalItems) {
-  let msg = `🧾 <b>OP Close Report — ${dateLabel}</b>\n<i>VARNIKA HEALTH CARE</i>\n\n`;
+  let msg = `🧾 <b>OP Close Report — ${dateLabel}</b>\n<i>NARPAVI HEALTH CARE</i>\n\n`;
   msg += `📋 <b>Business Summary</b>\n`;
   msg += `  Bills: ${num(summary.billCount)}  |  Units Sold: ${num(summary.totalUnits)}  |  Strips: ${num(summary.totalStrips, 1)}\n`;
   msg += `  Gross Sales: ${inr(summary.totalAmount)}  |  Est. Profit: ${inr(summary.estimatedProfit)}\n\n`;

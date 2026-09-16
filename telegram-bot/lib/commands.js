@@ -34,7 +34,7 @@ function formatLabel(dayKey) {
 }
 
 const HELP_TEXT =
-  `🏥 <b>VHC Pharmacy Bot</b>\n\n` +
+  `🏥 <b>NHC Pharmacy Bot</b>\n\n` +
   `Tap the keyboard icon (bottom-left of the message box) to show the shortcut buttons any ` +
   `time — the first screen has Today, Report, Inventory, Expiry, Credit and Backup; tap ` +
   `"➕ More Features" there for advanced tools like Top Selling, Search, and more.\n\n` +

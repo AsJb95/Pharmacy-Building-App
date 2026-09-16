@@ -323,7 +323,7 @@ async function handleMessage(cfg, message) {
 async function main() {
   reportState('starting');
   let cfg = reloadConfig(); // never throws — see lib/config.js
-  console.log(`[${new Date().toISOString()}] VHC Pharmacy Bot starting. Authorized users configured: ${(cfg.allowedUserIds || []).length}.`);
+  console.log(`[${new Date().toISOString()}] NHC Pharmacy Bot starting. Authorized users configured: ${(cfg.allowedUserIds || []).length}.`);
 
   let offset = 0;
   let retryDelayMs = 2000;

@@ -13,7 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://yrgtnhvnwkqudxdcrkhm.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC';
-const PHARMACY_LOCATION_NAME = 'VHC Pharmacy Counter';
+const PHARMACY_LOCATION_NAME = 'NHC Pharmacy Counter';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
