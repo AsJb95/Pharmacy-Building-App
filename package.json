@@ -33,7 +33,7 @@
     "productName": "VHC Pharmacy POS",
     "electronVersion": "34.0.0",
     "directories": {
-      "output": "C:/New VHC/release"
+      "output": "C:/New VHC/release-Pharmacy"
     },
     "files": [
       "dist/**/*",
