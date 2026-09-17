@@ -11,7 +11,7 @@ const path = require('path');
 const MAX_ENTRIES = 500;
 
 function logPath(cfg) {
-  return cfg.notificationLogFile || 'C:\\VHC_Pharmacy_Data\\telegram_notifications.json';
+  return cfg.notificationLogFile || 'C:\\NHC_Pharmacy_Data\\telegram_notifications.json';
 }
 
 function ensureDir(filePath) {

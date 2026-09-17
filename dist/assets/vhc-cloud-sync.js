@@ -20254,8 +20254,8 @@ ${suffix}`;
   if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 20 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 22 or later. For more information, visit: https://github.com/orgs/supabase/discussions/45715");
 
   // cloud-src/vhc-cloud-sync.js
-  var SUPABASE_URL = "https://yrgtnhvnwkqudxdcrkhm.supabase.co";
-  var SUPABASE_ANON_KEY = "sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC";
+  var SUPABASE_URL = "https://fjtgszdzbiepmdmnjsxn.supabase.co";
+  var SUPABASE_ANON_KEY = "sb_publishable_QG4Nk02c6MAXygDjhhApgg_5RA9V-vt";
   var PHARMACY_LOCATION_NAME = "NHC Pharmacy Counter";
   var supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true }

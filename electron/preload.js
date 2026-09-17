@@ -48,5 +48,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = () => callback();
     ipcRenderer.on('open-settings-page', handler);
     return () => ipcRenderer.removeListener('open-settings-page', handler);
-  }
+  },
+  // Local SQLite foundation (Phase 2A) — a development-safe health check only. No raw SQL
+  // execution is ever exposed here; both calls just return the fixed, named status fields
+  // computed in electron/database.js. Nothing in the app reads/writes through this yet.
+  getDatabaseStatus: () => ipcRenderer.invoke('database:get-status'),
+  getDatabaseSchemaVersion: () => ipcRenderer.invoke('database:get-schema-version'),
+  // Local-first billing (Phase 2C) — the main process validates and executes the atomic
+  // SQLite sale transaction; the renderer only ever sees the structured result, never the
+  // database itself. createLocalSale/cancelLocalSale are the sole write paths; no generic
+  // SQL execution is exposed here or ever will be.
+  createLocalSale: (payload) => ipcRenderer.invoke('database:create-local-sale', payload),
+  cancelLocalSale: (billId) => ipcRenderer.invoke('database:cancel-local-sale', billId),
+  getLocalSale: (billId) => ipcRenderer.invoke('database:get-local-sale', billId),
+  // Credit repayments (Phase 2F Step 2) — structured results only, no raw SQL.
+  recordCreditRepayment: (payload) => ipcRenderer.invoke('database:record-credit-repayment', payload),
+  getCreditRepayments: (billId) => ipcRenderer.invoke('database:get-credit-repayments', billId),
+  getCreditSettlement: (billId) => ipcRenderer.invoke('database:get-credit-settlement', billId),
+  // Sales history / summary reads (Phase 2F Step 3) — structured bill-record objects only.
+  getSalesHistory: () => ipcRenderer.invoke('database:get-sales-history'),
+  getSalesSummary: () => ipcRenderer.invoke('database:get-sales-summary'),
+  // Offline→online sync (Phase 2D) — read-only aggregate status only, never the queue's raw
+  // rows. triggerSyncNow is exposed for a possible future manual "Sync Now" action; nothing in
+  // the current UI calls it yet.
+  getSyncStatus: () => ipcRenderer.invoke('database:get-sync-status'),
+  triggerSyncNow: () => ipcRenderer.invoke('sync:trigger-now'),
 });

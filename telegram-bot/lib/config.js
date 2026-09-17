@@ -7,7 +7,9 @@ const path = require('path');
 // the same convention already used for dataFile/ledgerDir/notificationLogFile below.
 // VHC_TELEGRAM_CONFIG_PATH lets a dev/test launch point at an isolated config file,
 // mirroring the VHC_TEST_USERDATA / VHC_TEST_BACKUP_DIR pattern used by the main app.
-const CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || 'C:\\VHC_Pharmacy_Data\\telegram_config.json';
+// NHC Pharmacy uses its own C:\NHC_Pharmacy_Data folder — separate from the old VHC
+// Pharmacy POS install's C:\VHC_Pharmacy_Data, which is left completely untouched.
+const CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || 'C:\\NHC_Pharmacy_Data\\telegram_config.json';
 
 // Built-in defaults. No bot token lives here (or anywhere else on a pharmacy PC) — the real
 // token is held exclusively server-side by the telegram-relay Supabase Edge Function; see
@@ -19,8 +21,8 @@ const CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || 'C:\\VHC_Pharmacy_Da
 // refusing to start.
 const DEFAULT_CONFIG = {
   channelChatId: '',
-  dataFile: 'C:\\VHC_Pharmacy_Data\\gdrive_backups\\VHC_POS_AutoBackup.json',
-  ledgerDir: 'C:\\VHC_Pharmacy_Data\\ledger',
+  dataFile: 'C:\\NHC_Pharmacy_Data\\gdrive_backups\\NHC_POS_AutoBackup.json',
+  ledgerDir: 'C:\\NHC_Pharmacy_Data\\ledger',
   timezone: 'Asia/Kolkata',
   lowStockUnits: 20,
   lowStockStrips: 2,
@@ -29,8 +31,8 @@ const DEFAULT_CONFIG = {
   allowedUserIds: [733453718, 6995447067],
   autoReportEnabled: true,
   reportTimes: ['21:30'],
-  notificationLogFile: 'C:\\VHC_Pharmacy_Data\\telegram_notifications.json',
-  schedulerStateFile: 'C:\\VHC_Pharmacy_Data\\telegram_scheduler_state.json',
+  notificationLogFile: 'C:\\NHC_Pharmacy_Data\\telegram_notifications.json',
+  schedulerStateFile: 'C:\\NHC_Pharmacy_Data\\telegram_scheduler_state.json',
 };
 
 function loadConfig() {

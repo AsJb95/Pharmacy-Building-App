@@ -28,7 +28,7 @@ const { checkBackupStatus } = require('./lib/backup-status');
 // standalone), where a per-user process may not have write access. C:\VHC_Pharmacy_Data is
 // already the app's convention for all other writable runtime state.
 function schedulerStatePath(cfg) {
-  return (cfg && cfg.schedulerStateFile) || 'C:\\VHC_Pharmacy_Data\\telegram_scheduler_state.json';
+  return (cfg && cfg.schedulerStateFile) || 'C:\\NHC_Pharmacy_Data\\telegram_scheduler_state.json';
 }
 
 // ─── Status reporting to the parent (Electron main) process ───

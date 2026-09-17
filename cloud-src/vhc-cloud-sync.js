@@ -11,8 +11,8 @@
 // try/catch that reports errors instead of throwing into the UI.
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://yrgtnhvnwkqudxdcrkhm.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC';
+const SUPABASE_URL = 'https://fjtgszdzbiepmdmnjsxn.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_QG4Nk02c6MAXygDjhhApgg_5RA9V-vt';
 const PHARMACY_LOCATION_NAME = 'NHC Pharmacy Counter';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

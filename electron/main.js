@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import { spawn, fork } from 'child_process';
 import http from 'http';
 import fs from 'fs';
+import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, getSyncStatus, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary } from './database.js';
+import { startSyncEngine, stopSyncEngine, triggerSyncNow } from './sync-engine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,8 +65,19 @@ try {
   app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
   // VHC_TEST_USERDATA lets a dev/test launch use an isolated data folder instead of the
   // real production one. Unset for all normal users/installs — behavior is unchanged.
-  app.setPath('userData', process.env.VHC_TEST_USERDATA || path.join(app.getPath('appData'), 'vhc-pharmacy-pos'));
+  app.setPath('userData', process.env.VHC_TEST_USERDATA || path.join(app.getPath('appData'), 'nhc-pharmacy-pos'));
 } catch (e) {}
+
+// ─── Local SQLite foundation (Phase 2A) ───
+// Nothing in the existing app reads or writes through this yet — Supabase remains the source
+// of truth for every pharmacy feature exactly as before. This must never be able to block or
+// break app startup: if it fails for any reason, the rest of the app must start and behave
+// exactly as it did before this module existed.
+try {
+  initDatabase(path.join(app.getPath('userData'), 'nhc_pharmacy.db'));
+} catch (e) {
+  console.error('SQLite foundation failed to initialize (non-fatal — no feature depends on it yet):', e.message);
+}
 
 function checkPort8001(callback) {
   const req = http.get('http://localhost:8001/api/inventory', (res) => {
@@ -205,6 +218,62 @@ function createWindow() {
 }
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// ─── Local database health check (Phase 2A) ───
+// Deliberately narrow, named operations only — never a generic executeSQL/query passthrough.
+// Returns only the safe status fields from database.js; the raw connection never leaves that
+// module. See database.js's getDatabaseStatus() for exactly what each field means.
+ipcMain.handle('database:get-status', () => getDatabaseStatus());
+ipcMain.handle('database:get-schema-version', () => getSchemaVersion());
+
+// ─── Local-first billing (Phase 2C) ───
+// The renderer sends the same bill data it already assembled for the existing localStorage/
+// Supabase paths (see index-doBKNLAj.js's checkout flow) — the main process is authoritative:
+// createLocalSale() re-validates stock against this database's own numbers before writing
+// anything, never trusting whatever quantities the renderer's payload claims (see that
+// function's own comment in database.js for the one unavoidable exception — bootstrapping an
+// item's very first local stock figure, since no import mechanism exists yet).
+ipcMain.handle('database:create-local-sale', (event, payload) => {
+  const result = createLocalSale(payload);
+  // Best-effort, non-blocking "try to sync right now" instead of waiting for the next timer
+  // tick — mirrors the existing cloud record-only mirror call's own "never awaited" pattern
+  // (see index-doBKNLAj.js's checkout flow). The IPC response to the renderer is returned
+  // immediately either way; a slow or unreachable Supabase can never delay a real sale.
+  if (result && result.success) triggerSyncNow().catch(() => {});
+  return result;
+});
+ipcMain.handle('database:cancel-local-sale', (event, billId) => {
+  const result = cancelLocalSale(billId);
+  if (result && result.success && !result.noop) triggerSyncNow().catch(() => {});
+  return result;
+});
+ipcMain.handle('database:get-local-sale', (event, billId) => getLocalSaleByBillId(billId));
+
+// ─── Credit repayments (Phase 2F Step 2) ───
+// recordCreditRepayment() is authoritative and re-validates the amount itself against this
+// database's own current outstanding balance — it never trusts whatever the renderer already
+// computed. A sale SQLite doesn't know about (an older, pre-local-first-billing bill, or one
+// only ever seen via the cloud) is reported back as { success:false, reason:'sale-not-found' },
+// not thrown — the renderer falls back to its existing localStorage-only behavior for exactly
+// that case, unchanged from before this phase.
+ipcMain.handle('database:record-credit-repayment', (event, payload) => recordCreditRepayment(payload));
+ipcMain.handle('database:get-credit-repayments', (event, billId) => getCreditRepaymentsByBillId(billId));
+ipcMain.handle('database:get-credit-settlement', (event, billId) => getCreditSettlementByBillId(billId));
+
+// ─── Sales history / summary reads (Phase 2F Step 3) ───
+// Structured, mapped results only — getSalesHistory() already returns the exact bill-record
+// shape the renderer's Reports/Dashboard/Payments/Credit code expects (see that function's own
+// comment in database.js), so the renderer never needs to know these rows came from SQLite.
+ipcMain.handle('database:get-sales-history', () => getSalesHistory());
+ipcMain.handle('database:get-sales-summary', () => getSalesSummary());
+
+// ─── Offline → online synchronization (Phase 2D) ───
+// Read-only status for the renderer (pending/processing/synced counts, last error) — never the
+// queue's raw rows or payloads. 'sync:trigger-now' exists for tests and for a future manual
+// "Sync Now" action; production code never needs to call it directly since the engine already
+// runs on its own timer plus the post-sale trigger above.
+ipcMain.handle('database:get-sync-status', () => getSyncStatus());
+ipcMain.handle('sync:trigger-now', () => triggerSyncNow());
 
 // ─── IPC Handlers for safe dialog usage ───
 ipcMain.handle('show-alert', async (event, message) => {
@@ -472,10 +541,12 @@ ipcMain.handle('google-oauth-signout', async () => {
 // as before (reads/writes only the non-secret scheduling fields of the bot's config; the bot
 // token and allowedUserIds are never sent to the renderer), plus a new live-status channel.
 //
-// Config now lives at C:\VHC_Pharmacy_Data\telegram_config.json (shared, writable, resolves
-// correctly regardless of install location) rather than next to the old standalone script —
-// see unpacked_app/telegram-bot/lib/config.js for the matching default on the bot's side.
-const TELEGRAM_BOT_CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || (VHC_DATA_DIR + '\\telegram_config.json');
+// Config lives at C:\NHC_Pharmacy_Data\telegram_config.json — a separate, NHC-specific data
+// folder (not VHC_DATA_DIR, which the old VHC install still uses for its own general/backup
+// data) so NHC Telegram config/reports never mix with old VHC data — resolves correctly
+// regardless of install location — see unpacked_app/telegram-bot/lib/config.js for the
+// matching default on the bot's side.
+const TELEGRAM_BOT_CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || 'C:\\NHC_Pharmacy_Data\\telegram_config.json';
 
 function readTelegramBotConfig() {
   try {
@@ -492,8 +563,8 @@ function readTelegramBotConfig() {
 // No secret involved: the real bot token is never local at all — see lib/telegram.js.
 const TELEGRAM_CONFIG_DEFAULTS = {
   channelChatId: '',
-  dataFile: 'C:\\VHC_Pharmacy_Data\\gdrive_backups\\VHC_POS_AutoBackup.json',
-  ledgerDir: 'C:\\VHC_Pharmacy_Data\\ledger',
+  dataFile: 'C:\\NHC_Pharmacy_Data\\gdrive_backups\\NHC_POS_AutoBackup.json',
+  ledgerDir: 'C:\\NHC_Pharmacy_Data\\ledger',
   timezone: 'Asia/Kolkata',
   lowStockUnits: 20,
   lowStockStrips: 2,
@@ -502,8 +573,8 @@ const TELEGRAM_CONFIG_DEFAULTS = {
   allowedUserIds: [733453718, 6995447067],
   autoReportEnabled: true,
   reportTimes: ['21:30'],
-  notificationLogFile: 'C:\\VHC_Pharmacy_Data\\telegram_notifications.json',
-  schedulerStateFile: 'C:\\VHC_Pharmacy_Data\\telegram_scheduler_state.json',
+  notificationLogFile: 'C:\\NHC_Pharmacy_Data\\telegram_notifications.json',
+  schedulerStateFile: 'C:\\NHC_Pharmacy_Data\\telegram_scheduler_state.json',
 };
 
 // Reads the config for display/editing in Settings, auto-provisioning it from the defaults
@@ -514,7 +585,11 @@ function readOrProvisionTelegramConfig() {
   if (onDisk) return { ...TELEGRAM_CONFIG_DEFAULTS, ...onDisk };
   const cfg = { ...TELEGRAM_CONFIG_DEFAULTS };
   try {
-    ensureDataDir();
+    // TELEGRAM_BOT_CONFIG_PATH lives in its own NHC-specific folder (C:\NHC_Pharmacy_Data by
+    // default), separate from VHC_DATA_DIR — ensureDataDir() only creates the latter, so this
+    // folder needs its own defensive creation the first time this ever runs on a PC.
+    const telegramDataDir = path.dirname(TELEGRAM_BOT_CONFIG_PATH);
+    if (!fs.existsSync(telegramDataDir)) fs.mkdirSync(telegramDataDir, { recursive: true });
     fs.writeFileSync(TELEGRAM_BOT_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
   } catch (e) {
     console.error('Failed to auto-provision telegram_config.json:', e.message);
@@ -557,7 +632,7 @@ ipcMain.handle('telegram-bot-get-notifications', async (event, limit) => {
   try {
     const cfg = readTelegramBotConfig();
     if (!cfg) return { available: false, notifications: [] };
-    const logFile = cfg.notificationLogFile || 'C:\\VHC_Pharmacy_Data\\telegram_notifications.json';
+    const logFile = cfg.notificationLogFile || 'C:\\NHC_Pharmacy_Data\\telegram_notifications.json';
     if (!fs.existsSync(logFile)) return { available: true, notifications: [] };
     const all = JSON.parse(fs.readFileSync(logFile, 'utf8'));
     const list = Array.isArray(all) ? all : [];
@@ -670,11 +745,12 @@ function startTelegramBot() {
 
   const logToFile = (chunk) => {
     try {
-      // Defensive re-check: handles the (rare) case where C:\VHC_Pharmacy_Data was removed
-      // after startup. ensureDataDir() already runs once at launch, before this is ever
-      // reachable, so this is a safety net, not the primary fix.
-      if (!fs.existsSync(VHC_DATA_DIR)) fs.mkdirSync(VHC_DATA_DIR, { recursive: true });
-      fs.appendFileSync(VHC_DATA_DIR + '\\telegram_bot_service.log', chunk.toString());
+      // NHC Telegram bot service log lives in its own NHC-specific data folder, separate from
+      // VHC_DATA_DIR (the old VHC install's general/backup data) — defensively created here
+      // since, unlike VHC_DATA_DIR, nothing else guarantees this folder exists at startup.
+      const nhcTelegramDataDir = 'C:\\NHC_Pharmacy_Data';
+      if (!fs.existsSync(nhcTelegramDataDir)) fs.mkdirSync(nhcTelegramDataDir, { recursive: true });
+      fs.appendFileSync(nhcTelegramDataDir + '\\telegram_bot_service.log', chunk.toString());
     } catch (e) {
       // Logging must never be able to crash the app — if it fails, the bot and the rest of
       // the app keep running regardless, just without that particular line recorded.
@@ -854,6 +930,10 @@ app.whenReady().then(() => {
 
   createTray();
   startTelegramBot();
+  // Reuses the SAME relayed Supabase session token already tracked for the Telegram bot above
+  // (currentSupabaseToken, updated by the 'supabase-session-token-changed' IPC) — no second
+  // authentication system, exactly as required.
+  startSyncEngine(() => currentSupabaseToken);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -871,8 +951,10 @@ app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   isQuitting = true;
   stopTelegramBot();
+  stopSyncEngine();
   if (tray) {
     try { tray.destroy(); } catch (e) {}
     tray = null;
   }
+  try { closeDatabase(); } catch (e) {}
 });

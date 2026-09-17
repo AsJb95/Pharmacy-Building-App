@@ -9,8 +9,8 @@
 // VHC_TEST_RELAY_URL lets a dev/test launch point at a local mock relay instead of the real
 // one, mirroring the VHC_TEST_USERDATA / VHC_TEST_DATA_DIR pattern used elsewhere. Unset for
 // all normal users/installs — behavior is unchanged.
-const RELAY_URL = process.env.VHC_TEST_RELAY_URL || 'https://yrgtnhvnwkqudxdcrkhm.supabase.co/functions/v1/telegram-relay';
-const SUPABASE_ANON_KEY = 'sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC'; // publishable key — not a secret, same one already embedded in the renderer's Supabase client
+const RELAY_URL = process.env.VHC_TEST_RELAY_URL || 'https://fjtgszdzbiepmdmnjsxn.supabase.co/functions/v1/telegram-relay';
+const SUPABASE_ANON_KEY = 'sb_publishable_QG4Nk02c6MAXygDjhhApgg_5RA9V-vt'; // publishable key — not a secret, same one already embedded in the renderer's Supabase client
 
 function escapeHtml(str) {
   return String(str ?? '')

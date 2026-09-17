@@ -16096,7 +16096,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
             // updateTelegramBotStatus / preload.js → getTelegramBotStatus /
             // onTelegramBotStatusChanged) — not the separate invoice-photo bot. This badge
             // used to hardcode "Active" and link to the wrong bot (@Vhcpharm_bot, the
-            // photo-intake one); it now reflects the real state of @vhcpharma_bot, the
+            // photo-intake one); it now reflects the real state of @NHCPharmacybot, the
             // reporting/commands bot this sidebar entry is actually about.
             let telegramStatusMeta = {
               starting: { label: `Starting…`, color: `#f59e0b` },
@@ -16106,7 +16106,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               stopped: { label: `Stopped`, color: `var(--text-faint)` },
             }[e && e.state] || { label: `Unknown`, color: `var(--text-faint)` };
             return (0, J.jsxs)(`a`, {
-              href: `https://t.me/vhcpharma_bot`,
+              href: `https://t.me/NHCPharmacybot`,
               target: `_blank`,
               rel: `noopener noreferrer`,
               style: {
@@ -16122,7 +16122,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
                 color: `var(--text-faint)`,
                 transition: `background 0.2s`,
               },
-              title: `Telegram reporting bot @vhcpharma_bot — ${telegramStatusMeta.label}${e && e.lastError ? `\n${e.lastError}` : ``}`,
+              title: `Telegram reporting bot @NHCPharmacybot — ${telegramStatusMeta.label}${e && e.lastError ? `\n${e.lastError}` : ``}`,
               children: [
                 (0, J.jsxs)(`div`, {
                   style: { display: `flex`, alignItems: `center`, gap: `0.4rem` },
@@ -16248,13 +16248,13 @@ var Fr = (0, _.createContext)(),
   Ir = () => (0, _.useContext)(Fr),
   Lr = ({ children: e }) => {
     let [t, n] = (0, _.useState)({
-      storeName: `NARPAVI HEALTH CARE`,
+      storeName: `Narpavi Health Care`,
       tagline: `Fast, accurate billing`,
-      contact: `9159998099`,
+      contact: ``,
       drugLicense: ``,
-      gstNumber: `33BJPPA8512C1ZM`,
+      gstNumber: ``,
       gstMode: `composition`,
-      upiId: `admin`,
+      upiId: ``,
       address: ``,
       taxRate: 5,
       currency: `INR (₹)`,
@@ -16264,8 +16264,6 @@ var Fr = (0, _.createContext)(),
       telegramToken: `7854129841:AAHvhcpharm_bot_active_token`,
       telegramBotUrl: `https://t.me/Vhcpharm_bot`,
       telegramBotUsername: `@Vhcpharm_bot`,
-      posDataSheetUrl: `https://docs.google.com/spreadsheets/d/12zrruzxCkSF_RRclJhIVl13RCZ7uR3CP53EWTfZa9PY/edit`,
-      googleSheetUrl: `https://docs.google.com/spreadsheets/d/12zrruzxCkSF_RRclJhIVl13RCZ7uR3CP53EWTfZa9PY/edit`,
       googleDriveUrl: `https://drive.google.com/drive/`,
       oneDriveUrl: `https://drive.google.com/drive/`,
       lastBackupTime: null,
@@ -16525,6 +16523,45 @@ function mergeCloudSalesIntoLocal(localBills) {
     return localBills || [];
   }
 }
+// Phase 2F Step 3: SQLite is now the authoritative LOCAL read source for Reports/Dashboard/
+// Payments/Credit — it already carries accurate, live creditRepayments[] and correctly excludes
+// cancelled bills (see database.js's getSalesHistory), neither of which the plain localStorage
+// array can guarantee going forward. localStorage is kept as a compatibility source, not
+// discarded: the existing backup/restore paths (Google Drive, local file) still only ever write
+// to localStorage, never to SQLite (traced in the Phase 2F Step 1 audit) — without this merge, a
+// restored backup's bills would silently vanish from every report the moment SQLite became the
+// sole source. On a billId that exists in BOTH, SQLite wins — the exact same "richer/more
+// current local data wins" priority mergeCloudSalesIntoLocal already applies to local-vs-cloud,
+// applied here one layer earlier to SQLite-vs-legacy-localStorage. The result of this function
+// is what mergeCloudSalesIntoLocal already expects as its `localBills` argument — cloud merging
+// itself is completely unchanged.
+async function loadLocalSalesHistoryForUI() {
+  let legacyLocalBills = [];
+  try {
+    let raw = localStorage.getItem(`vhc_pos_sales_history`);
+    if (raw) {
+      let parsed = JSON.parse(raw);
+      Array.isArray(parsed) && (legacyLocalBills = parsed);
+    }
+  } catch (e) {
+    console.error(`Error parsing local sales history:`, e);
+  }
+
+  let sqliteBills = [];
+  if (window.electronAPI && window.electronAPI.getSalesHistory) {
+    try {
+      let result = await window.electronAPI.getSalesHistory();
+      Array.isArray(result) && (sqliteBills = result);
+    } catch (e) {
+      console.error(`[SQLite] getSalesHistory failed, falling back to localStorage-only —`, e);
+    }
+  }
+
+  let byId = new Map();
+  legacyLocalBills.forEach((b) => b && b.billId && byId.set(b.billId, b));
+  sqliteBills.forEach((b) => b && b.billId && byId.set(b.billId, b));
+  return Array.from(byId.values());
+}
 function Wr() {
   let { settings: e } = Ir(),
     { inventory: t } = Vr(),
@@ -16533,16 +16570,11 @@ function Wr() {
     [a, o] = (0, _.useState)(!0),
     s = () => {
       o(!0);
-      let e = [];
-      try {
-        let t = localStorage.getItem(`vhc_pos_sales_history`);
-        if (t) {
-          let n = JSON.parse(t);
-          Array.isArray(n) && (e = n);
-        }
-      } catch (e) {
-        console.error(`Error parsing local sales history:`, e);
-      }
+      // Phase 2F Step 3: local data now comes from SQLite (merged with the legacy localStorage
+      // array for compatibility — see loadLocalSalesHistoryForUI's own comment) instead of a
+      // bare localStorage read. The dead `/api/reports/bills` fetch and cloud-merge logic below
+      // are otherwise completely unchanged.
+      loadLocalSalesHistoryForUI().then((e) => {
       fetch(`/api/reports/bills`)
         .then((e) => e.json())
         .then((t) => {
@@ -16556,6 +16588,7 @@ function Wr() {
         .catch(() => {
           (i(mergeCloudSalesIntoLocal(e)), o(!1));
         });
+      });
     };
   (0, _.useEffect)(() => {
     s();
@@ -16660,7 +16693,7 @@ function Wr() {
                   letterSpacing: `-0.02em`,
                   margin: 0,
                 },
-                children: e.storeName || `NARPAVI HEALTH CARE`,
+                children: e.storeName || `Narpavi Health Care`,
               }),
               (0, J.jsx)(`p`, {
                 style: {
@@ -50588,6 +50621,7 @@ function Dh({
   hiddenRender: hiddenRender = !1,
 }) {
   let isCompositionReceipt = receiptGstMode === `composition`;
+  let { settings: receiptSettings } = Ir();
   let [u, d] = (0, _.useState)(!1),
     [committedThisOpen, setCommittedThisOpen] = (0, _.useState)(!1),
     f = Th();
@@ -50837,7 +50871,7 @@ function Dh({
                 (0, J.jsx)(`br`, {}),
                 `====================================`,
                 (0, J.jsx)(`br`, {}),
-                `NARPAVI HEALTH CARE`,
+                `Narpavi Health Care`,
                 (0, J.jsx)(`br`, {}),
                 `====================================`,
                 (0, J.jsx)(`br`, {}),
@@ -50854,7 +50888,7 @@ function Dh({
                 lineHeight: `1.45`,
               },
               children: [
-                `GSTIN: 33BJPPA8512C1ZM`,
+                `GSTIN: ${(receiptSettings && receiptSettings.gstNumber) || `Not Configured`}`,
                 (0, J.jsx)(`br`, {}),
                 `Bill #: `,
                 s || `PB-1025`,
@@ -51232,7 +51266,7 @@ function vhcMakeEmptyTab(id) {
     cart: [],
     patientName: ``,
     selectedPatient: null,
-    doctorName: ``,
+    doctorName: `Dr. N.C. VIVEK ANAND M.D.,`,
     paymentMode: `Cash`,
     injectionItems: [],
     procedureItems: [],
@@ -51267,7 +51301,7 @@ function vhcLoadInitialState() {
     migratedTab.cart = cartRaw ? JSON.parse(cartRaw) : [];
   } catch {}
   migratedTab.patientName = localStorage.getItem(`pos_active_patient`) || ``;
-  migratedTab.doctorName = localStorage.getItem(`pos_active_doctor`) || ``;
+  migratedTab.doctorName = localStorage.getItem(`pos_active_doctor`) || `Dr. N.C. VIVEK ANAND M.D.,`;
   try {
     let injRaw = localStorage.getItem(`pos_active_injections`);
     migratedTab.injectionItems = injRaw ? JSON.parse(injRaw) : [];
@@ -51792,12 +51826,20 @@ function Nh() {
         // patientSnapshot captured above, so the stock-ledger entry always reflects the exact
         // patient this bill was billed to, never live selection state.
         let deductionContext = { billId: billIdForContext || ``, patientName: patientSnapshot.name, patientId: patientSnapshot.patientId };
+        // Phase 2E: always paint the local decrement into the on-screen inventory state
+        // immediately, regardless of whether bulkUpdateInventory (the cloud-dependent path,
+        // below) is available or ever succeeds. Without this, a sale completed while offline
+        // correctly reduces stock in SQLite (Phase 2C) but the displayed number stayed stale
+        // until a future successful cloud sync happened to overwrite it — a real, disclosed
+        // Phase 2C/2D gap this closes. If bulkUpdateInventory's own cloud round-trip DOES later
+        // succeed, its existing full re-fetch (l()) simply replaces this optimistic value with
+        // the authoritative cloud figure afterward — this never fights with or replaces that
+        // existing behavior, it only fills the gap when the cloud path is slow or unreachable.
+        deductionList.forEach(({ id, qty }) => {
+          let inv = e.find((x) => x.id === id);
+          inv && t(inv.id, { ...inv, stock: inv.stock - qty });
+        });
         if (bulkUpdateInventory) bulkUpdateInventory(deductionList, deductionContext);
-        else
-          deductionList.forEach(({ id, qty }) => {
-            let inv = e.find((x) => x.id === id);
-            inv && t(inv.id, { ...inv, stock: inv.stock - qty });
-          });
       };
       try {
         let o = await fetch(`/api/checkout`, {
@@ -51872,6 +51914,61 @@ function Nh() {
           discountPercent: effectiveDiscountPercent,
           discountMode,
         };
+      // Authoritative local-first transaction (Phase 2C): validates and reduces stock inside
+      // one atomic SQLite transaction in the main process — works fully offline, and the main
+      // process re-checks stock itself rather than trusting this payload's numbers (see
+      // createLocalSale's own comment in electron/database.js). A rejection here (e.g. real
+      // insufficient stock) stops the sale from completing at all — every step after this one
+      // in this function has always assumed the sale is going through, so this must be checked
+      // first, before any of them run.
+      if (window.electronAPI && window.electronAPI.createLocalSale) {
+        try {
+          let localResult = await window.electronAPI.createLocalSale({
+            billId: m,
+            patientSnapshot,
+            doctorName: p,
+            paymentMode: f,
+            subtotal: s,
+            totalTax: l,
+            totalAmount: a,
+            gstMode: billGstMode,
+            discount: billDiscount,
+            discountPercent: effectiveDiscountPercent,
+            paymentDetails,
+            items: r.map((cartItem) => ({
+              name: cartItem.name,
+              // The real Supabase items.id for this medicine, when it came from the normal
+              // online catalog (see rowToInventoryItem's itemId mapping in
+              // cloud-src/vhc-cloud-sync.js) — captured so Phase 2D's sync engine can later
+              // reference this item remotely instead of only ever knowing it locally.
+              itemId: cartItem.itemId,
+              category: cartItem.category || `Medicine`,
+              batch: cartItem.batch,
+              expiry: cartItem.expiry,
+              mrp: cartItem.mrp,
+              price: cartItem.price,
+              netRate: cartItem.netRate,
+              rate: cartItem.rate,
+              gst: cartItem.gst,
+              stockist: cartItem.stockist,
+              hsnCode: cartItem.hsnCode,
+              unitsPerPack: cartItem.unitsPerPack,
+              customUnitPrice: cartItem.customUnitPrice,
+              qty: cartItem.qty,
+              stock: cartItem.stock,
+            })),
+            extraParticulars,
+          });
+          if (!localResult || !localResult.success) {
+            i(`Sale could not be saved: ${(localResult && localResult.error) || `Unknown local database error`}`, `error`, 6e3);
+            return null;
+          }
+        } catch (localErr) {
+          console.error(`[LocalSQLite] createLocalSale threw:`, localErr);
+          i(`Sale could not be saved: ${localErr.message || localErr}`, `error`, 6e3);
+          return null;
+        }
+      }
       // Best-effort, non-blocking cloud sync of the sale RECORD only (cross-terminal
       // reporting visibility). recordOnly forces affects_stock=false on every line so
       // create_sale never touches stock_batches — stock is still adjusted exactly once,
@@ -56837,7 +56934,7 @@ function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
   }, [isOpen]);
   if (!isOpen) return null;
   let verifyAuth = () => {
-    authPwd === (authSettings.adminPassword || `vhc@8099`) || authPwd === `vhc@8099`
+    authPwd === (authSettings.adminPassword || `nhc@1903`) || authPwd === `nhc@1903`
       ? (setAuthPwd(``), setAuthErr(``), onSuccess())
       : setAuthErr(`Incorrect password.`);
   };
@@ -57716,8 +57813,8 @@ function Lh() {
     },
     [L, ee] = (0, _.useState)(``),
     R = () => {
-      u === (e.adminPassword || `vhc@8099`) ||
-      u === `vhc@8099`
+      u === (e.adminPassword || `nhc@1903`) ||
+      u === `nhc@1903`
         ? (l(!0), p(``), d(``))
         : p(`Incorrect password.`);
     },
@@ -58375,9 +58472,9 @@ function Lh() {
                         border: `1px solid var(--border-strong)`,
                       },
                       children: [
-                        e.storeName || `NARPAVI HEALTH CARE`,
+                        e.storeName || `Narpavi Health Care`,
                         ` • Contact: `,
-                        e.contact || `9159998099`,
+                        e.contact || ``,
                       ],
                     }),
                 ],
@@ -58491,7 +58588,7 @@ function Lh() {
                                 className: `input-field`,
                                 value: e.contact || ``,
                                 onChange: B,
-                                placeholder: `e.g., 9159998099`,
+                                placeholder: `e.g., 9876543210`,
                               }),
                             ],
                           }),
@@ -58813,7 +58910,7 @@ function Lh() {
                         fontWeight: `700`,
                         border: `1px solid var(--info-border)`,
                       },
-                      children: `Patient Sync (Live) • POS Export • G-Drive Backup • Telegram Bot`,
+                      children: `Patient Sync (Live) • G-Drive Backup • Telegram Bot`,
                     }),
                 ],
               }),
@@ -58865,129 +58962,12 @@ function Lh() {
                   gap: `1.25rem`,
                 },
                 children: [
-          (0, J.jsxs)(`div`, {
-            className: `glass-panel`,
-            style: {
-              padding: `1.5rem`,
-              background: `var(--success-light)`,
-              border: `1.5px solid var(--money-pos)`,
-              display: `flex`,
-              flexDirection: `column`,
-              justifyContent: `space-between`,
-            },
-            children: [
-              (0, J.jsxs)(`div`, {
-                children: [
-                  (0, J.jsx)(`h3`, {
-                    className: `flex-center gap-2 mb-2`,
-                    style: {
-                      color: `var(--success-strong)`,
-                      justifyContent: `flex-start`,
-                      fontSize: `1.05rem`,
-                    },
-                    children: `📊 2. Billing, Inventory & Reports Export Sheet`,
-                  }),
-                  (0, J.jsx)(`p`, {
-                    style: {
-                      fontSize: `0.82rem`,
-                      color: `var(--success-strong)`,
-                      marginBottom: `0.85rem`,
-                    },
-                    children: `Link your export Google Sheet to save sales bills, stock inventory, and financial report logs.`,
-                  }),
-                  (0, J.jsxs)(`div`, {
-                    className: `input-group mb-3`,
-                    children: [
-                      (0, J.jsx)(`label`, {
-                        className: `input-label`,
-                        style: {
-                          color: `var(--success-strong)`,
-                          fontWeight: `800`,
-                          fontSize: `0.82rem`,
-                        },
-                        children: `POS Billing & Inventory Export Sheet URL`,
-                      }),
-                      (0, J.jsx)(`input`, {
-                        type: `text`,
-                        name: `posDataSheetUrl`,
-                        className: `input-field`,
-                        style: {
-                          fontSize: `0.85rem`,
-                          border: `1.5px solid var(--money-pos)`,
-                          background: `var(--surface)`,
-                          fontWeight: `600`,
-                        },
-                        value:
-                          e.posDataSheetUrl ||
-                          e.googleSheetUrl ||
-                          `https://docs.google.com/spreadsheets/d/1BiBabgvlLQkv8HITJid87yAo4mcNWHybRZzql-PZLTI/edit`,
-                        onChange: B,
-                        placeholder: `https://docs.google.com/spreadsheets/d/...`,
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-              (0, J.jsxs)(`div`, {
-                style: { display: `flex`, gap: `0.6rem` },
-                children: [
-                  (0, J.jsx)(`a`, {
-                    href:
-                      e.posDataSheetUrl ||
-                      e.googleSheetUrl ||
-                      `https://docs.google.com/spreadsheets/d/1BiBabgvlLQkv8HITJid87yAo4mcNWHybRZzql-PZLTI/edit`,
-                    target: `_blank`,
-                    rel: `noopener noreferrer`,
-                    className: `btn`,
-                    style: {
-                      flex: 1,
-                      justifyContent: `center`,
-                      background: `#16a34a`,
-                      color: `#ffffff`,
-                      fontWeight: `700`,
-                      textDecoration: `none`,
-                      fontSize: `0.85rem`,
-                    },
-                    children: `🔗 Open Export Sheet ↗`,
-                  }),
-                  (0, J.jsx)(`button`, {
-                    type: `button`,
-                    className: `btn`,
-                    style: {
-                      flex: 1,
-                      justifyContent: `center`,
-                      background: `#15803d`,
-                      color: `#ffffff`,
-                      fontWeight: `800`,
-                      fontSize: `0.85rem`,
-                    },
-                    onClick: async () => {
-                      t({ ...e, googleSheetUrl: e.posDataSheetUrl });
-                      try {
-                        i(
-                          (
-                            await fetch(`/settings/sync-google-sheet`, {
-                              method: `POST`,
-                            })
-                          ).ok
-                            ? `All POS Data Exported Successfully!`
-                            : `All POS Data Exported Successfully to Google Sheet!`,
-                          `success`,
-                        );
-                      } catch {
-                        i(
-                          `All POS Data Exported Successfully to Google Sheet!`,
-                          `success`,
-                        );
-                      }
-                    },
-                    children: `📤 Export All Data`,
-                  }),
-                ],
-              }),
-            ],
-          }),
-          (0, J.jsxs)(`div`, {
+          // Obsolete VHC invoice-photo-intake bot (@Vhcpharm_bot) — confirmed non-functional in
+          // the packaged Electron app (its fetch target is a relative "/telegram-api" path that
+          // cannot resolve from a file:// origin; no server/Edge Function implements it anywhere
+          // in this codebase). Hidden rather than deleted, to keep this change minimal and safe
+          // in a minified bundle — the settings/state fields themselves are untouched and inert.
+          false && (0, J.jsxs)(`div`, {
             className: `glass-panel`,
             style: {
               padding: `1.5rem`,
@@ -59087,7 +59067,7 @@ function Lh() {
                     (0, J.jsxs)(`div`, {
                       style: { marginTop: `0.9rem`, paddingTop: `0.9rem`, borderTop: `1px solid var(--info-border)` },
                       children: [
-                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, fontSize: `0.85rem`, color: `var(--info-strong)` }, children: `📊 Remote Reports Bot (@vhcpharma_bot)` }),
+                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, fontSize: `0.85rem`, color: `var(--info-strong)` }, children: `📊 Remote Reports Bot (@NHCPharmacybot)` }),
                         (() => {
                           if (!telegramLiveStatus) return null;
                           let liveMeta = {
@@ -61921,14 +61901,11 @@ function a_() {
     [settleRecordedByLabel, setSettleRecordedByLabel] = (0, _.useState)(null),
     T = () => {
       a(!0);
-      let e = [];
-      try {
-        let t = localStorage.getItem(`vhc_pos_sales_history`);
-        if (t) {
-          let n = JSON.parse(t);
-          Array.isArray(n) && (e = n);
-        }
-      } catch {}
+      // Phase 2F Step 3: same swap as Wr()'s s() above — local data now comes from SQLite
+      // merged with the legacy localStorage array for compatibility (see
+      // loadLocalSalesHistoryForUI). The dead `/api/reports/bills` fetch and cloud-merge logic
+      // below are otherwise completely unchanged.
+      loadLocalSalesHistoryForUI().then((e) => {
       fetch(`/api/reports/bills`)
         .then((e) => e.json())
         .then((t) => {
@@ -61942,6 +61919,7 @@ function a_() {
         .catch((t) => {
           (r(mergeCloudSalesIntoLocal(e)), a(!1));
         });
+      });
     };
   (0, _.useEffect)(() => {
     T();
@@ -62051,8 +62029,36 @@ function a_() {
           reference: reference || null,
           date: new Date().toISOString(),
           recordedBy: recordedByEmail,
-        },
-        updatedBill = {
+        };
+      // SQLite-authoritative write (Phase 2F Step 2). Re-validates the amount against SQLite's
+      // OWN current outstanding balance — never trusts the `before` check above alone, same
+      // principle as createLocalSale's stock re-validation. A bill SQLite doesn't have locally
+      // (older than local-first billing, or only ever seen via the cloud — see the "ROOT CAUSE"
+      // comment above) is reported as reason:'sale-not-found', not an error: this repayment
+      // falls back to the existing localStorage-only write below, unchanged from before this
+      // phase existed. Only a REAL validation failure (SQLite's own view disagrees with the
+      // amount) stops the repayment here — localStorage is deliberately NOT written in that
+      // case, so it never invents a repayment state SQLite has already rejected.
+      if (window.electronAPI && window.electronAPI.recordCreditRepayment) {
+        try {
+          let sqliteResult = await window.electronAPI.recordCreditRepayment({
+            id: repaymentEntry.id,
+            billId: settleBill.billId,
+            amount: repaymentEntry.amount,
+            method: repaymentEntry.method,
+            reference: repaymentEntry.reference,
+            date: repaymentEntry.date,
+            recordedBy: repaymentEntry.recordedBy,
+          });
+          if (sqliteResult && !sqliteResult.success && sqliteResult.reason !== `sale-not-found`) {
+            t(`Failed to record payment: ${sqliteResult.error || `Unknown local database error`}`, `error`);
+            return;
+          }
+        } catch (sqliteErr) {
+          console.warn(`[LocalSQLite] recordCreditRepayment threw:`, sqliteErr);
+        }
+      }
+      let updatedBill = {
           ...freshBill,
           fromCloudOnly: !1,
           creditRepayments: [...(Array.isArray(freshBill.creditRepayments) ? freshBill.creditRepayments : []), repaymentEntry],
@@ -62091,6 +62097,25 @@ function a_() {
     if (!(await confirmAction(confirmMsg))) return;
 
     try {
+      // Local-first cancellation (Phase 2E): atomically marks the SQLite sale deleted and
+      // restores SQLite stock via a reverse stock_movement, entirely offline-capable — see
+      // cancelLocalSale in electron/database.js. Safe to call for every bill unconditionally:
+      // a bill from before local-first billing existed has no local SQLite record at all, and
+      // cancelLocalSale is a documented no-op in that case, not an error. Awaited but its
+      // result is only logged, never blocks the existing restore flow below — that flow
+      // remains the one currently driving the on-screen inventory numbers (see the stock
+      // display work still pending in a later phase) and must keep working exactly as before.
+      if (window.electronAPI && window.electronAPI.cancelLocalSale) {
+        try {
+          let localCancelResult = await window.electronAPI.cancelLocalSale(billToDelete.billId);
+          if (!localCancelResult || !localCancelResult.success) {
+            console.warn(`[LocalSQLite] cancelLocalSale failed for ${billToDelete.billId}:`, localCancelResult && localCancelResult.error);
+          }
+        } catch (localCancelErr) {
+          console.warn(`[LocalSQLite] cancelLocalSale threw for ${billToDelete.billId}:`, localCancelErr);
+        }
+      }
+
       let invSnapshot = Array.isArray(reportsInventory) ? reportsInventory : [];
       // Load exactly this bill, by Bill ID, from persisted storage — never operate on a
       // possibly-stale in-memory reference for a data-integrity-critical delete/restore.
@@ -62545,7 +62570,7 @@ function a_() {
                     let t = new Q();
                     if (
                       (t.setFontSize(18),
-                      t.text(e.storeName || `NARPAVI HEALTH CARE`, 14, 20),
+                      t.text(e.storeName || `Narpavi Health Care`, 14, 20),
                       t.setFontSize(11),
                       t.setTextColor(100),
                       t.text(
@@ -64571,7 +64596,7 @@ function l_() {
     { addItemsBulk: i, inventory: rootInventory, addLog: rootAddLog } = Vr(),
     [a, o] = (0, _.useState)(null),
     [, forceExpiryBadgeRerender] = (0, _.useState)(0),
-    // Real status of the embedded Telegram reporting bot (@vhcpharma_bot), forked and
+    // Real status of the embedded Telegram reporting bot (@NHCPharmacybot), forked and
     // managed by the Electron main process — see electron/main.js. Distinct from
     // `connectionStatus` above, which belongs to the separate invoice-photo bot.
     [telegramSvcStatus, setTelegramSvcStatus] = (0, _.useState)(null);
