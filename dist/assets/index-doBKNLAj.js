@@ -58189,6 +58189,95 @@ function Lh() {
           }),
         ],
       }),
+      // App Details / About + Changelog. Version is read from the same vhc_app_version cache
+      // the sidebar footer already uses (itself populated once at startup from
+      // window.electronAPI.getAppVersion(), i.e. Electron's app.getVersion()/package.json) —
+      // deliberately not a second, separately-maintained version number. Visible to every
+      // signed-in user, not gated on isPlatformAdmin, since it's informational only.
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4`,
+        style: {
+          padding: `1.25rem 1.5rem`,
+          background: `var(--surface)`,
+          borderRadius: `16px`,
+          border: `1.5px solid var(--border-strong)`,
+        },
+        children: [
+          (0, J.jsx)(`h3`, {
+            style: {
+              margin: `0 0 0.75rem`,
+              fontSize: `1.1rem`,
+              color: `var(--text-primary)`,
+              display: `flex`,
+              alignItems: `center`,
+              gap: `0.5rem`,
+            },
+            children: `ℹ️ App Details`,
+          }),
+          (0, J.jsxs)(`div`, {
+            style: {
+              display: `grid`,
+              gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`,
+              gap: `0.75rem`,
+              marginBottom: `1rem`,
+            },
+            children: [
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Application` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `NHC Pharmacy POS` }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Version` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `v${localStorage.getItem('vhc_app_version') || '3.18.1'}` }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Hospital` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `Narpavi Health Care` }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Doctor` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `Dr. N.C. VIVEK ANAND M.D.,` }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Build` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `Production` }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Platform` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `Windows` }),
+                ],
+              }),
+            ],
+          }),
+          (0, J.jsx)(`h4`, {
+            style: { margin: `1rem 0 0.5rem`, fontSize: `0.9rem`, color: `var(--text-heading)` },
+            children: `📋 Changelog — v3.18.1`,
+          }),
+          (0, J.jsxs)(`ul`, {
+            style: { margin: 0, paddingLeft: `1.2rem`, fontSize: `0.8rem`, color: `var(--text-secondary)`, lineHeight: `1.7` },
+            children: [
+              (0, J.jsx)(`li`, { children: `Rebranded to NHC Pharmacy POS for Narpavi Health Care` }),
+              (0, J.jsx)(`li`, { children: `Migrated cloud data and authentication to a dedicated NHC Supabase project` }),
+              (0, J.jsx)(`li`, { children: `Added local-first offline billing on SQLite, with automatic background sync once reconnected` }),
+              (0, J.jsx)(`li`, { children: `Migrated Telegram remote reporting to @NHCPharmacybot with its own isolated NHC data folder` }),
+              (0, J.jsx)(`li`, { children: `Hid the legacy, non-functional invoice photo-intake Telegram feature` }),
+              (0, J.jsx)(`li`, { children: `Isolated NHC application data from the previous VHC installation` }),
+              (0, J.jsx)(`li`, { children: `Added this App Details / Changelog section` }),
+            ],
+          }),
+        ],
+      }),
       // Platform-Admin-only trigger cards (Backup & Restore, Stock Audit). Gated on the same
       // server-verified isPlatformAdmin used by the Danger Zone and the account label above —
       // hidden entirely for clinic accounts rather than shown-disabled, per spec. Sibling
