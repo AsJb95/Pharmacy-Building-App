@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   adminClearLocalSalesHistory: () => ipcRenderer.invoke('database:admin-clear-sales-history'),
   adminClearLocalSalesAndLedger: () => ipcRenderer.invoke('database:admin-clear-sales-and-ledger'),
   adminClearLocalInventoryLedger: () => ipcRenderer.invoke('database:admin-clear-inventory-ledger'),
+  // Flush pending localStorage writes to disk (used only after destructive admin operations).
+  flushLocalStorageToDisk: () => ipcRenderer.invoke('storage:flush-local-storage'),
   showAlert: (message) => ipcRenderer.invoke('show-alert', message),
   showConfirm: (message) => ipcRenderer.invoke('show-confirm', message),
   refocusWindow: () => ipcRenderer.send('refocus-main-window'),

@@ -926,6 +926,22 @@ ipcMain.handle('database:admin-clear-sales-history', async () => {
   if (!mod) return ADMIN_DB_UNAVAILABLE();
   try { return mod.clearSalesHistoryData(); } catch (e) { return { success: false, error: e.message }; }
 });
+// Asks Chromium to write any pending DOM storage (localStorage) to disk NOW. Chromium otherwise
+// defers those writes by several seconds, so a hard kill / power loss right after a destructive
+// admin operation could let the previous localStorage state come back while SQLite (which commits
+// durably) has already changed. This ONLY flushes: it never clears or alters storage, cookies,
+// cache or auth, and it acts on the calling renderer's own persistent session (the VHC window).
+ipcMain.handle('storage:flush-local-storage', async (event) => {
+  try {
+    const wc = event.sender;
+    if (!wc || wc.isDestroyed()) return { success: false, error: 'The app window is not available' };
+    wc.session.flushStorageData();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e && e.message ? e.message : String(e) };
+  }
+});
+
 ipcMain.handle('database:admin-clear-inventory-ledger', async () => {
   const mod = await initLocalDatabase();
   if (!mod) return ADMIN_DB_UNAVAILABLE();
