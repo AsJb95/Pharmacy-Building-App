@@ -1,0 +1,64 @@
+name: Windows validation build
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+
+      - name: Verify Inventory add flow
+        run: node test/inventory-add-flow.test.cjs
+
+      - name: Run isolated database self-test
+        run: npm run test:database
+
+      - name: Build Windows installer
+        run: npm run dist
+
+      - name: Verify installer and write SHA-256
+        shell: pwsh
+        run: |
+          $installer = "C:\New VHC\release-Pharmacy\NHC_Pharmacy_POS_Setup_3.18.2.exe"
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "Expected installer was not produced: $installer"
+          }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  NHC_Pharmacy_POS_Setup_3.18.2.exe" |
+            Set-Content -LiteralPath "C:\New VHC\release-Pharmacy\SHA256SUMS.txt"
+          Get-Item -LiteralPath $installer |
+            Select-Object FullName, Length, LastWriteTime
+          Get-Content -LiteralPath "C:\New VHC\release-Pharmacy\SHA256SUMS.txt"
+
+      - name: Upload validated installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NHC-Pharmacy-POS-v3.18.2-Windows
+          path: |
+            C:\New VHC\release-Pharmacy\NHC_Pharmacy_POS_Setup_3.18.2.exe
+            C:\New VHC\release-Pharmacy\SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

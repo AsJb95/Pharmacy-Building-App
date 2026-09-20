@@ -20401,17 +20401,34 @@ ${suffix}`;
   var productCodeSupported = false;
   async function ensurePharmacyLocation() {
     if (pharmacyLocationId) return pharmacyLocationId;
-    const { data, error } = await supabase.from("locations").select("id").eq("type", "pharmacy_counter").limit(1).maybeSingle();
+    const { data, error } = await supabase.from("locations").select("id, name").eq("type", "pharmacy_counter").limit(1).maybeSingle();
     if (error) {
       console.error("[VHC_CLOUD] ensurePharmacyLocation query failed:", error, "session present:", !!currentSession);
       throw error;
     }
-    if (!data) {
-      console.error("[VHC_CLOUD] ensurePharmacyLocation: no matching row. session present:", !!currentSession, "- if this session is signed in, check the RLS policy on 'locations' allows SELECT of type=pharmacy_counter.");
-      throw new Error(`No location of type pharmacy_counter found (expected "${PHARMACY_LOCATION_NAME}")`);
+    if (data) {
+      pharmacyLocationId = data.id;
+      console.log("[VHC_CLOUD] pharmacyLocationId resolved:", pharmacyLocationId);
+      return pharmacyLocationId;
     }
-    pharmacyLocationId = data.id;
-    console.log("[VHC_CLOUD] pharmacyLocationId resolved:", pharmacyLocationId);
+    if (!currentSession || !currentSession.user) {
+      throw new Error("Your NHC Pharmacy login session has expired. Sign in again and retry.");
+    }
+    const { data: profile, error: profileError } = await supabase.from("profiles").select("role").eq("id", currentSession.user.id).maybeSingle();
+    if (profileError) throw profileError;
+    if (!profile || profile.role !== "admin") {
+      throw new Error("NHC Pharmacy Counter is not configured for this database. Ask the NHC admin to sign in once or run nhc_inventory_location_hotfix.sql.");
+    }
+    const { data: created, error: createError } = await supabase.from("locations").insert({ name: PHARMACY_LOCATION_NAME, type: "pharmacy_counter" }).select("id").single();
+    if (createError) {
+      throw new Error(`Unable to create ${PHARMACY_LOCATION_NAME}: ${createError.message || createError}`);
+    }
+    pharmacyLocationId = created.id;
+    const { error: alertsError } = await supabase.from("alerts_config").insert({ location_id: pharmacyLocationId, low_stock_threshold: 200, expiry_alert_days: 90 });
+    if (alertsError) {
+      console.error("[VHC_CLOUD] default alerts_config provisioning failed:", alertsError);
+    }
+    console.log("[VHC_CLOUD] missing pharmacy location provisioned:", pharmacyLocationId);
     return pharmacyLocationId;
   }
   async function resolveItemId({ name, category, hsnCode, unitsPerPack, productCode }) {
