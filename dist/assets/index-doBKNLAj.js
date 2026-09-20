@@ -16435,6 +16435,28 @@ var Fr = (0, _.createContext)(),
           result && !result.error &&
             (await l(), p(`SALE_STOCK_OUT`, `Bill:${ctx.billId || `?`} - Stock updated for ${deductions.length} item(s)`));
         },
+        // LOCAL-ONLY on-screen stock update for a sale already recorded in the local SQLite
+        // database. Deliberately makes NO cloud call and never touches VHC_CLOUD's in-memory
+        // inventoryCache: adjustStockBulk computes closing = cachedStock + delta, so pre-mutating
+        // that cache (or calling updateItem, which writes to Supabase) before updateItemsBulk
+        // would deduct twice. Cloud stock stays owned solely by updateItemsBulk. It only paints
+        // React state and the localStorage fallback cache (read by getInventory() solely when the
+        // in-memory cache is empty, i.e. a cold/offline start) — both are overwritten by the next
+        // successful fetchInventory(), which is always the authoritative figure.
+        applyLocalStockDeduction: (deductions) => {
+          if (!Array.isArray(deductions) || deductions.length === 0) return;
+          let byId = new Map();
+          deductions.forEach((d) => byId.set(d.id, (byId.get(d.id) || 0) + (parseFloat(d.qty) || 0)));
+          let paint = (it) => (it && byId.has(it.id) ? { ...it, stock: (parseFloat(it.stock) || 0) - byId.get(it.id) } : it);
+          a((prev) => prev.map(paint));
+          try {
+            let raw = localStorage.getItem(`vhc_cloud_cache_inventory`);
+            if (raw) {
+              let cached = JSON.parse(raw);
+              Array.isArray(cached) && localStorage.setItem(`vhc_cloud_cache_inventory`, JSON.stringify(cached.map(paint)));
+            }
+          } catch {}
+        },
         deleteItem: async (e) => {
           let t = i.find((t) => t.id === e);
           if (t) {
@@ -16525,6 +16547,41 @@ function mergeCloudSalesIntoLocal(localBills) {
     return localBills || [];
   }
 }
+// Local bill history for the UI = legacy localStorage bills (every bill VHC ever recorded before
+// local-first billing, plus anything restored from a backup — backups only ever write
+// localStorage) merged with the bills in the local SQLite database (vhc_pharmacy.db). SQLite
+// existence is NOT required for a bill to appear: a historical bill with no SQLite record is
+// shown exactly as before. On a billId present in BOTH, SQLite wins (it holds the authoritative
+// repayments and excludes cancelled sales). If SQLite is unavailable or errors, this degrades to
+// the legacy localStorage array alone. The result is what mergeCloudSalesIntoLocal already
+// expects as its `localBills` argument; cloud merging itself is unchanged.
+async function loadLocalSalesHistoryForUI() {
+  let legacyLocalBills = [];
+  try {
+    let raw = localStorage.getItem(`vhc_pos_sales_history`);
+    if (raw) {
+      let parsed = JSON.parse(raw);
+      Array.isArray(parsed) && (legacyLocalBills = parsed);
+    }
+  } catch (e) {
+    console.error(`Error parsing local sales history:`, e);
+  }
+
+  let sqliteBills = [];
+  if (window.electronAPI && window.electronAPI.getSalesHistory) {
+    try {
+      let result = await window.electronAPI.getSalesHistory();
+      Array.isArray(result) && (sqliteBills = result);
+    } catch (e) {
+      console.error(`[SQLite] getSalesHistory failed, falling back to localStorage-only —`, e);
+    }
+  }
+
+  let byId = new Map();
+  legacyLocalBills.forEach((b) => b && b.billId && byId.set(b.billId, b));
+  sqliteBills.forEach((b) => b && b.billId && byId.set(b.billId, b));
+  return Array.from(byId.values());
+}
 function Wr() {
   let { settings: e } = Ir(),
     { inventory: t } = Vr(),
@@ -16533,16 +16590,7 @@ function Wr() {
     [a, o] = (0, _.useState)(!0),
     s = () => {
       o(!0);
-      let e = [];
-      try {
-        let t = localStorage.getItem(`vhc_pos_sales_history`);
-        if (t) {
-          let n = JSON.parse(t);
-          Array.isArray(n) && (e = n);
-        }
-      } catch (e) {
-        console.error(`Error parsing local sales history:`, e);
-      }
+      loadLocalSalesHistoryForUI().then((e) => {
       fetch(`/api/reports/bills`)
         .then((e) => e.json())
         .then((t) => {
@@ -16556,6 +16604,7 @@ function Wr() {
         .catch(() => {
           (i(mergeCloudSalesIntoLocal(e)), o(!1));
         });
+      });
     };
   (0, _.useEffect)(() => {
     s();
@@ -51286,7 +51335,7 @@ function vhcLoadInitialState() {
   return { tabs: [migratedTab], activeTabId: migratedTab.id };
 }
 function Nh() {
-  let { inventory: e, patients: cloudPatients, updateItem: t, updateItemsBulk: bulkUpdateInventory, addLog: n } = Vr(),
+  let { inventory: e, patients: cloudPatients, updateItem: t, updateItemsBulk: bulkUpdateInventory, applyLocalStockDeduction: paintLocalStock, addLog: n } = Vr(),
     { settings: r } = Ir(),
     i = Th(),
     a = (0, _.useRef)(null),
@@ -51785,6 +51834,10 @@ function Nh() {
               );
           });
         }));
+      // Set true only once the sale is durably recorded in the local SQLite database (see the
+      // createLocalSale block below). Gates the local on-screen stock paint so that with no
+      // usable local database this function behaves exactly as it did before local-first billing.
+      let localSaleRecorded = !1;
       let applyInventoryDeductions = (billIdForContext) => {
         let deductionList = Array.from(deductionMap, ([id, qty]) => ({ id, qty }));
         if (deductionList.length === 0) return;
@@ -51792,6 +51845,11 @@ function Nh() {
         // patientSnapshot captured above, so the stock-ledger entry always reflects the exact
         // patient this bill was billed to, never live selection state.
         let deductionContext = { billId: billIdForContext || ``, patientName: patientSnapshot.name, patientId: patientSnapshot.patientId };
+        // On-screen paint only (no cloud call — see applyLocalStockDeduction in the inventory
+        // provider). Cloud stock is still changed exactly once, by bulkUpdateInventory below.
+        if (localSaleRecorded && paintLocalStock) {
+          try { paintLocalStock(deductionList); } catch (paintErr) { console.warn(`[LocalSQLite] local stock paint failed:`, paintErr); }
+        }
         if (bulkUpdateInventory) bulkUpdateInventory(deductionList, deductionContext);
         else
           deductionList.forEach(({ id, qty }) => {
@@ -51872,6 +51930,60 @@ function Nh() {
           discountPercent: effectiveDiscountPercent,
           discountMode,
         };
+      // Local-first record (SQLite, main process): the sale, its lines and its stock effect are
+      // committed atomically and work fully offline. A BUSINESS rejection (`rejected`: e.g. the
+      // main process finds a quantity above the stock this cart reported, a non-positive
+      // quantity, or a duplicate bill id) stops the sale — nothing after this has run yet. Any
+      // other failure (no local database, locked/corrupt file, ...) must NOT stop a pharmacy
+      // sale: it falls through to the existing legacy flow exactly as before this feature.
+      if (window.electronAPI && window.electronAPI.createLocalSale) {
+        try {
+          let localResult = await window.electronAPI.createLocalSale({
+            billId: m,
+            patientSnapshot,
+            doctorName: p,
+            paymentMode: f,
+            subtotal: s,
+            totalTax: l,
+            totalAmount: a,
+            gstMode: billGstMode,
+            discount: billDiscount,
+            discountPercent: effectiveDiscountPercent,
+            paymentDetails,
+            items: r.map((cartItem) => ({
+              name: cartItem.name,
+              itemId: cartItem.itemId,
+              category: cartItem.category || `Medicine`,
+              batch: cartItem.batch,
+              expiry: cartItem.expiry,
+              mrp: cartItem.mrp,
+              price: cartItem.price,
+              netRate: cartItem.netRate,
+              rate: cartItem.rate,
+              gst: cartItem.gst,
+              stockist: cartItem.stockist,
+              hsnCode: cartItem.hsnCode,
+              unitsPerPack: cartItem.unitsPerPack,
+              customUnitPrice: cartItem.customUnitPrice,
+              qty: cartItem.qty,
+              // The live on-screen stock for this batch at checkout (what the cart validated
+              // against), so the local ledger reconciles to it rather than to a stale figure.
+              stock: (e.find((x) => x.id === cartItem.id) || cartItem).stock,
+            })),
+            extraParticulars,
+          });
+          if (localResult && localResult.success) {
+            localSaleRecorded = !0;
+          } else if (localResult && localResult.rejected) {
+            i(`Sale could not be saved: ${localResult.error || `Rejected by the local database`}`, `error`, 6e3);
+            return null;
+          } else {
+            console.warn(`[LocalSQLite] createLocalSale unavailable/failed — continuing with the existing billing flow:`, localResult && localResult.error);
+          }
+        } catch (localErr) {
+          console.warn(`[LocalSQLite] createLocalSale threw — continuing with the existing billing flow:`, localErr);
+        }
+      }
       // Best-effort, non-blocking cloud sync of the sale RECORD only (cross-terminal
       // reporting visibility). recordOnly forces affects_stock=false on every line so
       // create_sale never touches stock_batches — stock is still adjusted exactly once,
@@ -57921,6 +58033,33 @@ function Lh() {
     window.VHC_CLOUD && window.VHC_CLOUD.isPlatformAdmin &&
       window.VHC_CLOUD.isPlatformAdmin().then(setIsPlatformAdmin).catch(() => setIsPlatformAdmin(!1));
   }, []);
+  // App Details card data (informational only): the version comes from Electron's
+  // app.getVersion() (same IPC the startup version check uses); database status from the
+  // local SQLite layer. Both degrade to a neutral label if unavailable.
+  let [appDetailsInfo, setAppDetailsInfo] = (0, _.useState)({ version: null, db: null });
+  (0, _.useEffect)(() => {
+    let cancelled = !1;
+    (async () => {
+      let version = null, db = null;
+      try { window.electronAPI && window.electronAPI.getAppVersion && (version = await window.electronAPI.getAppVersion()); } catch (err) {}
+      try { window.electronAPI && window.electronAPI.getDatabaseStatus && (db = await window.electronAPI.getDatabaseStatus()); } catch (err) {}
+      cancelled || setAppDetailsInfo({ version, db });
+    })();
+    return () => { cancelled = !0; };
+  }, []);
+  let appPlatformLabel = (() => {
+    let ua = (typeof navigator !== `undefined` && navigator.userAgent) || ``,
+      osName = /Windows/i.test(ua) ? `Windows` : /Mac/i.test(ua) ? `macOS` : /Linux/i.test(ua) ? `Linux` : `Unknown`,
+      electronVer = (ua.match(/Electron\/([\d.]+)/) || [])[1];
+    return electronVer ? `${osName} (Electron ${electronVer})` : osName;
+  })();
+  let appDetailsTile = (label, value) =>
+    (0, J.jsxs)(`div`, {
+      children: [
+        (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: label }),
+        (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: value }),
+      ],
+    });
   let saveTelegramBotSettingsHandler = async () => {
     if (!window.electronAPI || !window.electronAPI.saveTelegramBotSettings) return;
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(telegramReportTime)) {
@@ -58089,6 +58228,53 @@ function Lh() {
               await window.VHC_CLOUD.signOut();
             },
             children: `🚪 Logout`,
+          }),
+        ],
+      }),
+      // App Details / About + Changelog. Informational only, visible to every signed-in user
+      // (not gated on isPlatformAdmin). Business name is read from the existing Pharmacy Details
+      // setting (storeName) — nothing customer-specific is hardcoded beyond that setting's own
+      // default. There is no global doctor setting in this app (doctor is per-bill), so none is shown.
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4`,
+        style: {
+          padding: `1.25rem 1.5rem`,
+          background: `var(--surface)`,
+          borderRadius: `16px`,
+          border: `1.5px solid var(--border-strong)`,
+        },
+        children: [
+          (0, J.jsx)(`h3`, {
+            style: { margin: `0 0 0.75rem`, fontSize: `1.1rem`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` },
+            children: `ℹ️ App Details`,
+          }),
+          (0, J.jsxs)(`div`, {
+            style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`, gap: `0.75rem`, marginBottom: `1rem` },
+            children: [
+              appDetailsTile(`Application`, `VHC Pharmacy POS`),
+              appDetailsTile(`Version`, appDetailsInfo.version ? `v${appDetailsInfo.version}` : localStorage.getItem(`vhc_app_version`) ? `v${localStorage.getItem(`vhc_app_version`)}` : `—`),
+              appDetailsTile(`Hospital / Business`, e.storeName || `VARNIKA HEALTH CARE`),
+              appDetailsTile(`Platform`, appPlatformLabel),
+              appDetailsTile(
+                `Local Database`,
+                appDetailsInfo.db
+                  ? appDetailsInfo.db.opened
+                    ? `SQLite ready (schema v${appDetailsInfo.db.schemaVersion})`
+                    : `Unavailable — using existing storage`
+                  : `Checking…`,
+              ),
+            ],
+          }),
+          (0, J.jsx)(`h4`, {
+            style: { margin: `1rem 0 0.5rem`, fontSize: `0.9rem`, color: `var(--text-heading)` },
+            children: `📋 Changelog`,
+          }),
+          (0, J.jsxs)(`ul`, {
+            style: { margin: 0, paddingLeft: `1.2rem`, fontSize: `0.8rem`, color: `var(--text-secondary)`, lineHeight: `1.7` },
+            children: [
+              (0, J.jsx)(`li`, { children: `Local-first reliability improvements, SQLite transaction storage, offline billing persistence, credit repayment persistence, improved transaction history and reporting reliability` }),
+              (0, J.jsx)(`li`, { children: `Added this App Details / Changelog section` }),
+            ],
           }),
         ],
       }),
@@ -61921,14 +62107,7 @@ function a_() {
     [settleRecordedByLabel, setSettleRecordedByLabel] = (0, _.useState)(null),
     T = () => {
       a(!0);
-      let e = [];
-      try {
-        let t = localStorage.getItem(`vhc_pos_sales_history`);
-        if (t) {
-          let n = JSON.parse(t);
-          Array.isArray(n) && (e = n);
-        }
-      } catch {}
+      loadLocalSalesHistoryForUI().then((e) => {
       fetch(`/api/reports/bills`)
         .then((e) => e.json())
         .then((t) => {
@@ -61942,6 +62121,7 @@ function a_() {
         .catch((t) => {
           (r(mergeCloudSalesIntoLocal(e)), a(!1));
         });
+      });
     };
   (0, _.useEffect)(() => {
     T();
@@ -61984,6 +62164,10 @@ function a_() {
   // latest known balance, not a possibly-stale value already on screen.
   let handleRecordCreditPayment = async ({ amount, method, reference }) => {
     if (!settleBill || !settleBill.billId) return;
+    // One repayment submission at a time: the SQLite round trip below widens the async window in
+    // which a double-click would otherwise generate two DIFFERENT repayment ids for one intent.
+    if (window.__vhcRepaymentInFlight) return;
+    window.__vhcRepaymentInFlight = !0;
     try {
       let persisted = [];
       try {
@@ -62005,6 +62189,18 @@ function a_() {
       // unrelated sales.id UUID primary key, so there is no field-name
       // mismatch to fix there; the missing piece was simply falling back to
       // the cloud source of truth instead of stopping at "not in localStorage".
+      // A bill that lives ONLY in the local SQLite database (e.g. billed after the last backup,
+      // then localStorage was overwritten by restoring that older backup — backups only ever
+      // write localStorage) is neither in localStorage nor a cloud-only bill (those carry
+      // fromCloudOnly and take the cloud lookup below). The bill the user clicked (already
+      // merged from SQLite) is used as the working copy, but ONLY if SQLite then confirms it
+      // exists — see freshFromUiOnly — so a stale/deleted bill can never be resurrected into
+      // localStorage by this path. Checked BEFORE the cloud lookup: no network call is needed.
+      let freshFromUiOnly = !1;
+      if (!freshBill && settleBill && !settleBill.fromCloudOnly) {
+        freshBill = settleBill;
+        freshFromUiOnly = !0;
+      }
       if (!freshBill) {
         let cloudRows = (window.VHC_CLOUD && window.VHC_CLOUD.getSalesHistory && window.VHC_CLOUD.getSalesHistory()) || [],
           cloudRow = cloudRows.find((row) => row && row.bill_id === settleBill.billId) || null;
@@ -62051,11 +62247,68 @@ function a_() {
           reference: reference || null,
           date: new Date().toISOString(),
           recordedBy: recordedByEmail,
-        },
-        updatedBill = {
+        };
+      // SQLite-authoritative write. The main process re-validates the amount against SQLite's
+      // OWN current outstanding balance (never trusting the `before` check above alone) and is
+      // idempotent on the repayment id. Outcomes:
+      //  - success                 -> continue; the legacy copy below adopts SQLite's repayment list
+      //  - reason 'sale-not-found' -> a bill SQLite doesn't hold (all historical / cloud-only
+      //                               bills): the existing localStorage-only flow, unchanged
+      //  - unavailable             -> no local database at all: same legacy flow (SQLite history
+      //                               isn't shown either, so the two can't disagree)
+      //  - anything else           -> STOP. SQLite wins when a bill exists in both stores, so a
+      //                               repayment written only to localStorage would later vanish
+      //                               from view. Failing loudly is safer than a silent divergence.
+      let sqliteRepaymentList = null;
+      if (window.electronAPI && window.electronAPI.recordCreditRepayment) {
+        let sqliteResult = null;
+        try {
+          sqliteResult = await window.electronAPI.recordCreditRepayment({
+            id: repaymentEntry.id,
+            billId: settleBill.billId,
+            amount: repaymentEntry.amount,
+            method: repaymentEntry.method,
+            reference: repaymentEntry.reference,
+            date: repaymentEntry.date,
+            recordedBy: repaymentEntry.recordedBy,
+          });
+        } catch (sqliteErr) {
+          console.error(`[LocalSQLite] recordCreditRepayment threw:`, sqliteErr);
+          t(`Failed to record payment: the local database did not respond. Please try again.`, `error`);
+          return;
+        }
+        if (sqliteResult && sqliteResult.success) {
+          if (sqliteResult.settlement && Array.isArray(sqliteResult.settlement.repayments)) {
+            sqliteRepaymentList = sqliteResult.settlement.repayments.map((row) => ({
+              id: row.id,
+              amount: row.amount,
+              method: row.method,
+              reference: row.reference,
+              date: row.payment_date,
+              recordedBy: row.recorded_by,
+            }));
+          }
+        } else if (sqliteResult && (sqliteResult.reason === `sale-not-found` || sqliteResult.unavailable)) {
+          if (freshFromUiOnly && !sqliteResult.unavailable) {
+            t(`Bill ${settleBill.billId} could not be found — it may have been deleted.`, `error`);
+            return;
+          }
+        } else {
+          t(`Failed to record payment: ${(sqliteResult && sqliteResult.error) || `Unknown local database error`}`, `error`);
+          return;
+        }
+      } else if (freshFromUiOnly) {
+        t(`Bill ${settleBill.billId} could not be found — it may have been deleted.`, `error`);
+        return;
+      }
+      let mergedRepayments = new Map();
+      (Array.isArray(freshBill.creditRepayments) ? freshBill.creditRepayments : []).forEach((rp) => rp && rp.id && mergedRepayments.set(rp.id, rp));
+      mergedRepayments.set(repaymentEntry.id, repaymentEntry);
+      (sqliteRepaymentList || []).forEach((rp) => rp && rp.id && mergedRepayments.set(rp.id, rp));
+      let updatedBill = {
           ...freshBill,
           fromCloudOnly: !1,
-          creditRepayments: [...(Array.isArray(freshBill.creditRepayments) ? freshBill.creditRepayments : []), repaymentEntry],
+          creditRepayments: Array.from(mergedRepayments.values()),
         },
         updatedPersisted = persisted.slice();
       // idx === -1 means this bill had no local record yet (see the cloud
@@ -62083,6 +62336,8 @@ function a_() {
     } catch (err) {
       console.error(`Error recording credit repayment:`, err);
       t(`Failed to record payment: ` + err.message, `error`);
+    } finally {
+      window.__vhcRepaymentInFlight = !1;
     }
   };
   let handleDeleteBill = async (billToDelete) => {
@@ -62190,6 +62445,26 @@ function a_() {
       let updatedSales = Array.isArray(salesHistory) ? salesHistory.filter((b) => b && b.billId !== billToDelete.billId) : [];
       localStorage.setItem("vhc_pos_sales_history", JSON.stringify(updatedSales));
 
+      // Mark the sale cancelled in the local SQLite database (restores its LOCAL stock ledger and
+      // removes it from SQLite-backed history). A bill with no SQLite record (billed before
+      // local-first billing, or on another terminal) is a documented no-op, not an error. Cloud
+      // stock was already restored above by reportsUpdateItemsBulk — this never touches it. A
+      // failure must not undo the delete, but it is surfaced: an un-cancelled SQLite sale could
+      // otherwise reappear in history.
+      let localCancelNote = "";
+      if (window.electronAPI && window.electronAPI.cancelLocalSale) {
+        try {
+          let localCancelResult = await window.electronAPI.cancelLocalSale(billToDelete.billId);
+          if (localCancelResult && !localCancelResult.success && !localCancelResult.unavailable) {
+            console.warn(`[LocalSQLite] cancelLocalSale failed for ${billToDelete.billId}:`, localCancelResult.error);
+            localCancelNote = "\n(Warning: the local database record could not be updated — this bill may reappear in history after a restart.)";
+          }
+        } catch (localCancelErr) {
+          console.warn(`[LocalSQLite] cancelLocalSale threw for ${billToDelete.billId}:`, localCancelErr);
+          localCancelNote = "\n(Warning: the local database record could not be updated — this bill may reappear in history after a restart.)";
+        }
+      }
+
       try {
         fetch("/api/reports/bills/" + billToDelete.billId, { method: "DELETE" }).catch(() => {});
       } catch (err) {}
@@ -62213,7 +62488,8 @@ function a_() {
 
       let msg = "Bill " + billToDelete.billId + " removed and " + restoredCount + " unit(s) returned to inventory!";
       if (unmatched.length > 0) msg += "\n(Could not match in inventory: " + unmatched.filter(Boolean).join(", ") + ")";
-      if (typeof t === "function") t(msg, "success");
+      msg += localCancelNote;
+      if (typeof t === "function") t(msg, localCancelNote ? "warning" : "success");
     } catch (err) {
       console.error("Error deleting bill:", err);
       if (typeof t === "function") t("Failed to delete bill: " + err.message, "error");

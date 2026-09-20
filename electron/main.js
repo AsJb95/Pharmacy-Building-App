@@ -15,6 +15,11 @@ let backendProcess = null;
 // A second launch (double-clicking the shortcut/desktop icon again, opening from Start Menu
 // twice, etc.) must not spawn a second window or a second Telegram bot child process — it
 // should just bring the existing window forward. This must run before any other startup work.
+// The lock is scoped to the userData path, so a test launch must apply VHC_TEST_USERDATA first
+// or it would collide with (and signal) a real running instance. Unset for normal users.
+if (process.env.VHC_TEST_USERDATA) {
+  try { app.setPath('userData', process.env.VHC_TEST_USERDATA); } catch (e) {}
+}
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -831,10 +836,88 @@ ipcMain.handle('silent-print', async (event, htmlContent) => {
   });
 });
 
+// ─── Local SQLite database (vhc_pharmacy.db, in VHC's own userData) ───
+// Loaded through a dynamic import inside try/catch so that ANY failure (native module missing
+// or ABI mismatch, corrupt file, locked file, read-only disk) leaves the app fully usable on
+// its existing localStorage/cloud paths — the renderer treats `unavailable` as "no local DB".
+let localDb = null;
+let localDbInitError = null;
+let localDbReady = null;
+function initLocalDatabase() {
+  if (localDbReady) return localDbReady;
+  localDbReady = (async () => {
+    try {
+      const mod = await import('./database.js');
+      mod.initDatabase(path.join(app.getPath('userData'), 'vhc_pharmacy.db'));
+      localDb = mod;
+    } catch (e) {
+      localDb = null;
+      localDbInitError = e && e.message ? e.message : String(e);
+      console.error('[LocalDB] initialization failed — continuing without the local database:', localDbInitError);
+    }
+    return localDb;
+  })();
+  return localDbReady;
+}
+const DB_UNAVAILABLE = () => ({ success: false, unavailable: true, error: localDbInitError || 'Local database is unavailable' });
+
+ipcMain.handle('database:get-status', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return { exists: false, opened: false, error: localDbInitError };
+  try { return mod.getDatabaseStatus(); } catch (e) { return { exists: false, opened: false, error: e.message }; }
+});
+ipcMain.handle('database:get-schema-version', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return null;
+  try { return mod.getSchemaVersion(); } catch (e) { return null; }
+});
+
+// Local-first billing. These only ever touch vhc_pharmacy.db — nothing here talks to Supabase or
+// changes cloud stock (the renderer's existing bulkUpdateInventory path remains its sole owner).
+ipcMain.handle('database:create-local-sale', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.createLocalSale(payload); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:cancel-local-sale', async (event, billId) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.cancelLocalSale(billId); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:get-local-sale', async (event, billId) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return null;
+  try { return mod.getLocalSaleByBillId(billId); } catch (e) { return null; }
+});
+
+// Credit repayments and history reads (local SQLite only).
+ipcMain.handle('database:record-credit-repayment', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.recordCreditRepayment(payload || {}); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:get-credit-repayments', async (event, billId) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getCreditRepaymentsByBillId(billId); } catch (e) { return []; }
+});
+ipcMain.handle('database:get-credit-settlement', async (event, billId) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return null;
+  try { return mod.getCreditSettlementByBillId(billId); } catch (e) { return null; }
+});
+ipcMain.handle('database:get-sales-history', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getSalesHistory(); } catch (e) { console.error('[LocalDB] getSalesHistory failed:', e.message); return []; }
+});
+
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.vhc.pharmacypos');
   }
+
+  initLocalDatabase();
 
   // Any child window (print dialogs, about:blank popups, etc.) — restore focus when it closes
   app.on('browser-window-created', (event, createdWindow) => {
@@ -871,6 +954,7 @@ app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   isQuitting = true;
   stopTelegramBot();
+  try { if (localDb) localDb.closeDatabase(); } catch (e) {}
   if (tray) {
     try { tray.destroy(); } catch (e) {}
     tray = null;

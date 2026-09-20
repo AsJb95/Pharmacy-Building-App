@@ -7,13 +7,15 @@
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "test:database": "set ELECTRON_RUN_AS_NODE=1&& electron electron/database.selftest.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",
     "@capacitor/core": "^8.3.4",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.112.3",
+    "better-sqlite3": "12.11.1",
     "date-fns": "^4.3.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
@@ -38,12 +40,14 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "!electron/**/*.selftest.js",
       "public/**/*",
       "telegram-bot/**/*",
       "package.json"
     ],
     "asarUnpack": [
-      "telegram-bot/**/*"
+      "telegram-bot/**/*",
+      "node_modules/better-sqlite3/**/*"
     ],
     "win": {
       "target": [

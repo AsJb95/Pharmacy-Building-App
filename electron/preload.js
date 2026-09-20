@@ -7,6 +7,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // from the packaged app's package.json via Electron's own app.getVersion(),
   // instead of a hand-maintained string that can (and did) drift out of sync.
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  // Local SQLite database (vhc_pharmacy.db) — narrow, named calls only; no SQL passthrough.
+  getDatabaseStatus: () => ipcRenderer.invoke('database:get-status'),
+  getDatabaseSchemaVersion: () => ipcRenderer.invoke('database:get-schema-version'),
+  createLocalSale: (payload) => ipcRenderer.invoke('database:create-local-sale', payload),
+  cancelLocalSale: (billId) => ipcRenderer.invoke('database:cancel-local-sale', billId),
+  getLocalSale: (billId) => ipcRenderer.invoke('database:get-local-sale', billId),
+  recordCreditRepayment: (payload) => ipcRenderer.invoke('database:record-credit-repayment', payload),
+  getCreditRepayments: (billId) => ipcRenderer.invoke('database:get-credit-repayments', billId),
+  getCreditSettlement: (billId) => ipcRenderer.invoke('database:get-credit-settlement', billId),
+  getSalesHistory: () => ipcRenderer.invoke('database:get-sales-history'),
   showAlert: (message) => ipcRenderer.invoke('show-alert', message),
   showConfirm: (message) => ipcRenderer.invoke('show-confirm', message),
   refocusWindow: () => ipcRenderer.send('refocus-main-window'),
