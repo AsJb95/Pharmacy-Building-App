@@ -16402,13 +16402,19 @@ var Fr = (0, _.createContext)(),
         addItem: async (e) => {
           let t = c(e),
             result = await window.VHC_CLOUD.addInventoryItem(t);
-          result && !result.error &&
-            (await l(), p(`ADDED_ITEM`, `Added ${t.name} (Qty: ${t.stock})`));
+          if (!result || result.error)
+            throw new Error((result && result.error) || `Inventory save returned no result`);
+          a(window.VHC_CLOUD.getInventory().map(c));
+          p(`ADDED_ITEM`, `Added ${t.name} (Qty: ${t.stock})`);
+          return result;
         },
         addItemsBulk: async (e) => {
           let result = await window.VHC_CLOUD.addInventoryItemsBulk(e.map(c));
-          (result && !result.error) &&
-            (await l(), p(`PURCHASE_STOCK_IN`, `Imported/Merged ${e.length} items into inventory`));
+          if (!result || result.error)
+            throw new Error((result && result.error) || `Bulk inventory save returned no result`);
+          a(window.VHC_CLOUD.getInventory().map(c));
+          p(`PURCHASE_STOCK_IN`, `Imported/Merged ${e.length} items into inventory`);
+          return result;
         },
         // `reason` (3rd arg) is only required/used when the caller is changing the
         // stock quantity itself — see Ih()'s N() which validates a reason was
@@ -16416,8 +16422,11 @@ var Fr = (0, _.createContext)(),
         updateItem: async (e, t, reason) => {
           let n = c(t),
             result = await window.VHC_CLOUD.updateInventoryItem(e, n, reason);
-          result && !result.error &&
-            (await l(), p(`EDITED_ITEM`, `Updated details for ${n.name}`));
+          if (!result || result.error)
+            throw new Error((result && result.error) || `Inventory update returned no result`);
+          a(window.VHC_CLOUD.getInventory().map(c));
+          p(`EDITED_ITEM`, `Updated details for ${n.name}`);
+          return result;
         },
         // `context` ({billId, patientName, patientId, reason}) is passed explicitly by every
         // caller — never read from a global. This guarantees the resulting stock-ledger entries
@@ -55234,7 +55243,7 @@ function Ih() {
         setStockAdjustReason(``),
         f(!0));
     },
-    N = () => {
+    N = async () => {
       if (!b.name) return;
       let newStock = parseInt(b.stock, 10) || 0,
         stockChanged = v !== null && originalStockForEdit !== null && newStock !== originalStockForEdit;
@@ -55242,7 +55251,7 @@ function Ih() {
         toastFn(`Please enter a reason for this stock change before saving.`, `warning`);
         return;
       }
-      let e = {
+      let itemToSave = {
         name: b.name,
         batch: b.batch,
         expiry: b.expiry,
@@ -55254,20 +55263,29 @@ function Ih() {
         unitsPerPack: parseInt(b.unitsPerPack, 10) || 10,
         category: b.category || DEFAULT_CATEGORY,
       };
-      (v ? r(v, { id: v, ...e }, stockChanged ? stockAdjustReason.trim() : undefined) : t({ id: Date.now(), ...e }),
-        stockChanged &&
-          window.VHC_AUDIT &&
-          window.VHC_AUDIT.logStock &&
+      try {
+        if (v) {
+          await r(v, { id: v, ...itemToSave }, stockChanged ? stockAdjustReason.trim() : undefined);
+        } else {
+          await t({ id: Date.now(), ...itemToSave });
+        }
+        if (stockChanged && window.VHC_AUDIT && window.VHC_AUDIT.logStock) {
           window.VHC_AUDIT.logStock({
             type: `EDIT`,
-            product: e.name,
-            batch: e.batch,
+            product: itemToSave.name,
+            batch: itemToSave.batch,
             qty: newStock - originalStockForEdit,
             opening: originalStockForEdit,
             closing: newStock,
             reason: stockAdjustReason.trim(),
-          }),
-        f(!1));
+          });
+        }
+        f(!1);
+        toastFn(v ? `Inventory item updated successfully.` : `Stock added successfully.`, `success`);
+      } catch (saveError) {
+        console.error(`[INVENTORY] Save failed:`, saveError);
+        toastFn(`Unable to save stock: ${saveError && saveError.message ? saveError.message : saveError}`, `error`);
+      }
     },
     P = (e) => {
       (C(null), g(e));
@@ -58231,7 +58249,7 @@ function Lh() {
               (0, J.jsxs)(`div`, {
                 children: [
                   (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Version` }),
-                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `v${localStorage.getItem('vhc_app_version') || '3.18.1'}` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `v${localStorage.getItem('vhc_app_version') || '3.18.2'}` }),
                 ],
               }),
               (0, J.jsxs)(`div`, {
@@ -58262,11 +58280,13 @@ function Lh() {
           }),
           (0, J.jsx)(`h4`, {
             style: { margin: `1rem 0 0.5rem`, fontSize: `0.9rem`, color: `var(--text-heading)` },
-            children: `📋 Changelog — v3.18.1`,
+            children: `📋 Changelog — v3.18.2`,
           }),
           (0, J.jsxs)(`ul`, {
             style: { margin: 0, paddingLeft: `1.2rem`, fontSize: `0.8rem`, color: `var(--text-secondary)`, lineHeight: `1.7` },
             children: [
+              (0, J.jsx)(`li`, { children: `Fixed Inventory Add Manually so save failures are shown and successful stock appears immediately` }),
+              (0, J.jsx)(`li`, { children: `Added guarded recovery for a missing NHC Pharmacy Counter location on the first admin login` }),
               (0, J.jsx)(`li`, { children: `Rebranded to NHC Pharmacy POS for Narpavi Health Care` }),
               (0, J.jsx)(`li`, { children: `Migrated cloud data and authentication to a dedicated NHC Supabase project` }),
               (0, J.jsx)(`li`, { children: `Added local-first offline billing on SQLite, with automatic background sync once reconnected` }),
