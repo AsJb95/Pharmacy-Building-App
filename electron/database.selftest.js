@@ -10,7 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import assert from 'assert';
 import Database from 'better-sqlite3';
-import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary } from './database.js';
+import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary, clearSalesHistoryData, clearSalesAndInventoryLedgerData, clearInventoryLedgerData } from './database.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vhc-db-selftest-'));
 const dbPath = path.join(tmpDir, 'selftest.db');
@@ -859,6 +859,209 @@ check('V9. a corrupt database file makes init throw cleanly, leaves no half-open
   assert.strictEqual(createLocalSale({ billId: 'X', items: [{ name: 'a', qty: 1 }] }).success, false);
   initDatabase(dbPath);
   assert.strictEqual(getDatabaseStatus().opened, true);
+});
+
+console.log('=== 12. Administrative clears (Clear Sales History / Reset / Factory Reset / Restore) ===');
+
+function rawCount(table, where) {
+  const r = new Database(dbPath, { readonly: true });
+  const c = r.prepare(`SELECT COUNT(*) AS c FROM ${table}${where ? ' WHERE ' + where : ''}`).get().c;
+  r.close();
+  return c;
+}
+function adminSale(billId, batch, qty, stock, mode = 'Cash') {
+  return createLocalSale({
+    billId, patientSnapshot: { name: 'Admin Patient ' + billId, contact: '95' + Math.floor(Math.random() * 1e8) },
+    paymentMode: mode, totalAmount: 100,
+    paymentDetails: mode === 'Credit'
+      ? { breakdown: { credit: 100 }, amountReceived: 0, outstandingAmount: 100, status: 'Credit' }
+      : { breakdown: { Cash: 100 }, amountReceived: 100, outstandingAmount: 0, status: 'Paid' },
+    items: [sampleCartItem({ name: 'Admin Drug', batch, qty, stock })], extraParticulars: [],
+  });
+}
+function seedAdminData(prefix) {
+  const s1 = `${prefix}-CASH`, s2 = `${prefix}-CREDIT`, s3 = `${prefix}-CANCELLED`;
+  assert.strictEqual(adminSale(s1, 'ADM-1', 2, 100).success, true);
+  assert.strictEqual(adminSale(s2, 'ADM-1', 3, 98, 'Credit').success, true);
+  assert.strictEqual(recordCreditRepayment({ id: `PMT-${prefix}-1`, billId: s2, amount: 40, method: 'cash' }).success, true);
+  assert.strictEqual(adminSale(s3, 'ADM-1', 1, 95).success, true);
+  assert.strictEqual(cancelLocalSale(s3).success, true);
+  return { s1, s2, s3 };
+}
+
+check('W1. Clear Sales History removes sales, lines, repayments, cancelled tombstones and sale-linked movements', () => {
+  const b = seedAdminData('W1');
+  assert.ok(rawCount('sales') >= 3 && rawCount('credit_repayments') >= 1 && rawCount('sales', "status='deleted'") >= 1);
+  const res = clearSalesHistoryData();
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  assert.ok(res.cleared.sales >= 3 && res.cleared.creditRepayments >= 1 && res.cleared.saleItems >= 3);
+  assert.strictEqual(rawCount('sales'), 0);
+  assert.strictEqual(rawCount('sale_items'), 0);
+  assert.strictEqual(rawCount('credit_repayments'), 0);
+  assert.strictEqual(rawCount('stock_movements', 'bill_id IS NOT NULL'), 0);
+  assert.deepStrictEqual(getSalesHistory(), []);
+  assert.strictEqual(getLocalSaleByBillId(b.s1), null);
+  assert.deepStrictEqual(getCreditRepaymentsByBillId(b.s2), []);
+  assert.strictEqual(getSalesSummary().billCount, 0);
+});
+
+check('W2. Clear Sales History PRESERVES inventory: items, patients and stock_batches quantities are untouched', () => {
+  const b = seedAdminData('W2');
+  const before = {
+    items: rawCount('items'), patients: rawCount('patients'), batches: rawCount('stock_batches'),
+    admQty: (() => { const r = new Database(dbPath, { readonly: true }); const q = r.prepare("SELECT qty FROM stock_batches WHERE batch_no='ADM-1'").get().qty; r.close(); return q; })(),
+  };
+  assert.strictEqual(clearSalesHistoryData().success, true);
+  const r = new Database(dbPath, { readonly: true });
+  const admQty = r.prepare("SELECT qty FROM stock_batches WHERE batch_no='ADM-1'").get().qty;
+  r.close();
+  assert.strictEqual(rawCount('items'), before.items);
+  assert.strictEqual(rawCount('patients'), before.patients);
+  assert.strictEqual(rawCount('stock_batches'), before.batches);
+  assert.strictEqual(admQty, before.admQty, 'stock quantity must not change when sales history is cleared');
+  assert.ok(b.s1);
+});
+
+check('W3. after a clear, new sales work, including reusing an old bill id, and history shows only the new sale', () => {
+  const id = 'W3-REUSE';
+  assert.strictEqual(adminSale(id, 'ADM-1', 1, 90).success, true);
+  assert.strictEqual(clearSalesHistoryData().success, true);
+  assert.strictEqual(adminSale(id, 'ADM-1', 1, 90).success, true, 'a cleared bill id may be used again');
+  const h = getSalesHistory();
+  assert.strictEqual(h.length, 1);
+  assert.strictEqual(h[0].billId, id);
+});
+
+check('W4. clearing twice / on an empty sales table is a harmless success with zero counts', () => {
+  assert.strictEqual(clearSalesHistoryData().success, true);
+  const again = clearSalesHistoryData();
+  assert.strictEqual(again.success, true);
+  assert.strictEqual(again.cleared.sales, 0);
+});
+
+check('W5. Factory Reset variant also clears the local stock ledger but keeps items and patients', () => {
+  seedAdminData('W5');
+  const items = rawCount('items'), patients = rawCount('patients');
+  assert.ok(rawCount('stock_batches') > 0 && rawCount('stock_movements') > 0);
+  const res = clearSalesAndInventoryLedgerData();
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  for (const t of ['sales', 'sale_items', 'credit_repayments', 'stock_movements', 'stock_batches']) assert.strictEqual(rawCount(t), 0, t);
+  assert.strictEqual(rawCount('items'), items, 'the product catalog shadow is preserved');
+  assert.strictEqual(rawCount('patients'), patients, 'patients are preserved');
+  assert.strictEqual(adminSale('W5-AFTER', 'ADM-1', 1, 50).success, true, 'billing works after a factory reset');
+});
+
+check('W6. a failure part-way rolls back EVERYTHING (real blocking trigger): nothing is deleted and success is not reported', () => {
+  clearSalesAndInventoryLedgerData();
+  seedAdminData('W6');
+  const snap = () => ({ sales: rawCount('sales'), items: rawCount('sale_items'), rep: rawCount('credit_repayments'), mov: rawCount('stock_movements'), batches: rawCount('stock_batches') });
+  const before = snap();
+  assert.ok(before.sales > 0 && before.rep > 0 && before.mov > 0);
+  const raw = new Database(dbPath);
+  raw.exec("CREATE TRIGGER block_sales_delete BEFORE DELETE ON sales BEGIN SELECT RAISE(ABORT, 'simulated sqlite failure'); END;");
+  raw.close();
+  const res = clearSalesHistoryData();
+  assert.strictEqual(res.success, false);
+  assert.ok(/simulated sqlite failure/.test(res.error), res.error);
+  assert.deepStrictEqual(snap(), before, 'credit_repayments/sale_items deleted before the failing step must have been rolled back');
+  const raw2 = new Database(dbPath);
+  raw2.exec('DROP TRIGGER block_sales_delete;');
+  raw2.exec("CREATE TRIGGER block_batches_delete BEFORE DELETE ON stock_batches BEGIN SELECT RAISE(ABORT, 'simulated ledger failure'); END;");
+  raw2.close();
+  const res2 = clearSalesAndInventoryLedgerData();
+  assert.strictEqual(res2.success, false);
+  assert.deepStrictEqual(snap(), before, 'the factory variant must roll back the sales deletions too');
+  const raw3 = new Database(dbPath);
+  raw3.exec('DROP TRIGGER block_batches_delete;');
+  raw3.close();
+  assert.strictEqual(clearSalesHistoryData().success, true, 'works again once the fault is gone');
+});
+
+check('W7. with no open database the clears report failure (never throw, never claim success)', () => {
+  closeDatabase();
+  const a = clearSalesHistoryData();
+  const b = clearSalesAndInventoryLedgerData();
+  assert.strictEqual(a.success, false);
+  assert.strictEqual(b.success, false);
+  assert.ok(!a.rejected);
+  initDatabase(dbPath);
+});
+
+console.log('=== 13. Clear Inventory (local stock shadow) ===');
+
+function ledgerSnapshot() {
+  return {
+    sales: rawCount('sales'), saleItems: rawCount('sale_items'), repayments: rawCount('credit_repayments'),
+    saleMovements: rawCount('stock_movements', 'bill_id IS NOT NULL'), items: rawCount('items'), patients: rawCount('patients'),
+  };
+}
+
+check('X1. Clear Inventory empties stock_batches but keeps sales, repayments, sale audit, items and patients (history reads identical)', () => {
+  clearSalesAndInventoryLedgerData();
+  const b = seedAdminData('X1');
+  const raw = new Database(dbPath);
+  const itemId = raw.prepare('SELECT id FROM items LIMIT 1').get().id;
+  raw.prepare("INSERT INTO stock_movements (id, item_id, type, qty, created_at) VALUES ('MOVE-NOBILL', ?, 'EDIT', 5, ?)").run(itemId, new Date().toISOString());
+  raw.close();
+  assert.ok(rawCount('stock_batches') > 0);
+  const before = ledgerSnapshot();
+  const historyBefore = JSON.stringify(getSalesHistory());
+  const settlementBefore = JSON.stringify(getCreditSettlementByBillId(b.s2));
+  const res = clearInventoryLedgerData();
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  assert.strictEqual(rawCount('stock_batches'), 0, 'current stock shadow must be empty');
+  assert.strictEqual(rawCount('stock_movements', "id = 'MOVE-NOBILL'"), 0, 'a pure inventory movement (no bill id) is removed');
+  assert.deepStrictEqual(ledgerSnapshot(), before, 'sales, lines, repayments, sale-linked audit, items and patients must be untouched');
+  assert.strictEqual(JSON.stringify(getSalesHistory()), historyBefore, 'history reads must be byte-identical');
+  assert.strictEqual(JSON.stringify(getCreditSettlementByBillId(b.s2)), settlementBefore, 'credit repayment history must be identical');
+  assert.strictEqual(rawCount('sale_items', 'stock_batch_id IS NOT NULL'), 0, 'historical lines are detached from the deleted batches');
+  assert.ok(res.cleared.detachedSaleItems > 0);
+});
+
+check('X2. cancelling an old bill after Clear Inventory succeeds and restores no local stock (there is none)', () => {
+  const res = cancelLocalSale('X1-CASH');
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  assert.ok(!res.noop, 'the bill is still an active local sale');
+  assert.strictEqual(rawCount('sales', "bill_id = 'X1-CASH' AND status = 'deleted'"), 1);
+  assert.strictEqual(rawCount('stock_batches'), 0, 'no batch may be resurrected by a cancel');
+  assert.strictEqual(rawCount('stock_movements', "bill_id = 'X1-CASH' AND type = 'RESTORE'"), 0);
+});
+
+check('X3. after Clear Inventory a new sale recreates the batch from the cart stock and old history is intact', () => {
+  const histBefore = getSalesHistory().length;
+  const res = adminSale('X3-NEW', 'ADM-1', 1, 50);
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  assert.strictEqual(batchQty('ADM-1'), 49, 'seeded from the cart stock (50) then reduced by the sale');
+  assert.strictEqual(getSalesHistory().length, histBefore + 1);
+});
+
+check('X4. a failure part-way rolls back the whole Clear Inventory (real blocking trigger)', () => {
+  const beforeBatches = rawCount('stock_batches');
+  const beforeLinked = rawCount('sale_items', 'stock_batch_id IS NOT NULL');
+  assert.ok(beforeBatches > 0 && beforeLinked > 0);
+  const raw = new Database(dbPath);
+  raw.exec("CREATE TRIGGER block_batches_delete2 BEFORE DELETE ON stock_batches BEGIN SELECT RAISE(ABORT, 'simulated inventory failure'); END;");
+  raw.close();
+  const res = clearInventoryLedgerData();
+  assert.strictEqual(res.success, false);
+  assert.ok(/simulated inventory failure/.test(res.error), res.error);
+  assert.strictEqual(rawCount('stock_batches'), beforeBatches);
+  assert.strictEqual(rawCount('sale_items', 'stock_batch_id IS NOT NULL'), beforeLinked, 'the detach UPDATE must be rolled back too');
+  const raw2 = new Database(dbPath);
+  raw2.exec('DROP TRIGGER block_batches_delete2;');
+  raw2.close();
+  assert.strictEqual(clearInventoryLedgerData().success, true, 'works again once the fault is gone');
+});
+
+check('X5. Clear Inventory is idempotent, and with no open database it reports failure instead of claiming success', () => {
+  const again = clearInventoryLedgerData();
+  assert.strictEqual(again.success, true);
+  assert.strictEqual(again.cleared.stockBatches, 0);
+  closeDatabase();
+  const closed = clearInventoryLedgerData();
+  assert.strictEqual(closed.success, false);
+  assert.ok(!closed.rejected);
+  initDatabase(dbPath);
 });
 
 console.log('\n=== Cleanup ===');

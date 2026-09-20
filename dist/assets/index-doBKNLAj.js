@@ -16582,6 +16582,80 @@ async function loadLocalSalesHistoryForUI() {
   sqliteBills.forEach((b) => b && b.billId && byId.set(b.billId, b));
   return Array.from(byId.values());
 }
+// ─── Coordinated destructive admin changes to the sales-history layers ───
+// History is read from BOTH localStorage and the local SQLite database, so every destructive admin
+// action (Clear Sales History, Reset, Factory Reset, Restore) must change both. Order: localStorage
+// first (trivially reversible — the exact previous values are kept), then ONE transactional SQLite
+// operation in the main process. If SQLite fails or does not answer, localStorage is put back
+// exactly as it was and an error is thrown, so a failure never leaves the two layers disagreeing
+// and the caller must not report success.
+//  - keys:        localStorage keys the change touches (snapshotted for rollback)
+//  - applyLocal:  performs the localStorage part
+//  - sqliteMethod: name of the narrow electronAPI admin method to run afterwards
+// No SQLite bridge at all (plain browser) or no database FILE on disk = no second layer to conflict
+// with. A database file that exists but cannot be opened is a failure (its old bills would
+// reappear as soon as it recovers).
+async function vhcCoordinatedSalesChange({ keys, applyLocal, sqliteMethod }) {
+  let snapshot = keys.map((k) => {
+    let v = null;
+    try {
+      v = localStorage.getItem(k);
+    } catch {}
+    return [k, v];
+  });
+  let rollback = () =>
+    snapshot.forEach(([k, v]) => {
+      try {
+        v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v);
+      } catch {}
+    });
+  try {
+    applyLocal();
+  } catch (e) {
+    rollback();
+    throw new Error(`Could not update local storage (${(e && e.message) || e}). Nothing was changed.`);
+  }
+  let api = window.electronAPI;
+  if (!(api && typeof api[sqliteMethod] === `function`)) return { sqlite: `not-applicable` };
+  let result;
+  try {
+    result = await api[sqliteMethod]();
+  } catch (e) {
+    rollback();
+    throw new Error(`The local database did not respond (${(e && e.message) || e}). Nothing was changed.`);
+  }
+  if (result && result.success) return { sqlite: `cleared`, cleared: result.cleared };
+  if (result && result.unavailable && result.dbFileExists === !1) return { sqlite: `no-database` };
+  rollback();
+  throw new Error(`The local database could not be cleared${result && result.error ? ` (${result.error})` : ``}. Nothing was changed.`);
+}
+// Validates the sales-history part of a backup completely BEFORE anything destructive happens.
+// Existing semantics are preserved: a backup with no sales list, or an empty one, leaves the
+// current sales history untouched. A list that is not a list, or that contains a damaged bill,
+// rejects the whole restore.
+function vhcValidateBackupSalesHistory(sales) {
+  if (sales === void 0 || sales === null) return { ok: !0, apply: !1 };
+  if (!Array.isArray(sales))
+    return { ok: !1, error: `This backup's sales history is not a list of bills — the file looks damaged. Nothing was restored.` };
+  if (sales.length === 0) return { ok: !0, apply: !1 };
+  for (let idx = 0; idx < sales.length; idx++) {
+    let b = sales[idx];
+    if (!b || typeof b !== `object` || Array.isArray(b) || !String(b.billId || b.id || ``).trim())
+      return { ok: !1, error: `Bill #${idx + 1} in this backup's sales history is damaged (no bill id). Nothing was restored.` };
+  }
+  return { ok: !0, apply: !0 };
+}
+// Restore semantics for sales history: the backup REPLACES history. localStorage takes the backup's
+// bills and the SQLite bills/repayments/cancellations created since are cleared, so the merged
+// history is exactly the restored backup. Restored bills continue through the legacy-compatible
+// path (nothing is back-filled into SQLite); new transactions use SQLite normally.
+function vhcApplyRestoredSalesHistory(sales) {
+  return vhcCoordinatedSalesChange({
+    keys: [`vhc_pos_sales_history`],
+    applyLocal: () => localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(sales)),
+    sqliteMethod: `adminClearLocalSalesHistory`,
+  });
+}
 function Wr() {
   let { settings: e } = Ir(),
     { inventory: t } = Vr(),
@@ -57405,6 +57479,15 @@ function Lh() {
         let norm = vhcNormalizeBackup(a, `Google Drive (Apps Script) file "${k.name}"`),
           o = [],
           cloudIssues = [];
+        // Validate the sales-history part completely BEFORE anything is written, then replace it in
+        // both storage layers FIRST: a failure here aborts the whole restore with nothing changed.
+        let salesPlan = vhcValidateBackupSalesHistory(norm.salesHistory);
+        if (!salesPlan.ok) throw Error(salesPlan.error);
+        let salesRestored = !1;
+        if (salesPlan.apply) {
+          await vhcApplyRestoredSalesHistory(norm.salesHistory);
+          salesRestored = !0;
+        }
         (Array.isArray(norm.patients) && norm.patients.length > 300) &&
           i(`⏳ Restoring ${norm.patients.length} patients${Array.isArray(norm.inventory) ? ` and ${norm.inventory.length} inventory items` : ``}. This can take a few minutes for large datasets — please don't close the app, it's still working.`, `info`, 1e4);
         let s = norm.settings;
@@ -57427,11 +57510,7 @@ function Lh() {
                 );
           }
         }
-        let l = norm.salesHistory;
-        Array.isArray(l) &&
-          l.length > 0 &&
-          (localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(l)),
-          o.push(`${l.length} Sales Bills`));
+        salesRestored && o.push(`${norm.salesHistory.length} Sales Bills`);
         let u = norm.inventory;
         if (Array.isArray(u) && u.length > 0) {
           (logInventoryRestoreDiff(JSON.parse(localStorage.getItem(`pos_inventory`) || `[]`), u, `Google Drive - Apps Script`),
@@ -57497,6 +57576,15 @@ function Lh() {
           let norm = vhcNormalizeBackup(parsed, `Local file "${n.name}"`),
             r = [],
             cloudIssues = [];
+          // Validate the sales-history part completely BEFORE anything is written, then replace it in
+          // both storage layers FIRST: a failure here aborts the whole restore with nothing changed.
+          let salesPlan = vhcValidateBackupSalesHistory(norm.salesHistory);
+          if (!salesPlan.ok) throw new Error(salesPlan.error);
+          let salesRestored = !1;
+          if (salesPlan.apply) {
+            await vhcApplyRestoredSalesHistory(norm.salesHistory);
+            salesRestored = !0;
+          }
           (Array.isArray(norm.patients) && norm.patients.length > 300) &&
             i(`⏳ Restoring ${norm.patients.length} patients${Array.isArray(norm.inventory) ? ` and ${norm.inventory.length} inventory items` : ``}. This can take a few minutes for large datasets — please don't close the app, it's still working.`, `info`, 1e4);
           let a = norm.settings;
@@ -57519,11 +57607,7 @@ function Lh() {
                   );
             }
           }
-          let s = norm.salesHistory;
-          Array.isArray(s) &&
-            s.length > 0 &&
-            (localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(s)),
-            r.push(`${s.length} Sales History Bills`));
+          salesRestored && r.push(`${norm.salesHistory.length} Sales History Bills`);
           let c = norm.inventory;
           if (Array.isArray(c) && c.length > 0) {
             (logInventoryRestoreDiff(JSON.parse(localStorage.getItem(`pos_inventory`) || `[]`), c, `Local file`),
@@ -57719,6 +57803,15 @@ function Lh() {
           norm = vhcNormalizeBackup(parsed, `Google Drive file "${file.name}"`),
           restoredParts = [],
           cloudIssues = [];
+        // Validate the sales-history part completely BEFORE anything is written, then replace it in
+        // both storage layers FIRST: a failure here aborts the whole restore with nothing changed.
+        let salesPlan = vhcValidateBackupSalesHistory(norm.salesHistory);
+        if (!salesPlan.ok) throw new Error(salesPlan.error);
+        let salesRestored = !1;
+        if (salesPlan.apply) {
+          await vhcApplyRestoredSalesHistory(norm.salesHistory);
+          salesRestored = !0;
+        }
         (Array.isArray(norm.patients) && norm.patients.length > 300) &&
           i(`⏳ Restoring ${norm.patients.length} patients${Array.isArray(norm.inventory) ? ` and ${norm.inventory.length} inventory items` : ``}. This can take a few minutes for large datasets — please don't close the app, it's still working.`, `info`, 1e4);
         if (norm.settings && typeof norm.settings === `object`)
@@ -57736,8 +57829,7 @@ function Lh() {
                 );
           }
         }
-        if (Array.isArray(norm.salesHistory) && norm.salesHistory.length > 0)
-          (localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(norm.salesHistory)), restoredParts.push(`${norm.salesHistory.length} Sales`));
+        salesRestored && restoredParts.push(`${norm.salesHistory.length} Sales`);
         if (Array.isArray(norm.inventory) && norm.inventory.length > 0) {
           (logInventoryRestoreDiff(JSON.parse(localStorage.getItem(`pos_inventory`) || `[]`), norm.inventory, `Google Drive (sign-in)`),
             localStorage.setItem(`pos_inventory`, JSON.stringify(norm.inventory)),
@@ -57849,9 +57941,24 @@ function Lh() {
     },
     executeClearSalesHistory = async () => {
       setClearHistoryConfirmOpen(!1);
+      // Clears BOTH layers history is read from (localStorage + local SQLite). Strict: a success
+      // message is shown only if both were cleared; on any failure nothing is changed and the
+      // error is surfaced. Inventory is untouched, exactly as the confirmation dialog promises.
       try {
-        (localStorage.removeItem(`vhc_pos_sales_history`),
-          localStorage.removeItem(`pos_audit_logs`));
+        await vhcCoordinatedSalesChange({
+          keys: [`vhc_pos_sales_history`, `pos_audit_logs`],
+          applyLocal: () => {
+            localStorage.removeItem(`vhc_pos_sales_history`);
+            localStorage.removeItem(`pos_audit_logs`);
+          },
+          sqliteMethod: `adminClearLocalSalesHistory`,
+        });
+      } catch (clearErr) {
+        console.error(`[VHC_CLEAR] Clear Sales History failed:`, clearErr);
+        i(`❌ Sales history was NOT cleared: ${(clearErr && clearErr.message) || clearErr}`, `error`, 9e3);
+        return;
+      }
+      try {
         try {
           await fetch(`/api/admin/clear-data`, { method: `POST` });
         } catch {}
@@ -57885,12 +57992,27 @@ function Lh() {
             document.body.removeChild(link),
             URL.revokeObjectURL(url));
         } catch {}
-        (localStorage.removeItem(`vhc_pos_sales_history`),
-          localStorage.removeItem(`pos_inventory`),
-          localStorage.removeItem(`vhc_pos_inventory`),
-          localStorage.removeItem(`pos_active_cart`),
-          localStorage.removeItem(`pos_billing_tabs`),
-          localStorage.removeItem(`pos_audit_logs`));
+        // The safety backup above is already downloaded. Now clear BOTH storage layers; on any
+        // failure nothing is changed and the error is surfaced (never a false "Reset Complete").
+        // SQLite scope = sales history only: inventory is not affected by this reset.
+        try {
+          await vhcCoordinatedSalesChange({
+            keys: [`vhc_pos_sales_history`, `pos_inventory`, `vhc_pos_inventory`, `pos_active_cart`, `pos_billing_tabs`, `pos_audit_logs`],
+            applyLocal: () => {
+              localStorage.removeItem(`vhc_pos_sales_history`);
+              localStorage.removeItem(`pos_inventory`);
+              localStorage.removeItem(`vhc_pos_inventory`);
+              localStorage.removeItem(`pos_active_cart`);
+              localStorage.removeItem(`pos_billing_tabs`);
+              localStorage.removeItem(`pos_audit_logs`);
+            },
+            sqliteMethod: `adminClearLocalSalesHistory`,
+          });
+        } catch (resetErr) {
+          console.error(`[VHC_CLEAR] Reset Full System failed:`, resetErr);
+          i(`❌ The system was NOT reset: ${(resetErr && resetErr.message) || resetErr}`, `error`, 9e3);
+          return;
+        }
         settingsAddLog(`RESET_FULL_SYSTEM`, `Full POS system reset via admin action (typed DELETE confirmed); safety backup saved before reset`);
         (i(`Full POS System Reset Complete!`, `success`), window.dispatchEvent(new CustomEvent(`vhc-cloud-change`, { detail: { table: `salesHistory` } })));
       } catch {
@@ -57925,7 +58047,24 @@ function Lh() {
         if (!window.VHC_CLOUD) throw new Error(`Cloud sync module unavailable — cannot clear inventory`);
         let result = await window.VHC_CLOUD.clearInventoryData();
         if (result && result.error) throw new Error(result.error);
-        (localStorage.removeItem(`pos_inventory`), localStorage.removeItem(`vhc_pos_inventory`));
+        // The cloud clear above already succeeded and cannot be undone, so the LOCAL layers are now
+        // brought in line: the inventory caches AND the local SQLite current-stock shadow, so old
+        // stock cannot survive a Clear Inventory. Sales, repayments and history are untouched (this
+        // touches only the inventory ledger). If SQLite cannot be cleared, the caches are put back
+        // exactly as they were and the error says how to finish.
+        try {
+          await vhcCoordinatedSalesChange({
+            keys: [`pos_inventory`, `vhc_pos_inventory`],
+            applyLocal: () => {
+              localStorage.removeItem(`pos_inventory`);
+              localStorage.removeItem(`vhc_pos_inventory`);
+            },
+            sqliteMethod: `adminClearLocalInventoryLedger`,
+          });
+        } catch (localErr) {
+          let localReason = String((localErr && localErr.message) || localErr).replace(/\s*Nothing was changed\.?\s*$/, ``).replace(/[\s.]+$/, ``);
+          throw new Error(`The cloud inventory clear COMPLETED, but this computer's local inventory data could NOT be cleared and was left exactly as it was — ${localReason}. Please restart the app and run Clear Inventory again to finish.`);
+        }
         console.log(`[VHC_CLEAR] Clear Inventory: done —`, result);
         settingsAddLog(`CLEAR_INVENTORY`, `Inventory permanently cleared via admin action (typed DELETE confirmed); removed ${result && result.stockBatchesDeleted != null ? result.stockBatchesDeleted : `?`} batch row(s), ${result && result.stockMovementsDeleted != null ? result.stockMovementsDeleted : `?`} movement row(s). Product catalog and other locations were not affected.`);
         (i(`✅ Inventory cleared successfully!`, `success`, 6e3), refreshUiAfterDataChange());
@@ -57967,12 +58106,28 @@ function Lh() {
         if (!window.VHC_CLOUD) throw new Error(`Cloud sync module unavailable — cannot factory reset`);
         let result = await window.VHC_CLOUD.factoryReset();
         if (result && result.error) throw new Error(result.error);
-        (localStorage.removeItem(`vhc_pos_sales_history`),
-          localStorage.removeItem(`pos_inventory`),
-          localStorage.removeItem(`vhc_pos_inventory`),
-          localStorage.removeItem(`pos_active_cart`),
-          localStorage.removeItem(`pos_billing_tabs`),
-          localStorage.removeItem(`pos_audit_logs`));
+        // The cloud reset above already succeeded and cannot be undone, so the LOCAL layers are now
+        // brought in line: localStorage + the local SQLite sales AND stock ledger (the reset deletes
+        // sales, bills, stock levels, batches and movement history; patients and the product
+        // catalog are preserved). If SQLite cannot be cleared, localStorage is left exactly as it
+        // was, so the two local layers still agree, and the error says how to finish.
+        try {
+          await vhcCoordinatedSalesChange({
+            keys: [`vhc_pos_sales_history`, `pos_inventory`, `vhc_pos_inventory`, `pos_active_cart`, `pos_billing_tabs`, `pos_audit_logs`],
+            applyLocal: () => {
+              localStorage.removeItem(`vhc_pos_sales_history`);
+              localStorage.removeItem(`pos_inventory`);
+              localStorage.removeItem(`vhc_pos_inventory`);
+              localStorage.removeItem(`pos_active_cart`);
+              localStorage.removeItem(`pos_billing_tabs`);
+              localStorage.removeItem(`pos_audit_logs`);
+            },
+            sqliteMethod: `adminClearLocalSalesAndLedger`,
+          });
+        } catch (localErr) {
+          let localReason = String((localErr && localErr.message) || localErr).replace(/\s*Nothing was changed\.?\s*$/, ``).replace(/[\s.]+$/, ``);
+          throw new Error(`The cloud factory reset COMPLETED, but this computer's local data could NOT be cleared and was left exactly as it was — ${localReason}. Please restart the app and run Factory Reset again to finish.`);
+        }
         console.log(`[VHC_CLEAR] Factory Reset: done —`, result);
         settingsAddLog(`FACTORY_RESET`, `Factory reset via admin action (typed DELETE confirmed); removed ${result && result.salesDeleted != null ? result.salesDeleted : `?`} sale(s), ${result && result.saleItemsDeleted != null ? result.saleItemsDeleted : `?`} sale item(s), ${result && result.stockMovementsDeleted != null ? result.stockMovementsDeleted : `?`} movement row(s), ${result && result.stockBatchesDeleted != null ? result.stockBatchesDeleted : `?`} batch row(s). Patients, product catalog, settings, credentials and cloud config were NOT touched (shared with other systems).`);
         (i(`✅ Factory Reset Complete! Patients and the product catalog were preserved (shared with OPD/Warehouse).`, `success`, 8e3), refreshUiAfterDataChange());

@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCreditRepayments: (billId) => ipcRenderer.invoke('database:get-credit-repayments', billId),
   getCreditSettlement: (billId) => ipcRenderer.invoke('database:get-credit-settlement', billId),
   getSalesHistory: () => ipcRenderer.invoke('database:get-sales-history'),
+  // Administrative clears used by Clear Sales History / Reset / Factory Reset / Restore.
+  adminClearLocalSalesHistory: () => ipcRenderer.invoke('database:admin-clear-sales-history'),
+  adminClearLocalSalesAndLedger: () => ipcRenderer.invoke('database:admin-clear-sales-and-ledger'),
+  adminClearLocalInventoryLedger: () => ipcRenderer.invoke('database:admin-clear-inventory-ledger'),
   showAlert: (message) => ipcRenderer.invoke('show-alert', message),
   showConfirm: (message) => ipcRenderer.invoke('show-confirm', message),
   refocusWindow: () => ipcRenderer.send('refocus-main-window'),

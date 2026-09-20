@@ -981,3 +981,109 @@ export function getSalesSummary() {
     .get();
   return { billCount: row.billCount, totalRevenue: row.totalRevenue, uniquePatientCount: row.uniquePatientCount };
 }
+
+// ─── Administrative clears (Clear Sales History / Reset / Factory Reset / Restore) ───
+// The renderer's admin actions historically only cleared localStorage. Now that SQLite bills are
+// merged into every history read, each destructive admin action must clear this layer too or old
+// bills reappear. These are explicit, narrow operations — never a SQL passthrough — and each runs
+// in ONE transaction: it either removes everything listed or (on any error, including a failed
+// post-condition check) rolls back and removes nothing.
+//
+// INVENTORY IS PRESERVED by clearSalesHistoryData: items, stock_batches (the local stock ledger
+// quantities) and patients are never touched, so clearing sales history never changes stock.
+
+function countRows(database, table, where) {
+  return database.prepare(`SELECT COUNT(*) AS c FROM ${table}${where ? ` WHERE ${where}` : ''}`).get().c;
+}
+
+function clearSalesTables(database) {
+  // Order matters with foreign_keys ON: credit_repayments references sales(id); sale_items would
+  // cascade from sales but is deleted explicitly so the counts are reported.
+  const creditRepayments = database.prepare('DELETE FROM credit_repayments').run().changes;
+  const saleItems = database.prepare('DELETE FROM sale_items').run().changes;
+  const sales = database.prepare('DELETE FROM sales').run().changes;
+  // Sale-associated stock audit rows (BILL / RESTORE / RECONCILE all carry the bill id).
+  const saleStockMovements = database.prepare('DELETE FROM stock_movements WHERE bill_id IS NOT NULL').run().changes;
+  return { sales, saleItems, creditRepayments, saleStockMovements };
+}
+
+/**
+ * Clear Sales History / Reset Full POS System / Restore: removes every sale, its lines, every
+ * credit repayment, cancellation tombstones (cancelled sales are sales rows) and the sale-linked
+ * stock audit rows. Keeps items, patients and stock_batches (inventory) exactly as they are.
+ */
+export function clearSalesHistoryData() {
+  if (!db) return { success: false, error: 'Local database is not initialized' };
+  try {
+    return db.transaction(() => {
+      const cleared = clearSalesTables(db);
+      const remaining =
+        countRows(db, 'sales') + countRows(db, 'sale_items') + countRows(db, 'credit_repayments') +
+        countRows(db, 'stock_movements', 'bill_id IS NOT NULL');
+      if (remaining !== 0) throw new Error(`Post-clear check failed: ${remaining} sales-related row(s) remain`);
+      return { success: true, cleared };
+    })();
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Factory Reset: everything clearSalesHistoryData removes PLUS this location's local stock
+ * ledger (stock_batches and all stock_movements), mirroring the UI's promise that sales, bills
+ * and inventory (stock levels, batches, movement history) are deleted while patients and the
+ * product catalog are preserved — so items and patients are kept.
+ */
+export function clearSalesAndInventoryLedgerData() {
+  if (!db) return { success: false, error: 'Local database is not initialized' };
+  try {
+    return db.transaction(() => {
+      const cleared = clearSalesTables(db);
+      cleared.stockMovements = db.prepare('DELETE FROM stock_movements').run().changes;
+      cleared.stockBatches = db.prepare('DELETE FROM stock_batches').run().changes;
+      const remaining =
+        countRows(db, 'sales') + countRows(db, 'sale_items') + countRows(db, 'credit_repayments') +
+        countRows(db, 'stock_movements') + countRows(db, 'stock_batches');
+      if (remaining !== 0) throw new Error(`Post-clear check failed: ${remaining} row(s) remain`);
+      return { success: true, cleared };
+    })();
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Clear Inventory: removes the LOCAL CURRENT-STOCK SHADOW so old stock cannot survive a Clear
+ * Inventory (the next sale re-creates a batch seeded from the cart's live stock and reconciles
+ * to it). This is the inventory counterpart of clearSalesHistoryData and is strictly narrower
+ * than clearSalesAndInventoryLedgerData:
+ *  - stock_batches (the current stock quantities) are removed;
+ *  - historical sale_items are kept, with their stock_batch_id reference detached (the column is
+ *    nullable; the FK would otherwise block the delete). cancelLocalSale already skips lines
+ *    with no batch, so cancelling an old bill later simply has no local stock to restore;
+ *  - stock_movements rows that carry a bill id are historical SALE AUDIT (BILL / RESTORE /
+ *    RECONCILE) and are kept; only movements with no bill id (pure inventory movements — none are
+ *    written today) are removed;
+ *  - sales, sale_items, credit_repayments, items (product catalog) and patients are untouched.
+ * One transaction; a post-condition check verifies nothing sales-related changed.
+ */
+export function clearInventoryLedgerData() {
+  if (!db) return { success: false, error: 'Local database is not initialized' };
+  try {
+    return db.transaction(() => {
+      const salesSnapshot = () => [
+        countRows(db, 'sales'), countRows(db, 'sale_items'), countRows(db, 'credit_repayments'),
+        countRows(db, 'stock_movements', 'bill_id IS NOT NULL'), countRows(db, 'items'), countRows(db, 'patients'),
+      ].join(',');
+      const before = salesSnapshot();
+      const detachedSaleItems = db.prepare('UPDATE sale_items SET stock_batch_id = NULL WHERE stock_batch_id IS NOT NULL').run().changes;
+      const stockBatches = db.prepare('DELETE FROM stock_batches').run().changes;
+      const inventoryMovements = db.prepare('DELETE FROM stock_movements WHERE bill_id IS NULL').run().changes;
+      if (countRows(db, 'stock_batches') !== 0) throw new Error('Post-clear check failed: stock batches remain');
+      if (salesSnapshot() !== before) throw new Error('Post-clear check failed: sales-related rows changed');
+      return { success: true, cleared: { stockBatches, inventoryMovements, detachedSaleItems } };
+    })();
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}

@@ -912,6 +912,31 @@ ipcMain.handle('database:get-sales-history', async () => {
   try { return mod.getSalesHistory(); } catch (e) { console.error('[LocalDB] getSalesHistory failed:', e.message); return []; }
 });
 
+// Administrative clears. Each is one explicit, transactional database operation (no SQL from the
+// renderer). When the database could not be opened, the reply says whether a database FILE exists
+// on disk: no file means there is no SQLite layer to conflict with; an existing file that cannot be
+// opened means the caller must not report a clean clear.
+const ADMIN_DB_UNAVAILABLE = () => {
+  let dbFileExists = false;
+  try { dbFileExists = fs.existsSync(path.join(app.getPath('userData'), 'vhc_pharmacy.db')); } catch (e) {}
+  return { success: false, unavailable: true, dbFileExists, error: localDbInitError || 'Local database is unavailable' };
+};
+ipcMain.handle('database:admin-clear-sales-history', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return ADMIN_DB_UNAVAILABLE();
+  try { return mod.clearSalesHistoryData(); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:admin-clear-inventory-ledger', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return ADMIN_DB_UNAVAILABLE();
+  try { return mod.clearInventoryLedgerData(); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:admin-clear-sales-and-ledger', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return ADMIN_DB_UNAVAILABLE();
+  try { return mod.clearSalesAndInventoryLedgerData(); } catch (e) { return { success: false, error: e.message }; }
+});
+
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.vhc.pharmacypos');
