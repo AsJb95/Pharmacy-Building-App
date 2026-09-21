@@ -17,6 +17,11 @@ let backendProcess = null;
 // A second launch (double-clicking the shortcut/desktop icon again, opening from Start Menu
 // twice, etc.) must not spawn a second window or a second Telegram bot child process — it
 // should just bring the existing window forward. This must run before any other startup work.
+// The lock is scoped to the userData path, so a test launch must apply VHC_TEST_USERDATA first
+// or it would collide with (and signal) a real running instance. Unset for normal users.
+if (process.env.VHC_TEST_USERDATA) {
+  try { app.setPath('userData', process.env.VHC_TEST_USERDATA); } catch (e) {}
+}
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -26,23 +31,30 @@ app.on('second-instance', () => {
   showMainWindow();
 });
 
-// ─── Shared production data directory ───
-// C:\VHC_Pharmacy_Data holds all writable runtime state (backups, ledger, Telegram config/
-// logs, etc.). On a fresh install it has never been created — nothing else in the app should
-// be relied on to create it as a side effect (previously only a Google Drive backup did, via
-// its own mkdirSync, which left Telegram's config/log files silently unable to be created on
-// a machine where no backup had ever run yet). Ensuring it exists here, before any other
-// startup work, is what makes Telegram config loading and logging actually work on a fresh PC.
-// VHC_TEST_DATA_DIR mirrors VHC_TEST_USERDATA / VHC_TEST_BACKUP_DIR: lets a dev/test launch
-// point at an isolated folder to verify fresh-install behavior without touching the real
-// shared one. Unset for all normal users/installs — behavior is unchanged.
-const VHC_DATA_DIR = process.env.VHC_TEST_DATA_DIR || 'C:\\VHC_Pharmacy_Data';
+// ─── NHC production data directory ───
+// C:\NHC_Pharmacy_Data holds ALL of NHC's writable runtime state (backups, ledger, Telegram
+// config/logs, etc.), completely separate from the VHC Pharmacy POS install's
+// C:\VHC_Pharmacy_Data. Every NHC data path is derived from this ONE constant (via
+// nhcDataPath below) so a path can never again be left pointing at the VHC folder — a missed
+// hardcoded VHC path here previously let NHC's auto-backup overwrite VHC's real backup file.
+// VHC_TEST_DATA_DIR lets a dev/test launch point at an isolated folder without touching the
+// real one. Unset for all normal users/installs — the paths are then exactly the NHC defaults.
+const NHC_DATA_DIR = process.env.VHC_TEST_DATA_DIR || 'C:\\NHC_Pharmacy_Data';
+const nhcDataPath = (...parts) => path.join(NHC_DATA_DIR, ...parts);
+// NHC must NEVER write into the VHC install's data folder, whatever an env var or a
+// renderer-supplied file name says. Checked before any NHC backup write.
+const VHC_PROTECTED_DATA_DIR = 'C:\\VHC_Pharmacy_Data';
+function isInsideVhcDataDir(p) {
+  const resolved = path.resolve(String(p)).toLowerCase();
+  const protectedDir = VHC_PROTECTED_DATA_DIR.toLowerCase();
+  return resolved === protectedDir || resolved.startsWith(protectedDir + '\\');
+}
 function ensureDataDir() {
   try {
-    if (!fs.existsSync(VHC_DATA_DIR)) fs.mkdirSync(VHC_DATA_DIR, { recursive: true });
+    if (!fs.existsSync(NHC_DATA_DIR)) fs.mkdirSync(NHC_DATA_DIR, { recursive: true });
     return true;
   } catch (e) {
-    console.error('Failed to create data directory ' + VHC_DATA_DIR + ':', e.message);
+    console.error('Failed to create data directory ' + NHC_DATA_DIR + ':', e.message);
     return false;
   }
 }
@@ -310,18 +322,32 @@ ipcMain.on('refocus-main-window', () => {
 // ─── Silent Google Drive Backup (no file picker dialog) ───
 ipcMain.handle('save-gdrive-backup', async (event, jsonStr, fileName) => {
   try {
-    // VHC_TEST_BACKUP_DIR mirrors VHC_TEST_USERDATA: lets a dev/test launch redirect backups
-    // to an isolated folder instead of the real shared one. Unset for all normal users/installs.
-    const backupDir = process.env.VHC_TEST_BACKUP_DIR || 'C:\\VHC_Pharmacy_Data\\gdrive_backups';
+    // NHC's local backup mirror lives in NHC's OWN data folder (C:\NHC_Pharmacy_Data\gdrive_backups
+    // by default) — never in the VHC install's C:\VHC_Pharmacy_Data. This handler previously
+    // hardcoded the VHC folder and overwrote VHC's real backup file. VHC_TEST_BACKUP_DIR lets a
+    // dev/test launch redirect backups to an isolated folder. There is deliberately NO fallback
+    // to the VHC folder: anything resolving inside it is refused outright.
+    const backupDir = process.env.VHC_TEST_BACKUP_DIR || nhcDataPath('gdrive_backups');
+    // The file name comes from the renderer: keep only its base name (no path components) so it
+    // can never point outside backupDir, and require a real name.
+    const safeName = path.basename(String(fileName || ''));
+    if (!safeName || safeName === '.' || safeName === '..') {
+      return { success: false, error: 'Invalid backup file name' };
+    }
+    const filePath = path.join(backupDir, safeName);
+    if (isInsideVhcDataDir(backupDir) || isInsideVhcDataDir(filePath)) {
+      console.error('Refusing to write an NHC backup into the VHC data folder:', filePath);
+      return { success: false, error: 'Refusing to write NHC backups into the VHC data folder' };
+    }
     // Create directory if it doesn't exist
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }
-    const filePath = path.join(backupDir, fileName);
     fs.writeFileSync(filePath, jsonStr, 'utf8');
     // Keep only the last 5 backup files in this folder to avoid clutter. In practice the
-    // auto-backup always writes the same fileName (VHC_POS_AutoBackup.json) and simply
+    // auto-backup always writes the same fileName (NHC_POS_AutoBackup.json) and simply
     // overwrites in place, so this rotation is a safety net rather than a normal path.
+    // (It only ever runs inside NHC's own backupDir, checked above.)
     const files = fs.readdirSync(backupDir)
       .filter(f => f.endsWith('.json'))
       .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtime }))
@@ -541,12 +567,12 @@ ipcMain.handle('google-oauth-signout', async () => {
 // as before (reads/writes only the non-secret scheduling fields of the bot's config; the bot
 // token and allowedUserIds are never sent to the renderer), plus a new live-status channel.
 //
-// Config lives at C:\NHC_Pharmacy_Data\telegram_config.json — a separate, NHC-specific data
-// folder (not VHC_DATA_DIR, which the old VHC install still uses for its own general/backup
-// data) so NHC Telegram config/reports never mix with old VHC data — resolves correctly
-// regardless of install location — see unpacked_app/telegram-bot/lib/config.js for the
-// matching default on the bot's side.
-const TELEGRAM_BOT_CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || 'C:\\NHC_Pharmacy_Data\\telegram_config.json';
+// Config lives at C:\NHC_Pharmacy_Data\telegram_config.json — NHC's own data folder
+// (NHC_DATA_DIR above; never the VHC install's C:\VHC_Pharmacy_Data) so NHC Telegram
+// config/reports never mix with VHC data — resolves correctly regardless of install
+// location — see unpacked_app/telegram-bot/lib/config.js for the matching default on the
+// bot's side.
+const TELEGRAM_BOT_CONFIG_PATH = process.env.VHC_TELEGRAM_CONFIG_PATH || nhcDataPath('telegram_config.json');
 
 function readTelegramBotConfig() {
   try {
@@ -563,8 +589,8 @@ function readTelegramBotConfig() {
 // No secret involved: the real bot token is never local at all — see lib/telegram.js.
 const TELEGRAM_CONFIG_DEFAULTS = {
   channelChatId: '',
-  dataFile: 'C:\\NHC_Pharmacy_Data\\gdrive_backups\\NHC_POS_AutoBackup.json',
-  ledgerDir: 'C:\\NHC_Pharmacy_Data\\ledger',
+  dataFile: nhcDataPath('gdrive_backups', 'NHC_POS_AutoBackup.json'),
+  ledgerDir: nhcDataPath('ledger'),
   timezone: 'Asia/Kolkata',
   lowStockUnits: 20,
   lowStockStrips: 2,
@@ -573,8 +599,8 @@ const TELEGRAM_CONFIG_DEFAULTS = {
   allowedUserIds: [733453718, 6995447067],
   autoReportEnabled: true,
   reportTimes: ['21:30'],
-  notificationLogFile: 'C:\\NHC_Pharmacy_Data\\telegram_notifications.json',
-  schedulerStateFile: 'C:\\NHC_Pharmacy_Data\\telegram_scheduler_state.json',
+  notificationLogFile: nhcDataPath('telegram_notifications.json'),
+  schedulerStateFile: nhcDataPath('telegram_scheduler_state.json'),
 };
 
 // Reads the config for display/editing in Settings, auto-provisioning it from the defaults
@@ -585,9 +611,9 @@ function readOrProvisionTelegramConfig() {
   if (onDisk) return { ...TELEGRAM_CONFIG_DEFAULTS, ...onDisk };
   const cfg = { ...TELEGRAM_CONFIG_DEFAULTS };
   try {
-    // TELEGRAM_BOT_CONFIG_PATH lives in its own NHC-specific folder (C:\NHC_Pharmacy_Data by
-    // default), separate from VHC_DATA_DIR — ensureDataDir() only creates the latter, so this
-    // folder needs its own defensive creation the first time this ever runs on a PC.
+    // TELEGRAM_BOT_CONFIG_PATH normally lives in NHC_DATA_DIR (created at startup by
+    // ensureDataDir()), but VHC_TELEGRAM_CONFIG_PATH may point elsewhere, so its folder gets its
+    // own defensive creation the first time this ever runs.
     const telegramDataDir = path.dirname(TELEGRAM_BOT_CONFIG_PATH);
     if (!fs.existsSync(telegramDataDir)) fs.mkdirSync(telegramDataDir, { recursive: true });
     fs.writeFileSync(TELEGRAM_BOT_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
@@ -632,7 +658,7 @@ ipcMain.handle('telegram-bot-get-notifications', async (event, limit) => {
   try {
     const cfg = readTelegramBotConfig();
     if (!cfg) return { available: false, notifications: [] };
-    const logFile = cfg.notificationLogFile || 'C:\\NHC_Pharmacy_Data\\telegram_notifications.json';
+    const logFile = cfg.notificationLogFile || nhcDataPath('telegram_notifications.json');
     if (!fs.existsSync(logFile)) return { available: true, notifications: [] };
     const all = JSON.parse(fs.readFileSync(logFile, 'utf8'));
     const list = Array.isArray(all) ? all : [];
@@ -745,12 +771,11 @@ function startTelegramBot() {
 
   const logToFile = (chunk) => {
     try {
-      // NHC Telegram bot service log lives in its own NHC-specific data folder, separate from
-      // VHC_DATA_DIR (the old VHC install's general/backup data) — defensively created here
-      // since, unlike VHC_DATA_DIR, nothing else guarantees this folder exists at startup.
-      const nhcTelegramDataDir = 'C:\\NHC_Pharmacy_Data';
+      // NHC Telegram bot service log lives in NHC's own data folder (NHC_DATA_DIR), never the
+      // VHC install's — defensively created here in case it was removed after startup.
+      const nhcTelegramDataDir = NHC_DATA_DIR;
       if (!fs.existsSync(nhcTelegramDataDir)) fs.mkdirSync(nhcTelegramDataDir, { recursive: true });
-      fs.appendFileSync(nhcTelegramDataDir + '\\telegram_bot_service.log', chunk.toString());
+      fs.appendFileSync(nhcDataPath('telegram_bot_service.log'), chunk.toString());
     } catch (e) {
       // Logging must never be able to crash the app — if it fails, the bot and the rest of
       // the app keep running regardless, just without that particular line recorded.

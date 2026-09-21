@@ -1,10 +1,12 @@
 /**
  * NHC Pharmacy POS - Automatic Background Backup Engine
- * Maintains a single auto-backup file: VHC_POS_AutoBackup.json in Google Drive.
+ * Maintains a single auto-backup file: NHC_POS_AutoBackup.json — locally in NHC's own data folder
+ * (C:\NHC_Pharmacy_Data\gdrive_backups) and in Google Drive. The name is deliberately NOT the VHC
+ * app's VHC_POS_AutoBackup.json, so an NHC backup can never be mistaken for, or overwrite, a VHC one.
  */
 
 (function () {
-  const AUTO_BACKUP_FILENAME = 'VHC_POS_AutoBackup.json';
+  const AUTO_BACKUP_FILENAME = 'NHC_POS_AutoBackup.json';
   const DEBOUNCE_DELAY_MS = 35000; // 35 seconds of inactivity before auto-syncing
   const RETRY_DELAY_MS = 60000; // 60 seconds retry on error
 
@@ -127,7 +129,7 @@
     const snapshot = getDatabaseSnapshot();
 
     // Write the local snapshot FIRST, unconditionally — before attempting (or even checking
-    // reachability for) the cloud upload. This file (VHC_POS_AutoBackup.json) is also what
+    // reachability for) the cloud upload. This file (NHC_POS_AutoBackup.json) is also what
     // the embedded Telegram bot reads for /today, /report, /inventory etc., so it must track
     // the live local database regardless of internet/Google Drive availability. Previously
     // this write only happened as a side effect of a SUCCESSFUL cloud upload, so a slow,
@@ -272,8 +274,11 @@
       }
 
       if (listRes && listRes.success && Array.isArray(listRes.files) && listRes.files.length > 0) {
-        // Find auto-backup file or newest backup file
-        let targetFile = listRes.files.find((f) => f.name === AUTO_BACKUP_FILENAME) || listRes.files[0];
+        // Only NHC's own auto-backup file may trigger the "newer cloud backup" restore prompt. There is
+        // deliberately NO fallback to "the newest file in the folder": that folder may also hold another
+        // app's backups (e.g. VHC's), and offering to restore those into NHC would mix the two datasets.
+        // Manual restore of any file the user picks remains available in Settings.
+        let targetFile = listRes.files.find((f) => f.name === AUTO_BACKUP_FILENAME);
         if (!targetFile) return;
 
         let cloudTime = new Date(targetFile.lastModified || targetFile.updated || targetFile.created || 0).getTime();
