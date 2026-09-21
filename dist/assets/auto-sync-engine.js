@@ -1,8 +1,8 @@
 /**
  * NHC Pharmacy POS - Automatic Background Backup Engine
  * Maintains a single auto-backup file: NHC_POS_AutoBackup.json — locally in NHC's own data folder
- * (C:\NHC_Pharmacy_Data\gdrive_backups) and in Google Drive. The name is deliberately NOT the VHC
- * app's VHC_POS_AutoBackup.json, so an NHC backup can never be mistaken for, or overwrite, a VHC one.
+ * (C:\NHC_Pharmacy_Data\gdrive_backups) and in a separately configured NHC Google Drive folder.
+ * NHCBackup validates cloud configuration, filenames and backup identity.
  */
 
 (function () {
@@ -23,7 +23,7 @@
   ];
 
   let state = {
-    status: 'synced', // 'synced' | 'syncing' | 'pending' | 'error' | 'offline'
+    status: 'synced', // 'synced' | 'syncing' | 'pending' | 'error' | 'offline' | 'unconfigured'
     lastSyncTime: localStorage.getItem('vhc_last_sync_time') || null,
     lastChangeTime: localStorage.getItem('vhc_last_change_time') || null,
     pendingChanges: localStorage.getItem('vhc_pending_changes') === 'true',
@@ -90,10 +90,11 @@
 
     return {
       appName: 'NHC Pharmacy POS',
+      backupNamespace: window.NHCBackup.namespace,
       backupType: 'AutoBackup',
       timestamp: new Date().toISOString(),
       formattedDate: new Date().toLocaleString('en-IN'),
-      settings: settings,
+      settings: window.NHCBackup.exportSettings(settings),
       patients: patients,
       salesHistory: salesHistory,
       inventory: inv,
@@ -101,31 +102,14 @@
     };
   }
 
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec';
-
-  function getScriptUrlAndFolder() {
-    try {
-      let settingsStr = localStorage.getItem('pos_settings');
-      let settings = settingsStr ? JSON.parse(settingsStr) : {};
-      let scriptUrl = (settings.gDriveScriptUrl || '').trim() || DEFAULT_SCRIPT_URL;
-
-      if (!settings.gDriveScriptUrl) {
-        settings.gDriveScriptUrl = DEFAULT_SCRIPT_URL;
-        originalSetItem('pos_settings', JSON.stringify(settings));
-      }
-
-      let driveUrl = settings.googleDriveUrl || settings.oneDriveUrl || '';
-      let folderMatch = driveUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
-      let folderId = folderMatch ? folderMatch[1] : '';
-      return { scriptUrl, folderId };
-    } catch (e) {
-      return { scriptUrl: DEFAULT_SCRIPT_URL, folderId: '' };
-    }
+  function getBackupSettings() {
+    try { return JSON.parse(localStorage.getItem('pos_settings') || '{}'); } catch (_) { return {}; }
   }
+  function getScriptUrlAndFolder() { return window.NHCBackup.config(getBackupSettings()); }
 
   // Execute backup upload
   async function performAutoSync(isClosing = false) {
-    const { scriptUrl, folderId } = getScriptUrlAndFolder();
+    const { error } = getScriptUrlAndFolder();
     const snapshot = getDatabaseSnapshot();
 
     // Write the local snapshot FIRST, unconditionally — before attempting (or even checking
@@ -134,17 +118,19 @@
     // the live local database regardless of internet/Google Drive availability. Previously
     // this write only happened as a side effect of a SUCCESSFUL cloud upload, so a slow,
     // misconfigured, or offline cloud sync silently left Telegram showing stale (often zero)
-    // data even though the POS app itself was fully up to date locally. The cloud upload
-    // below is unchanged — still attempted, still retried on failure — this only decouples
-    // the LOCAL copy's freshness from whether that remote step succeeds.
+    // data even though the POS app itself was fully up to date locally.
     if (window.electronAPI && window.electronAPI.saveGDriveBackup) {
       try {
-        await window.electronAPI.saveGDriveBackup(JSON.stringify(snapshot, null, 2), AUTO_BACKUP_FILENAME);
-      } catch (e) {}
+        const result = await window.electronAPI.saveGDriveBackup(JSON.stringify(snapshot, null, 2), AUTO_BACKUP_FILENAME);
+        if (!result || !result.success) throw new Error(result && result.error || 'Local backup failed');
+      } catch (e) {
+        setState({ status: 'error', errorMessage: 'NHC local backup failed: ' + e.message });
+        return false;
+      }
     }
 
-    if (!scriptUrl) {
-      setState({ status: 'pending', errorMessage: 'Script URL not set' });
+    if (error) {
+      setState({ status: 'unconfigured', errorMessage: error });
       return false;
     }
 
@@ -158,21 +144,10 @@
     try {
       const payload = {
         fileName: AUTO_BACKUP_FILENAME,
-        folderId: folderId,
         fileContent: JSON.stringify(snapshot, null, 2)
       };
 
-      let response;
-      if (window.electronAPI && window.electronAPI.gdriveUpload) {
-        response = await window.electronAPI.gdriveUpload(scriptUrl, payload);
-      } else {
-        const res = await fetch(scriptUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(payload)
-        });
-        response = await res.json();
-      }
+      const response = await window.NHCBackup.request(getBackupSettings(), 'upload', payload);
 
       if (response && response.success) {
         const now = new Date().toISOString();
@@ -205,10 +180,12 @@
     if (key && !DB_KEYS.includes(key)) return;
 
     const now = new Date().toISOString();
+    const configError = getScriptUrlAndFolder().error;
     setState({
       pendingChanges: true,
       lastChangeTime: now,
-      status: navigator.onLine ? 'pending' : 'offline'
+      status: configError ? 'unconfigured' : navigator.onLine ? 'pending' : 'offline',
+      errorMessage: configError || ''
     });
 
     clearTimeout(debounceTimer);
@@ -241,43 +218,24 @@
   });
 
   // App Close handler for final sync
-  window.addEventListener('beforeunload', (e) => {
-    if (state.pendingChanges && navigator.onLine) {
-      const { scriptUrl, folderId } = getScriptUrlAndFolder();
-      if (scriptUrl) {
-        const snapshot = getDatabaseSnapshot();
-        const payload = {
-          fileName: AUTO_BACKUP_FILENAME,
-          folderId: folderId,
-          fileContent: JSON.stringify(snapshot, null, 2)
-        };
-        if (window.electronAPI && window.electronAPI.gdriveUpload) {
-          window.electronAPI.gdriveUpload(scriptUrl, payload);
-        }
-      }
-    }
+  window.addEventListener('beforeunload', () => {
+    if (state.pendingChanges) performAutoSync(true);
   });
 
   // Startup Cloud Check
   async function checkForNewerCloudBackup() {
-    const { scriptUrl, folderId } = getScriptUrlAndFolder();
-    if (!scriptUrl || !navigator.onLine) return;
+    const cfg = getScriptUrlAndFolder();
+    if (cfg.error) { setState({ status: 'unconfigured', errorMessage: cfg.error }); return; }
+    if (!navigator.onLine) return;
 
     try {
-      const listUrl = `${scriptUrl}?action=list&folderId=${encodeURIComponent(folderId)}`;
-      let listRes;
-      if (window.electronAPI && window.electronAPI.gdriveFetch) {
-        listRes = await window.electronAPI.gdriveFetch(listUrl);
-      } else {
-        const res = await fetch(listUrl);
-        listRes = await res.json();
-      }
+      const listRes = await window.NHCBackup.scriptList(getBackupSettings());
 
       if (listRes && listRes.success && Array.isArray(listRes.files) && listRes.files.length > 0) {
         // Only NHC's own auto-backup file may trigger the "newer cloud backup" restore prompt. There is
         // deliberately NO fallback to "the newest file in the folder": that folder may also hold another
         // app's backups (e.g. VHC's), and offering to restore those into NHC would mix the two datasets.
-        // Manual restore of any file the user picks remains available in Settings.
+        // Manual restore also validates filename and NHC content identity.
         let targetFile = listRes.files.find((f) => f.name === AUTO_BACKUP_FILENAME);
         if (!targetFile) return;
 
@@ -307,28 +265,10 @@
     if (!scriptUrl || !file) return;
 
     try {
-      const getUrl = `${scriptUrl}?action=get&fileId=${encodeURIComponent(file.id)}`;
-      let getRes;
-      if (window.electronAPI && window.electronAPI.gdriveFetch) {
-        getRes = await window.electronAPI.gdriveFetch(getUrl);
-      } else {
-        const res = await fetch(getUrl);
-        getRes = await res.json();
-      }
-
-      if (!getRes || !getRes.success || !getRes.content) {
-        alert('Failed to download cloud backup content.');
-        return;
-      }
-
-      let backupData = JSON.parse(getRes.content);
-      if (!backupData || typeof backupData !== 'object') {
-        alert('Invalid cloud backup file structure.');
-        return;
-      }
+      const backupData = await window.NHCBackup.scriptRead(getBackupSettings(), file);
 
       // Restore data to localStorage without triggering change events
-      if (backupData.settings) originalSetItem('pos_settings', JSON.stringify(backupData.settings));
+      if (backupData.settings) originalSetItem('pos_settings', JSON.stringify(window.NHCBackup.restoreSettings(backupData.settings, getBackupSettings())));
       if (backupData.patients) originalSetItem('custom_opd_patients', JSON.stringify(backupData.patients));
       if (backupData.salesHistory) originalSetItem('vhc_pos_sales_history', JSON.stringify(backupData.salesHistory));
       if (backupData.inventory) {
@@ -432,7 +372,10 @@
     checkForNewerCloudBackup: checkForNewerCloudBackup
   };
 
-  // If pending changes existed before reload, schedule auto-sync
+  const initialConfigError = getScriptUrlAndFolder().error;
+  if (initialConfigError) setState({ status: 'unconfigured', errorMessage: initialConfigError });
+
+  // If pending changes existed before reload, schedule auto-sync (including local backup).
   if (state.pendingChanges) {
     markDataChanged();
   }

@@ -328,10 +328,9 @@ ipcMain.handle('save-gdrive-backup', async (event, jsonStr, fileName) => {
     // dev/test launch redirect backups to an isolated folder. There is deliberately NO fallback
     // to the VHC folder: anything resolving inside it is refused outright.
     const backupDir = process.env.VHC_TEST_BACKUP_DIR || nhcDataPath('gdrive_backups');
-    // The file name comes from the renderer: keep only its base name (no path components) so it
-    // can never point outside backupDir, and require a real name.
+    // Reject path components and non-NHC names supplied by the renderer.
     const safeName = path.basename(String(fileName || ''));
-    if (!safeName || safeName === '.' || safeName === '..') {
+    if (safeName !== String(fileName || '') || !/^NHC_POS_[A-Za-z0-9_-]+\.json$/.test(safeName) || safeName.length > 180) {
       return { success: false, error: 'Invalid backup file name' };
     }
     const filePath = path.join(backupDir, safeName);
@@ -344,12 +343,13 @@ ipcMain.handle('save-gdrive-backup', async (event, jsonStr, fileName) => {
       fs.mkdirSync(backupDir, { recursive: true });
     }
     fs.writeFileSync(filePath, jsonStr, 'utf8');
-    // Keep only the last 5 backup files in this folder to avoid clutter. In practice the
+    // Keep only the last 5 NHC-named backup files; other applications' files are untouched.
+    // In practice the
     // auto-backup always writes the same fileName (NHC_POS_AutoBackup.json) and simply
     // overwrites in place, so this rotation is a safety net rather than a normal path.
     // (It only ever runs inside NHC's own backupDir, checked above.)
     const files = fs.readdirSync(backupDir)
-      .filter(f => f.endsWith('.json'))
+      .filter(f => /^NHC_POS_[A-Za-z0-9_-]+\.json$/.test(f))
       .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtime }))
       .sort((a, b) => b.mtime - a.mtime);
     if (files.length > 5) {

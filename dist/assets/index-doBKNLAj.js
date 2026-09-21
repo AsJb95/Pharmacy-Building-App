@@ -15433,6 +15433,9 @@ function AutoSyncBadgeComponent() {
       : "";
 
     switch (status) {
+      case "unconfigured":
+        return { icon: "⚙️", dotColor: "#f59e0b", label: "NHC Drive Backup Disabled",
+          sub: "Configure NHC Drive in Settings", bg: "#fffbeb", border: "#fde68a", text: "#b45309" };
       case "syncing":
         return {
           icon: "🔄",
@@ -15491,7 +15494,7 @@ function AutoSyncBadgeComponent() {
 
   return (0, J.jsxs)("div", {
     onClick: handleSyncClick,
-    title: "Click to sync now with Google Drive",
+    title: syncState.errorMessage || "Click to sync now with Google Drive",
     style: {
       padding: "0.5rem 0.65rem",
       borderRadius: "10px",
@@ -16276,8 +16279,13 @@ var Fr = (0, _.createContext)(),
           .then((e) => {
             e &&
               typeof e == `object` &&
-              (n((t) => ({ hideRevenue: !0, ...t, ...e })),
-              localStorage.setItem(`pos_settings`, JSON.stringify(e)));
+              (() => {
+                let local = {};
+                try { local = JSON.parse(localStorage.getItem(`pos_settings`) || `{}`); } catch {}
+                const merged = window.NHCBackup.restoreSettings(e, local);
+                n((t) => ({ hideRevenue: !0, ...t, ...merged }));
+                localStorage.setItem(`pos_settings`, JSON.stringify(merged));
+              })();
           })
           .catch((e) => {
             console.log(`Using local cached settings`);
@@ -16297,7 +16305,7 @@ var Fr = (0, _.createContext)(),
               fetch(`/api/settings`, {
                 method: `POST`,
                 headers: { "Content-Type": `application/json` },
-                body: JSON.stringify(e),
+                body: JSON.stringify(window.NHCBackup.exportSettings(e)),
               }).catch((e) =>
                 console.error(`Failed to sync settings to API:`, e),
               ));
@@ -50662,7 +50670,7 @@ function Dh({
               format: [80, Math.max(100, r + 6)],
             });
           (i.addImage(n, `PNG`, 0, 0, 80, r),
-            i.save(`VHC_Receipt_${s || Date.now()}.pdf`),
+            i.save(`NHC_Receipt_${s || Date.now()}.pdf`),
             f && f(`Receipt PDF saved successfully!`, `success`));
         } catch (e) {
           (console.error(`PDF export error:`, e),
@@ -57042,6 +57050,7 @@ function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, require
   });
 }
 function vhcNormalizeBackup(raw, sourceLabel) {
+  window.NHCBackup.validate(raw);
   let obj = raw;
   if (Array.isArray(raw)) obj = { inventory: raw };
   let isLegacy = !obj || typeof obj != `object` || !obj.appName || !obj.backupType;
@@ -57202,10 +57211,11 @@ function Lh() {
         (!Array.isArray(r) || r.length === 0) && (r = n),
         {
           appName: `NHC Pharmacy POS`,
+          backupNamespace: window.NHCBackup.namespace,
           backupType: t,
           timestamp: new Date().toISOString(),
           formattedDate: new Date().toLocaleString(`en-IN`),
-          settings: e,
+          settings: window.NHCBackup.exportSettings(e),
           patients: (window.VHC_CLOUD && window.VHC_CLOUD.getAllPatients()) || [],
           salesHistory: JSON.parse(
             localStorage.getItem(`vhc_pos_sales_history`) || `[]`,
@@ -57226,7 +57236,7 @@ function Lh() {
           r = URL.createObjectURL(n),
           i = document.createElement(`a`);
         ((i.href = r),
-          (i.download = `VHC_POS_${e}_Backup_${Date.now()}.json`),
+          (i.download = `NHC_POS_${e}_Backup_${Date.now()}.json`),
           document.body.appendChild(i),
           i.click(),
           document.body.removeChild(i),
@@ -57237,7 +57247,7 @@ function Lh() {
       }
     },
     N = async () => {
-      let t = e.gDriveScriptUrl || `https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec`;
+      let t = e.nhcGDriveScriptUrl || ``;
       if (!t.trim()) {
         (i(
           `Please paste your Google Apps Script Backup URL in the setup field below first.`,
@@ -57250,31 +57260,10 @@ function Lh() {
       (v(`syncing`), b(`Syncing to Google Drive...`));
       try {
         let n = j(`GoogleDrive`),
-          r = `VHC_POS_GDrive_Backup_${new Date().toISOString().replace(/[:.]/g, `-`)}.json`,
-          a = (e.googleDriveUrl || e.oneDriveUrl || ``).match(
-            /folders\/([a-zA-Z0-9_-]+)/,
-          ),
-          o = a ? a[1] : ``,
+          r = `NHC_POS_GDrive_Backup_${new Date().toISOString().replace(/[:.]/g, `-`)}.json`,
           s;
         if (
-          ((s =
-            window.electronAPI && window.electronAPI.gdriveUpload
-              ? await window.electronAPI.gdriveUpload(t, {
-                  fileName: r,
-                  folderId: o,
-                  fileContent: JSON.stringify(n, null, 2),
-                })
-              : await (
-                  await fetch(t, {
-                    method: `POST`,
-                    headers: { "Content-Type": `text/plain` },
-                    body: JSON.stringify({
-                      fileName: r,
-                      folderId: o,
-                      fileContent: JSON.stringify(n, null, 2),
-                    }),
-                  })
-                ).json()),
+          ((s = await window.NHCBackup.request(e, 'upload', {fileName:r, fileContent:JSON.stringify(n, null, 2)})),
           s.success)
         )
           (v(`success`),
@@ -57297,7 +57286,7 @@ function Lh() {
       }
     },
     P = async () => {
-      let t = e.gDriveScriptUrl || `https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec`;
+      let t = e.nhcGDriveScriptUrl || ``;
       if (!t.trim()) {
         (i(
           `Please paste your Google Apps Script URL in the setup field first.`,
@@ -57312,18 +57301,9 @@ function Lh() {
         O([]),
         A(null));
       try {
-        let n = (e.googleDriveUrl || e.oneDriveUrl || ``).match(
-            /folders\/([a-zA-Z0-9_-]+)/,
-          ),
-          r = n ? n[1] : ``,
-          i = `${t}?action=list&folderId=${encodeURIComponent(r)}`,
-          a;
+        let a = await window.NHCBackup.scriptList(e);
         if (
-          ((a =
-            window.electronAPI && window.electronAPI.gdriveFetch
-              ? await window.electronAPI.gdriveFetch(i)
-              : await (await fetch(i)).json()),
-          a.success && a.files && a.files.length > 0)
+          a.success && a.files && a.files.length > 0
         )
           (O(a.files),
             A(a.files[0]),
@@ -57331,7 +57311,7 @@ function Lh() {
             E(`Select a backup file to restore:`));
         else if (a.success && (!a.files || a.files.length === 0))
           (w(`error`),
-            E(`❌ No backup files found in your Google Drive folder.`),
+            E(`No compatible NHC backup files found. Other or unverified files are not offered or changed.`),
             setTimeout(() => {
               (w(`idle`), E(``));
             }, 5e3));
@@ -57370,29 +57350,17 @@ function Lh() {
     F = async () => {
       if (!k) return;
       if (!beginRestoreOrWarn()) return;
-      let n = e.gDriveScriptUrl || `https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec`;
+      let n = e.nhcGDriveScriptUrl || ``;
       console.log(`[VHC_RESTORE] G-Drive (Apps Script) restore: starting for file "${k.name}" (id=${k.id})`);
       (w(`restoring`), E(`Downloading & restoring "${k.name}"...`));
       try {
-        let e = `${n}?action=get&fileId=${encodeURIComponent(k.id)}`,
-          r;
-        if (
-          ((r =
-            window.electronAPI && window.electronAPI.gdriveFetch
-              ? await window.electronAPI.gdriveFetch(e)
-              : await (await fetch(e)).json()),
-          !r.success)
-        )
-          throw Error(r.error || `Download failed`);
-        let a = JSON.parse(r.content);
-        if (!a || typeof a != `object`)
-          throw Error(`Invalid backup file format`);
+        let a = await window.NHCBackup.scriptRead(e, k);
         let norm = vhcNormalizeBackup(a, `Google Drive (Apps Script) file "${k.name}"`),
           o = [],
           cloudIssues = [];
         (Array.isArray(norm.patients) && norm.patients.length > 300) &&
           i(`⏳ Restoring ${norm.patients.length} patients${Array.isArray(norm.inventory) ? ` and ${norm.inventory.length} inventory items` : ``}. This can take a few minutes for large datasets — please don't close the app, it's still working.`, `info`, 1e4);
-        let s = norm.settings;
+        let s = norm.settings && window.NHCBackup.restoreSettings(norm.settings, e);
         s &&
           typeof s == `object` &&
           (t(s),
@@ -57484,7 +57452,7 @@ function Lh() {
             cloudIssues = [];
           (Array.isArray(norm.patients) && norm.patients.length > 300) &&
             i(`⏳ Restoring ${norm.patients.length} patients${Array.isArray(norm.inventory) ? ` and ${norm.inventory.length} inventory items` : ``}. This can take a few minutes for large datasets — please don't close the app, it's still working.`, `info`, 1e4);
-          let a = norm.settings;
+          let a = norm.settings && window.NHCBackup.restoreSettings(norm.settings, JSON.parse(localStorage.getItem(`pos_settings`) || `{}`));
           a &&
             typeof a == `object` &&
             (t(a),
@@ -57564,8 +57532,7 @@ function Lh() {
         r.readAsText(n));
     },
     getDriveFolderId = () => {
-      let m = (e.googleDriveUrl || e.oneDriveUrl || ``).match(/folders\/([a-zA-Z0-9_-]+)/);
-      return m ? m[1] : null;
+      return window.NHCBackup.folderId(e);
     },
     getValidGdriveAccessToken = async () => {
       if (gdriveAccessToken && Date.now() < gdriveAccessTokenExpiry - 6e4) return gdriveAccessToken;
@@ -57576,7 +57543,8 @@ function Lh() {
     },
     loadGdriveFiles = async () => {
       let folderId = getDriveFolderId();
-      if (!folderId) return;
+      setGdriveFilesList([]);
+      if (!folderId) { i(`Configure a dedicated NHC Drive folder first.`, `warning`); return; }
       setGdriveFilesLoading(!0);
       try {
         let token = await getValidGdriveAccessToken(),
@@ -57584,7 +57552,7 @@ function Lh() {
           res = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } }),
           json = await res.json();
         if (!res.ok) throw new Error(`HTTP ${res.status} — ${json?.error?.message || `Failed to list files`}`);
-        setGdriveFilesList(Array.isArray(json.files) ? json.files : []);
+        setGdriveFilesList(await window.NHCBackup.oauthList(token, folderId, json.files));
       } catch (err) {
         i(`Failed to load Drive backups: ` + err.message, `error`);
       } finally {
@@ -57629,7 +57597,7 @@ function Lh() {
       try {
         let token = await getValidGdriveAccessToken(),
           snapshot = j(`GoogleDrive`),
-          fileName = `VHC_POS_Backup_${new Date().toISOString().replace(/[:.]/g, `-`)}.json`,
+          fileName = `NHC_POS_Backup_${new Date().toISOString().replace(/[:.]/g, `-`)}.json`,
           metadata = { name: fileName, parents: [folderId] },
           boundary = `vhcbackup${Date.now()}`,
           body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(snapshot, null, 2)}\r\n--${boundary}--`,
@@ -57656,13 +57624,7 @@ function Lh() {
     handleGdriveDownload = async (file) => {
       try {
         let token = await getValidGdriveAccessToken(),
-          res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } }),
-          text = await res.text();
-        if (!res.ok) {
-          let errDetail = text;
-          try { errDetail = JSON.parse(text)?.error?.message || text; } catch {}
-          throw new Error(`HTTP ${res.status} — ${errDetail}`);
-        }
+          text = JSON.stringify(await window.NHCBackup.oauthRead(token, getDriveFolderId(), file), null, 2);
         let blob = new Blob([text], { type: `application/json` }),
           url = URL.createObjectURL(blob),
           link = document.createElement(`a`);
@@ -57693,19 +57655,13 @@ function Lh() {
       if (!beginRestoreOrWarn()) return;
       try {
         let token = await getValidGdriveAccessToken(),
-          res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } }),
-          rawText = await res.text();
-        if (!res.ok) {
-          let errDetail = rawText;
-          try { errDetail = JSON.parse(rawText)?.error?.message || rawText; } catch {}
-          throw new Error(`HTTP ${res.status} — ${errDetail}`);
-        }
-        let parsed = JSON.parse(rawText),
+          parsed = await window.NHCBackup.oauthRead(token, getDriveFolderId(), file),
           norm = vhcNormalizeBackup(parsed, `Google Drive file "${file.name}"`),
           restoredParts = [],
           cloudIssues = [];
         (Array.isArray(norm.patients) && norm.patients.length > 300) &&
           i(`⏳ Restoring ${norm.patients.length} patients${Array.isArray(norm.inventory) ? ` and ${norm.inventory.length} inventory items` : ``}. This can take a few minutes for large datasets — please don't close the app, it's still working.`, `info`, 1e4);
+        if (norm.settings) norm.settings = window.NHCBackup.restoreSettings(norm.settings, e);
         if (norm.settings && typeof norm.settings === `object`)
           (t(norm.settings), localStorage.setItem(`pos_settings`, JSON.stringify(norm.settings)), restoredParts.push(`Settings`));
         if (Array.isArray(norm.patients) && norm.patients.length > 0) {
@@ -57765,8 +57721,9 @@ function Lh() {
     handleGdriveDelete = async (file) => {
       if (!(await a(`Delete backup "${file.name}" from Google Drive?\n\nThis cannot be undone.`))) return;
       try {
-        let token = await getValidGdriveAccessToken(),
-          res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, { method: `DELETE`, headers: { Authorization: `Bearer ${token}` } });
+        let token = await getValidGdriveAccessToken();
+        await window.NHCBackup.oauthRead(token, getDriveFolderId(), file);
+        let res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, { method: `DELETE`, headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok && res.status !== 204) {
           let errBody = await res.text(),
             errDetail = errBody;
@@ -57782,7 +57739,7 @@ function Lh() {
     },
     getGdriveDuplicateGroups = () => {
       let byName = new Map();
-      gdriveFilesList.forEach((f) => {
+      window.NHCBackup.candidates(gdriveFilesList).forEach((f) => {
         let list = byName.get(f.name) || [];
         (list.push(f), byName.set(f.name, list));
       });
@@ -57800,9 +57757,11 @@ function Lh() {
       try {
         let token = await getValidGdriveAccessToken();
         await Promise.all(
-          toDelete.map((f) =>
-            fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: `DELETE`, headers: { Authorization: `Bearer ${token}` } }).catch(() => {}),
-          ),
+          toDelete.map(async (f) => {
+            await window.NHCBackup.oauthRead(token, getDriveFolderId(), f);
+            const response = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method: `DELETE`, headers: { Authorization: `Bearer ${token}` } });
+            if (!response.ok) throw new Error(`NHC duplicate cleanup failed. Refresh the list before retrying.`);
+          }),
         );
         (settingsAddLog(`BACKUP_GDRIVE_DEDUPED`, `Removed ${toDelete.length} duplicate-named backup file(s) from Google Drive, keeping the most recent of each`),
           i(`Removed ${toDelete.length} duplicate backup(s).`, `success`),
@@ -57852,9 +57811,10 @@ function Lh() {
       setResetSystemConfirmOpen(!1);
       try {
         let backupSnapshot = {
-          appName: `NHC Pharmacy POS Safety Backup`,
+          appName: `NHC Pharmacy POS`,
+          backupNamespace: window.NHCBackup.namespace,
           timestamp: new Date().toISOString(),
-          settings: e,
+          settings: window.NHCBackup.exportSettings(e),
           patients: (window.VHC_CLOUD && window.VHC_CLOUD.getAllPatients()) || [],
           salesHistory: JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`),
           inventory: JSON.parse(localStorage.getItem(`vhc_pos_inventory`) || localStorage.getItem(`pos_inventory`) || `[]`),
@@ -57864,7 +57824,7 @@ function Lh() {
             url = URL.createObjectURL(blob),
             link = document.createElement(`a`);
           ((link.href = url),
-            (link.download = `VHC_POS_Safety_Backup_Before_Reset_${Date.now()}.json`),
+            (link.download = `NHC_POS_Safety_Backup_Before_Reset_${Date.now()}.json`),
             document.body.appendChild(link),
             link.click(),
             document.body.removeChild(link),
@@ -57889,7 +57849,8 @@ function Lh() {
       i(`⏳ Clearing inventory — this can take a moment...`, `info`, 6e3);
       try {
         let backupSnapshot = {
-          appName: `NHC Pharmacy POS Safety Backup`,
+          appName: `NHC Pharmacy POS`,
+          backupNamespace: window.NHCBackup.namespace,
           backupType: `Pre_ClearInventory`,
           timestamp: new Date().toISOString(),
           inventory: JSON.parse(localStorage.getItem(`vhc_pos_inventory`) || localStorage.getItem(`pos_inventory`) || `[]`),
@@ -57899,7 +57860,7 @@ function Lh() {
             url = URL.createObjectURL(blob),
             link = document.createElement(`a`);
           ((link.href = url),
-            (link.download = `VHC_POS_Safety_Backup_Before_ClearInventory_${Date.now()}.json`),
+            (link.download = `NHC_POS_Safety_Backup_Before_ClearInventory_${Date.now()}.json`),
             document.body.appendChild(link),
             link.click(),
             document.body.removeChild(link),
@@ -57928,10 +57889,11 @@ function Lh() {
       i(`⏳ Performing factory reset — this can take a moment for large datasets...`, `info`, 8e3);
       try {
         let backupSnapshot = {
-          appName: `NHC Pharmacy POS Safety Backup`,
+          appName: `NHC Pharmacy POS`,
+          backupNamespace: window.NHCBackup.namespace,
           backupType: `Pre_FactoryReset`,
           timestamp: new Date().toISOString(),
-          settings: e,
+          settings: window.NHCBackup.exportSettings(e),
           patients: (window.VHC_CLOUD && window.VHC_CLOUD.getAllPatients()) || [],
           salesHistory: JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`),
           inventory: JSON.parse(localStorage.getItem(`vhc_pos_inventory`) || localStorage.getItem(`pos_inventory`) || `[]`),
@@ -57941,7 +57903,7 @@ function Lh() {
             url = URL.createObjectURL(blob),
             link = document.createElement(`a`);
           ((link.href = url),
-            (link.download = `VHC_POS_Safety_Backup_Before_FactoryReset_${Date.now()}.json`),
+            (link.download = `NHC_POS_Safety_Backup_Before_FactoryReset_${Date.now()}.json`),
             document.body.appendChild(link),
             link.click(),
             document.body.removeChild(link),
@@ -57970,6 +57932,7 @@ function Lh() {
     },
     B = (n) => {
       let { name: r, value: i, type: a, checked: o } = n.target;
+      if (r === `nhcGDriveScriptUrl` || r === `nhcGDriveAccessToken`) { O([]); A(null); }
       t({ ...e, [r]: a === `checkbox` ? o : i });
     };
   (0, _.useEffect)(() => {
@@ -59568,7 +59531,7 @@ function Lh() {
                             marginBottom: `0.75rem`,
                             textAlign: `left`,
                           },
-                          children: gdriveLegacyExpanded ? `▲ Hide Advanced / Legacy Apps Script Sync` : `▼ Advanced: Legacy Apps Script Sync (optional)`,
+                          children: gdriveLegacyExpanded ? `▲ Hide Advanced / NHC Apps Script Sync` : `▼ Advanced: NHC Apps Script Sync (optional)`,
                         }),
                         gdriveLegacyExpanded &&
                           (0, J.jsxs)(`div`, {
@@ -59577,19 +59540,19 @@ function Lh() {
                             children: [
                         (0, J.jsx)(`p`, {
                           style: { fontSize: `0.82rem`, color: `var(--info-strong)`, marginBottom: `0.75rem` },
-                          children: `Configure Google Drive folder link & Web App Script URL for cloud backup options.`,
+                          children: window.NHCBackup.config(e).error || `NHC Drive configuration is set. Use only the dedicated NHC folder and deployment.`,
                         }),
                         (0, J.jsxs)(`div`, {
                           className: `input-group mb-2`,
                           children: [
-                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Google Drive Folder Link` }),
+                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Dedicated NHC Google Drive Folder Link` }),
                             (0, J.jsx)(`input`, {
                               type: `text`,
-                              name: `googleDriveUrl`,
+                              name: `nhcGoogleDriveUrl`,
                               className: `input-field`,
                               style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
-                              value: e.googleDriveUrl || e.oneDriveUrl || ``,
-                              onChange: (n) => t({ ...e, googleDriveUrl: n.target.value, oneDriveUrl: n.target.value }),
+                              value: e.nhcGoogleDriveUrl || ``,
+                              onChange: (n) => { setGdriveFilesList([]); O([]); A(null); t({ ...e, nhcGoogleDriveUrl: n.target.value }); },
                               placeholder: `https://drive.google.com/drive/folders/...`,
                             }),
                           ],
@@ -59597,18 +59560,22 @@ function Lh() {
                         (0, J.jsxs)(`div`, {
                           className: `input-group mb-2`,
                           children: [
-                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Backup Script URL` }),
+                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Dedicated NHC Backup Script URL` }),
                             (0, J.jsx)(`input`, {
                               type: `text`,
-                              name: `gDriveScriptUrl`,
+                              name: `nhcGDriveScriptUrl`,
                               className: `input-field`,
                               style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
-                              value: e.gDriveScriptUrl || ``,
+                              value: e.nhcGDriveScriptUrl || ``,
                               onChange: B,
                               placeholder: `Paste Google Apps Script Web App URL...`,
                             }),
                           ],
                         }),
+                        (0, J.jsxs)(`div`, {className: `input-group mb-2`, children: [
+                          (0, J.jsx)(`label`, {className: `input-label`, children: `NHC Backup Access Token`}),
+                          (0, J.jsx)(`input`, {type: `password`, autoComplete: `off`, name: `nhcGDriveAccessToken`, className: `input-field`, value: e.nhcGDriveAccessToken || ``, onChange: B, placeholder: `Token from the dedicated NHC script configuration`})
+                        ]}),
                         (0, J.jsx)(`button`, {
                           type: `button`,
                           onClick: () => S((prev) => !prev),
@@ -59653,8 +59620,8 @@ function Lh() {
                                       (0, J.jsx)(`strong`, { children: `New Project` }),
                                     ],
                                   }),
-                                  (0, J.jsx)(`li`, { children: `Paste the Apps Script code for backup & restore.` }),
-                                  (0, J.jsxs)(`li`, { children: [`Click `, (0, J.jsx)(`strong`, { children: `Deploy → New Deployment → Web app` }), ` (Access: Anyone).`] }),
+                                  (0, J.jsx)(`li`, { children: `Use the dedicated NHC script and setup guide supplied with this version. Configure a new NHC folder and access token in Script Properties.` }),
+                                  (0, J.jsxs)(`li`, { children: [`Click `, (0, J.jsx)(`strong`, { children: `Deploy → New Deployment → Web app` }), ` using the access settings in the NHC setup guide; the script requires the NHC access token for every request.`] }),
                                   (0, J.jsx)(`li`, { children: `Copy the Web App URL & paste it into the field above.` }),
                                 ],
                               }),
