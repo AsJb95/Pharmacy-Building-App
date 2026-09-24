@@ -16509,6 +16509,10 @@ function mapDbSaleToLocalBill(dbSale) {
       ...meta,
     };
   });
+  let paymentBreakdown = dbSale.payment_breakdown || dbSale.paymentBreakdown || null;
+  if (typeof paymentBreakdown === `string`) {
+    try { paymentBreakdown = JSON.parse(paymentBreakdown); } catch { paymentBreakdown = null; }
+  }
   return {
     billId: dbSale.bill_id,
     date: dbSale.sale_date || dbSale.created_at || new Date().toISOString(),
@@ -16523,6 +16527,11 @@ function mapDbSaleToLocalBill(dbSale) {
     gstMode: dbSale.gst_mode || `regular`,
     discount: dbSale.discount || 0,
     discountPercent: dbSale.discount_percent || 0,
+    amountReceived: dbSale.amount_received,
+    outstandingAmount: dbSale.outstanding_amount,
+    paymentStatus: dbSale.payment_status,
+    paymentBreakdown,
+    recordedBy: dbSale.recorded_by || null,
     particulars,
     fromCloudOnly: true,
   };
@@ -51797,6 +51806,18 @@ function Nh() {
           ).filter((t) => t.billId !== e),
         ];
         localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(c));
+        if (window.VHC_AUDIT && window.VHC_AUDIT.logFinancial) {
+          window.VHC_AUDIT.logFinancial(`BILL_CREATED`, {
+            billId: e,
+            source: `local`,
+            next: c[0],
+            message: `Bill ${e} saved locally with payment mode ${s}, received ₹${(c[0].amountReceived || 0).toFixed ? c[0].amountReceived.toFixed(2) : c[0].amountReceived}, outstanding ₹${(c[0].outstandingAmount || 0).toFixed ? c[0].outstandingAmount.toFixed(2) : c[0].outstandingAmount}.`,
+          });
+          window.VHC_AUDIT.logFinancial(
+            s === `Split` ? `SPLIT_PAYMENT_RECORDED` : `PAYMENT_RECORDED`,
+            { billId: e, source: `local`, next: c[0].paymentBreakdown, message: `Payment details recorded for Bill ${e}.` },
+          );
+        }
       } catch (e) {
         console.error(`Failed to save bill to local sales history:`, e);
       }
@@ -52125,8 +52146,13 @@ function Nh() {
             billId: m, patientId: patientSnapshot.patientId, patientName: d, patientContact: patientSnapshot.contact, doctorName: p,
             paymentMode: f, subtotal: s, totalTax: l, totalAmount: a, gstMode: billGstMode,
             discount: billDiscount, discountPercent: effectiveDiscountPercent,
+            amountReceived: paymentDetails.amountReceived, outstandingAmount: paymentDetails.outstandingAmount,
+            paymentStatus: paymentDetails.status, paymentBreakdown: paymentDetails.breakdown, recordedBy: paymentDetails.recordedBy,
             items: cloudItems, recordOnly: !0,
-          }).then((cloudRes) => { cloudRes && cloudRes.error && console.warn(`[VHC_CLOUD] createSale (record-only) failed for ${m}:`, cloudRes.error); })
+          }).then((cloudRes) => {
+            window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`SYNC_UPLOAD_BILL`, { billId: m, source: `cloud`, next: { paymentMode: f, amountReceived: paymentDetails.amountReceived, outstandingAmount: paymentDetails.outstandingAmount, paymentStatus: paymentDetails.status, paymentBreakdown: paymentDetails.breakdown }, message: cloudRes && cloudRes.error ? `Cloud sale upload failed: ${cloudRes.error}` : `Cloud sale upload completed/accepted.` });
+            cloudRes && cloudRes.error && console.warn(`[VHC_CLOUD] createSale (record-only) failed for ${m}:`, cloudRes.error);
+          })
             .catch((cloudErr) => console.warn(`[VHC_CLOUD] createSale (record-only) threw for ${m}:`, cloudErr));
         } catch (cloudSetupErr) { console.warn(`[VHC_CLOUD] createSale (record-only) setup failed for ${m}:`, cloudSetupErr); }
       }
@@ -62540,6 +62566,13 @@ function a_() {
         `CREDIT_REPAYMENT_RECORDED`,
         `₹${amt.toFixed(2)} via ${paymentMethodLabel(method)} recorded against Bill ${settleBill.billId} (${freshBill.patientName || `Walk-in Patient`}).${repaymentEntry.reference ? ` Ref: ${repaymentEntry.reference}.` : ``} New balance: ₹${after.outstanding.toFixed(2)} (${after.status}). Recorded by ${recordedByEmail || `unknown`}.`,
       );
+      window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`CREDIT_REPAYMENT_RECORDED`, {
+        billId: settleBill.billId,
+        source: sqliteRepaymentList ? `local-sqlite` : `localStorage`,
+        previous: before,
+        next: after,
+        message: `₹${amt.toFixed(2)} via ${paymentMethodLabel(method)} recorded against Bill ${settleBill.billId}.`,
+      });
       (r((prev) => (Array.isArray(prev) ? prev.map((b) => (b && b.billId === updatedBill.billId ? updatedBill : b)) : prev)),
         setSelectedPaymentBill((prev) => (prev && prev.billId === updatedBill.billId ? updatedBill : prev)),
         window.dispatchEvent(new CustomEvent(`vhc-cloud-change`, { detail: { table: `salesHistory` } })),
@@ -62661,6 +62694,13 @@ function a_() {
       }
       let updatedSales = Array.isArray(salesHistory) ? salesHistory.filter((b) => b && b.billId !== billToDelete.billId) : [];
       localStorage.setItem("vhc_pos_sales_history", JSON.stringify(updatedSales));
+      window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`MANUAL_BILL_DELETE`, {
+        billId: billToDelete.billId,
+        source: `user-action`,
+        previous: billRecord,
+        next: { deleted: true },
+        message: `Bill ${billToDelete.billId} removed by admin/user action; stock restore attempted for ${restoredCount} unit(s).`,
+      });
 
       // Mark the sale cancelled in the local SQLite database (restores its LOCAL stock ledger and
       // removes it from SQLite-backed history). A bill with no SQLite record (billed before

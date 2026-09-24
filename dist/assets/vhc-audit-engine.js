@@ -15,6 +15,9 @@
 const STOCK_AUDIT_KEY = 'pos_stock_movements';
 const PATIENT_ID_KEY  = 'custom_opd_patients';
 const SEQ_KEY         = 'vhc_stock_seq';
+const FIN_AUDIT_KEY   = 'pos_financial_audit_logs';
+const FIN_ALERT_KEY   = 'vhc_financial_integrity_alerts';
+const SALES_KEY       = 'vhc_pos_sales_history';
 
 // Auto-incrementing sequence counter for stable chronological ordering
 function _nextSeq() {
@@ -43,6 +46,178 @@ function _writeStockMovements(arr) {
 
 function _genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function _readJsonArray(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function _writeJsonArray(key, arr, limit) {
+  try { localStorage.setItem(key, JSON.stringify(arr.slice(0, limit || 5000))); } catch (e) {}
+}
+
+function _round2(n) {
+  return Math.round((parseFloat(n) || 0) * 100) / 100;
+}
+
+function _billPaymentBreakdown(bill) {
+  let breakdown = bill && bill.paymentBreakdown;
+  if (!breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown)) {
+    breakdown =
+      bill && bill.paymentMode === 'Credit'
+        ? { credit: bill.totalAmount || 0 }
+        : bill && bill.paymentMode === 'Split'
+          ? { unspecified: bill.totalAmount || 0 }
+          : { [(bill && bill.paymentMode) || 'Cash']: (bill && bill.totalAmount) || 0 };
+  }
+  return breakdown;
+}
+
+function _paymentRowsForBill(bill) {
+  if (!bill || !bill.billId) return [];
+  const breakdown = _billPaymentBreakdown(bill);
+  const rows = [];
+  Object.keys(breakdown).forEach((key) => {
+    const amount = _round2(breakdown[key]);
+    if (amount > 0) rows.push({ billId: bill.billId, method: String(key || 'Other'), amount });
+  });
+  (Array.isArray(bill.creditRepayments) ? bill.creditRepayments : []).forEach((rp) => {
+    const amount = _round2(rp && rp.amount);
+    if (amount > 0) rows.push({ billId: bill.billId, method: String((rp && rp.method) || 'cash'), amount, repaymentId: rp && rp.id });
+  });
+  return rows;
+}
+
+function logFinancial(action, details) {
+  try {
+    const logs = _readJsonArray(FIN_AUDIT_KEY);
+    logs.unshift({
+      id: _genId(),
+      ts: new Date().toISOString(),
+      action: action || 'UNKNOWN',
+      billId: details && details.billId || '',
+      billNumber: details && (details.billNumber || details.billId) || '',
+      source: details && details.source || 'local',
+      previous: details && details.previous !== undefined ? details.previous : null,
+      next: details && details.next !== undefined ? details.next : null,
+      message: details && details.message || '',
+    });
+    _writeJsonArray(FIN_AUDIT_KEY, logs, 5000);
+  } catch (e) {
+    console.error('[VHC_AUDIT] logFinancial error:', e);
+  }
+}
+
+function runFinancialIntegrityAudit(opts) {
+  const options = opts || {};
+  const issues = [];
+  try {
+    const bills = _readJsonArray(SALES_KEY);
+    const seenIds = new Map();
+    const seenNumbers = new Map();
+    const tolerance = 0.01;
+    bills.forEach((bill, index) => {
+      if (!bill || typeof bill !== 'object') return;
+      const billId = String(bill.billId || bill.id || '').trim();
+      if (!billId) {
+        issues.push({ severity: 'error', code: 'MISSING_BILL_ID', index, message: 'Bill row has no billId.' });
+        return;
+      }
+      if (seenIds.has(billId)) issues.push({ severity: 'error', code: 'DUPLICATE_BILL_ID', billId, firstIndex: seenIds.get(billId), index });
+      else seenIds.set(billId, index);
+      const billNo = String(bill.billNumber || bill.invoiceNumber || bill.billNo || billId).trim();
+      if (billNo) {
+        if (seenNumbers.has(billNo)) issues.push({ severity: 'error', code: 'DUPLICATE_BILL_NUMBER', billId, billNumber: billNo, firstBillId: seenNumbers.get(billNo), index });
+        else seenNumbers.set(billNo, billId);
+      }
+
+      const total = _round2(bill.totalAmount);
+      const amountReceived = bill.amountReceived == null ? null : _round2(bill.amountReceived);
+      const outstandingAmount = bill.outstandingAmount == null ? null : _round2(bill.outstandingAmount);
+      const status = bill.paymentStatus || (bill.paymentMode === 'Credit' ? 'Credit' : 'Paid');
+      const breakdown = _billPaymentBreakdown(bill);
+      const breakdownTotal = _round2(Object.keys(breakdown).reduce((sum, key) => sum + (parseFloat(breakdown[key]) || 0), 0));
+      const rows = _paymentRowsForBill(bill);
+
+      if (!bill.paymentBreakdown || typeof bill.paymentBreakdown !== 'object') {
+        issues.push({ severity: 'warn', code: 'MISSING_PAYMENT_BREAKDOWN', billId, paymentMode: bill.paymentMode || null, source: bill.fromCloudOnly ? 'cloud' : 'local' });
+      }
+      if (rows.length === 0 && total > 0) {
+        issues.push({ severity: 'error', code: 'PAYMENT_REPORT_NO_ROWS', billId, totalAmount: total, status });
+      }
+      if (amountReceived != null && outstandingAmount != null && Math.abs(amountReceived + outstandingAmount - total) > tolerance) {
+        issues.push({ severity: 'error', code: 'PAYMENT_TOTAL_MISMATCH', billId, totalAmount: total, amountReceived, outstandingAmount });
+      }
+      if (amountReceived != null && Math.abs(breakdownTotal - total) > tolerance && Math.abs(breakdownTotal - amountReceived) > tolerance) {
+        issues.push({ severity: 'warn', code: 'PAYMENT_BREAKDOWN_MISMATCH', billId, totalAmount: total, amountReceived, breakdownTotal });
+      }
+      if ((status === 'Paid' || status === 'paid') && outstandingAmount != null && outstandingAmount > tolerance) {
+        issues.push({ severity: 'error', code: 'PAID_WITH_OUTSTANDING_BALANCE', billId, status, outstandingAmount });
+      }
+      if ((status === 'Credit' || status === 'Partially Paid') && outstandingAmount != null && outstandingAmount <= tolerance && total > 0) {
+        issues.push({ severity: 'warn', code: 'UNPAID_STATUS_WITH_ZERO_BALANCE', billId, status, outstandingAmount });
+      }
+      if (bill.fromCloudOnly && (!bill.paymentBreakdown || amountReceived == null || outstandingAmount == null || !bill.paymentStatus)) {
+        issues.push({ severity: 'warn', code: 'CLOUD_LOCAL_SCHEMA_MISMATCH', billId, message: 'Cloud-only bill is missing local payment detail fields.' });
+      }
+    });
+
+    const alert = {
+      id: _genId(),
+      ts: new Date().toISOString(),
+      source: options.source || 'manual',
+      billCount: bills.length,
+      issueCount: issues.length,
+      issues,
+    };
+    if (issues.length || options.alwaysStore) {
+      const alerts = _readJsonArray(FIN_ALERT_KEY);
+      alerts.unshift(alert);
+      _writeJsonArray(FIN_ALERT_KEY, alerts, 500);
+      logFinancial('INTEGRITY_CHECK_WARNING', { source: options.source || 'manual', message: `${issues.length} financial integrity issue(s) found.`, next: alert });
+      console.warn('[VHC_AUDIT] Financial integrity audit found issues:', alert);
+    }
+    return alert;
+  } catch (e) {
+    const alert = { id: _genId(), ts: new Date().toISOString(), source: options.source || 'manual', error: e.message, issueCount: 1, issues: [{ severity: 'error', code: 'AUDIT_FAILED', message: e.message }] };
+    logFinancial('INTEGRITY_CHECK_WARNING', { source: options.source || 'manual', message: 'Financial integrity audit failed.', next: alert });
+    return alert;
+  }
+}
+
+function _installSalesHistoryWatch() {
+  try {
+    if (localStorage.__vhcFinancialWatchInstalled) return;
+    localStorage.__vhcFinancialWatchInstalled = '1';
+    const originalSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function(key, value) {
+      let before = key === SALES_KEY ? _readJsonArray(SALES_KEY) : null;
+      originalSetItem(key, value);
+      if (key !== SALES_KEY) return;
+      let after = _readJsonArray(SALES_KEY);
+      const beforeIds = new Set(before.map((b) => b && b.billId).filter(Boolean));
+      const afterIds = new Set(after.map((b) => b && b.billId).filter(Boolean));
+      const disappeared = Array.from(beforeIds).filter((id) => !afterIds.has(id));
+      const appeared = Array.from(afterIds).filter((id) => !beforeIds.has(id));
+      if (appeared.length || disappeared.length) {
+        logFinancial('SALES_HISTORY_CHANGED', {
+          source: 'localStorage',
+          message: `Sales history changed: +${appeared.length}, -${disappeared.length}.`,
+          previous: { count: before.length, disappeared },
+          next: { count: after.length, appeared },
+        });
+      }
+      if (disappeared.length) {
+        runFinancialIntegrityAudit({ source: 'sales-history-watch', alwaysStore: true });
+      }
+    };
+  } catch (e) {
+    console.error('[VHC_AUDIT] failed to install sales history watch:', e);
+  }
 }
 
 /**
@@ -916,6 +1091,8 @@ function openPatientDisambig(name, matches, onSelect) {
 // ─────────────────────────────────────────────────────────────
 window.VHC_AUDIT = {
   logStock,
+  logFinancial,
+  runFinancialIntegrityAudit,
   ensurePatientId,
   migratePatientIds,
   getAllPatients,
@@ -935,6 +1112,9 @@ window.VHC_AUDIT = {
 function init() {
   injectStyles();
   migratePatientIds();
+  _installSalesHistoryWatch();
+  setTimeout(() => runFinancialIntegrityAudit({ source: 'startup' }), 2000);
+  setInterval(() => runFinancialIntegrityAudit({ source: 'periodic' }), 30 * 60 * 1000);
   // No floating launcher button — it overlapped the sidebar nav. The console is opened from
   // a proper entry point in Settings instead (see the React bundle's Settings screen), via
   // window.VHC_AUDIT.promptAdminGate(window.VHC_AUDIT.openStockHistory).

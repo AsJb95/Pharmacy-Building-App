@@ -36,6 +36,9 @@ function round2(n) {
 // computeCreditSettlement — keep in sync). Never mutates `bill`.
 function computeCreditSettlement(bill) {
   let breakdown = bill && bill.paymentBreakdown;
+  if (typeof breakdown === 'string') {
+    try { breakdown = JSON.parse(breakdown); } catch { breakdown = null; }
+  }
   if (!breakdown || typeof breakdown !== 'object') {
     breakdown = bill.paymentMode === 'Credit'
       ? { credit: bill.totalAmount || 0 }
@@ -136,6 +139,40 @@ function computePaymentSummary(transactions) {
     totalBilling, totalCollected, outstandingTotal: sums.Credit,
     cashCollection: sums.Cash, upiCollection: sums.UPI, cardCollection: sums.Card, otherCollection: sums.Other,
   };
+}
+
+function runIntegrityAudit(bills) {
+  const issues = [];
+  const seenIds = new Map();
+  const seenNumbers = new Map();
+  const tol = 0.01;
+  (bills || []).forEach((bill, index) => {
+    if (!bill || typeof bill !== 'object') return;
+    const billId = String(bill.billId || bill.id || '').trim();
+    if (!billId) {
+      issues.push({ code: 'MISSING_BILL_ID', index });
+      return;
+    }
+    if (seenIds.has(billId)) issues.push({ code: 'DUPLICATE_BILL_ID', billId });
+    else seenIds.set(billId, index);
+    const billNo = String(bill.billNumber || bill.invoiceNumber || bill.billNo || billId).trim();
+    if (seenNumbers.has(billNo)) issues.push({ code: 'DUPLICATE_BILL_NUMBER', billId });
+    else seenNumbers.set(billNo, billId);
+    const total = round2(bill.totalAmount);
+    const amountReceived = bill.amountReceived == null ? null : round2(bill.amountReceived);
+    const outstandingAmount = bill.outstandingAmount == null ? null : round2(bill.outstandingAmount);
+    const rows = expandBillToPaymentTransactions(bill);
+    let breakdown = bill.paymentBreakdown;
+    if (typeof breakdown === 'string') {
+      try { breakdown = JSON.parse(breakdown); } catch { breakdown = null; }
+    }
+    if (!breakdown || typeof breakdown !== 'object') issues.push({ code: 'MISSING_PAYMENT_BREAKDOWN', billId });
+    if (rows.length === 0 && total > 0) issues.push({ code: 'PAYMENT_REPORT_NO_ROWS', billId });
+    if (amountReceived != null && outstandingAmount != null && Math.abs(amountReceived + outstandingAmount - total) > tol) issues.push({ code: 'PAYMENT_TOTAL_MISMATCH', billId });
+    if ((bill.paymentStatus === 'Paid' || bill.paymentStatus === 'paid') && outstandingAmount != null && outstandingAmount > tol) issues.push({ code: 'PAID_WITH_OUTSTANDING_BALANCE', billId });
+    if (bill.fromCloudOnly && (!breakdown || amountReceived == null || outstandingAmount == null || !bill.paymentStatus)) issues.push({ code: 'CLOUD_LOCAL_SCHEMA_MISMATCH', billId });
+  });
+  return issues;
 }
 
 // ---- test harness ----
@@ -427,6 +464,69 @@ test('26. Repayments are isolated to their own bill only', () => {
   assert.strictEqual(summary.totalBilling, 1300);
   assert.strictEqual(summary.totalCollected, 1300, 'the other bill\'s Cash payment plus the fully-repaid credit bill');
   assert.strictEqual(summary.outstandingTotal, 0);
+});
+
+test('27. Cash bill appears in Payments Report after restart-style reload', () => {
+  const stored = JSON.stringify([bill({ billId: 'B-CASH-RELOAD', paymentMode: 'Cash', totalAmount: 90, paymentBreakdown: { Cash: 90 }, amountReceived: 90, outstandingAmount: 0, paymentStatus: 'Paid' })]);
+  const reloaded = JSON.parse(stored);
+  assert.strictEqual(expandBillToPaymentTransactions(reloaded[0]).length, 1);
+});
+
+test('28. UPI, Card, and Credit bills all produce visible rows', () => {
+  const rows = [
+    ...expandBillToPaymentTransactions(bill({ billId: 'B-UPI', paymentMode: 'UPI', totalAmount: 100, paymentBreakdown: { UPI: 100 } })),
+    ...expandBillToPaymentTransactions(bill({ billId: 'B-CARD', paymentMode: 'Card', totalAmount: 200, paymentBreakdown: { Card: 200 } })),
+    ...expandBillToPaymentTransactions(bill({ billId: 'B-CREDIT2', paymentMode: 'Credit', totalAmount: 300, paymentBreakdown: { credit: 300 }, paymentStatus: 'Credit' })),
+  ];
+  assert.deepStrictEqual(rows.map((r) => r.method).sort(), ['Card', 'Credit', 'UPI']);
+});
+
+test('29. Cloud-synced bill with JSON-string payment_breakdown remains visible', () => {
+  const rows = expandBillToPaymentTransactions(bill({ billId: 'B-CLOUD-JSON', fromCloudOnly: true, paymentMode: 'Split', totalAmount: 120, paymentBreakdown: '{"cash":50,"upi":70}', amountReceived: 120, outstandingAmount: 0, paymentStatus: 'Paid' }));
+  assert.strictEqual(rows.length, 2);
+  assert.strictEqual(computePaymentSummary(rows).totalCollected, 120);
+});
+
+test('30. Same-day and end-of-day date filtering remains string-date safe', () => {
+  const tx = [
+    ...expandBillToPaymentTransactions(bill({ billId: 'B-START', date: '2026-09-24T00:00:00.000+05:30', paymentMode: 'Cash', totalAmount: 1, paymentBreakdown: { Cash: 1 } })),
+    ...expandBillToPaymentTransactions(bill({ billId: 'B-END', date: '2026-09-24T23:59:59.999+05:30', paymentMode: 'Cash', totalAmount: 1, paymentBreakdown: { Cash: 1 } })),
+  ];
+  const filtered = tx.filter((t) => t.date.slice(0, 10) === '2026-09-24');
+  assert.strictEqual(filtered.length, 2);
+});
+
+test('31. Null optional fields do not exclude a valid paid bill', () => {
+  const rows = expandBillToPaymentTransactions(bill({ billId: 'B-NULLS', paymentMode: null, totalAmount: 44, amountReceived: null, outstandingAmount: undefined, paymentStatus: undefined, paymentBreakdown: null }));
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].amount, 44);
+});
+
+test('32. Duplicate row keys include index/repayment marker and stay unique', () => {
+  const rows = expandBillToPaymentTransactions(bill({ billId: 'B-DUPKEY', paymentMode: 'Split', totalAmount: 200, paymentBreakdown: { cash: 100, Cash: 100 } }));
+  const keys = rows.map((t, idx) => `${t.billId}-${t.method}-${idx}${t.isRepayment ? '-rp' : ''}`);
+  assert.strictEqual(new Set(keys).size, keys.length);
+});
+
+test('33. Sync merge keeps local richer record over cloud record with same bill id', () => {
+  const local = bill({ billId: 'B-MERGE', paymentMode: 'Split', totalAmount: 100, paymentBreakdown: { cash: 40, upi: 60 } });
+  const cloud = { billId: 'B-MERGE', paymentMode: 'Split', totalAmount: 100, fromCloudOnly: true };
+  const byId = new Map();
+  [cloud].forEach((b) => byId.set(b.billId, b));
+  [local].forEach((b) => byId.set(b.billId, b));
+  assert.deepStrictEqual(byId.get('B-MERGE').paymentBreakdown, { cash: 40, upi: 60 });
+});
+
+test('34. Integrity audit detects malformed payment data and duplicates', () => {
+  const issues = runIntegrityAudit([
+    bill({ billId: 'B-BAD', paymentMode: 'Cash', totalAmount: 100, amountReceived: 80, outstandingAmount: 0, paymentStatus: 'Paid', paymentBreakdown: null }),
+    bill({ billId: 'B-BAD', paymentMode: 'Cash', totalAmount: 50, paymentBreakdown: { Cash: 50 } }),
+    bill({ billId: 'B-CLOUD-MISS', fromCloudOnly: true, paymentMode: 'Split', totalAmount: 70 }),
+  ]).map((i) => i.code);
+  assert.ok(issues.includes('MISSING_PAYMENT_BREAKDOWN'));
+  assert.ok(issues.includes('DUPLICATE_BILL_ID'));
+  assert.ok(issues.includes('PAYMENT_TOTAL_MISMATCH'));
+  assert.ok(issues.includes('CLOUD_LOCAL_SCHEMA_MISMATCH'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

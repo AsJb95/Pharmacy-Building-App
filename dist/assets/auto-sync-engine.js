@@ -325,7 +325,22 @@
       // Restore data to localStorage without triggering change events
       if (backupData.settings) originalSetItem('pos_settings', JSON.stringify(backupData.settings));
       if (backupData.patients) originalSetItem('custom_opd_patients', JSON.stringify(backupData.patients));
-      if (backupData.salesHistory) originalSetItem('vhc_pos_sales_history', JSON.stringify(backupData.salesHistory));
+      if (backupData.salesHistory) {
+        let beforeSales = [];
+        try { beforeSales = JSON.parse(localStorage.getItem('vhc_pos_sales_history') || '[]'); } catch (e) {}
+        originalSetItem('vhc_pos_sales_history', JSON.stringify(backupData.salesHistory));
+        if (window.VHC_AUDIT && window.VHC_AUDIT.logFinancial) {
+          window.VHC_AUDIT.logFinancial('RESTORE_IMPORT_SALES_HISTORY', {
+            source: 'cloud-auto-backup',
+            previous: { count: Array.isArray(beforeSales) ? beforeSales.length : 0 },
+            next: { count: Array.isArray(backupData.salesHistory) ? backupData.salesHistory.length : 0 },
+            message: 'Startup cloud backup restore replaced local sales history.',
+          });
+        }
+        if (window.VHC_AUDIT && window.VHC_AUDIT.runFinancialIntegrityAudit) {
+          window.VHC_AUDIT.runFinancialIntegrityAudit({ source: 'cloud-auto-backup-restore', alwaysStore: true });
+        }
+      }
       if (backupData.inventory) {
         if (window.VHC_AUDIT && window.VHC_AUDIT.logStock) {
           try {
