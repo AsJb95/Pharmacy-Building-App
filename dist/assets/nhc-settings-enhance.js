@@ -113,7 +113,7 @@
       return;
     }
     h4.style.display = 'none';
-    var ver = (h4.textContent.match(/v[\d.]+/) || ['v3.18.1'])[0];
+    var ver = (h4.textContent.match(/v[\d.]+/) || ['v3.18.3'])[0];
     var head = el('div', null, { id: 'nhc-changelog-head' });
     head.setAttribute('data-nhc-el', 'changelog-head');
     head.appendChild(document.createTextNode('📋 What’s New in ' + ver));

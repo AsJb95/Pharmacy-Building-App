@@ -58212,7 +58212,7 @@ function Lh() {
               (0, J.jsxs)(`div`, {
                 children: [
                   (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Version` }),
-                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `v${localStorage.getItem('vhc_app_version') || '3.18.2'}` }),
+                  (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: `v${localStorage.getItem('vhc_app_version') || '3.18.3'}` }),
                 ],
               }),
               (0, J.jsxs)(`div`, {
@@ -58243,7 +58243,7 @@ function Lh() {
           }),
           (0, J.jsx)(`h4`, {
             style: { margin: `1rem 0 0.5rem`, fontSize: `0.9rem`, color: `var(--text-heading)` },
-            children: `📋 Changelog — v3.18.2`,
+            children: `📋 Changelog — v3.18.3`,
           }),
           (0, J.jsxs)(`ul`, {
             style: { margin: 0, paddingLeft: `1.2rem`, fontSize: `0.8rem`, color: `var(--text-secondary)`, lineHeight: `1.7` },
