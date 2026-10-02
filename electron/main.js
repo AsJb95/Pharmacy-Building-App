@@ -66,7 +66,14 @@ ensureDataDir();
 // renderer bundle.
 const GOOGLE_OAUTH_CLIENT_ID = '193589136107-ijhf2q3mdrsbuaobvb7jg33vb8ooc3cv.apps.googleusercontent.com';
 const GOOGLE_OAUTH_CLIENT_SECRET = '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';
-const GOOGLE_OAUTH_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email';
+// Minimum scope needed: drive.file grants access ONLY to files/folders THIS app creates
+// (so the app owns its "NHC Pharmacy Backup" tree and never sees the rest of the user's Drive),
+// plus userinfo.email to show the connected account. drive.file is NOT a Google "restricted"
+// scope, so it needs no security-assessment verification for production — unlike full `auth/drive`.
+// NOTE: a user who previously consented to full `auth/drive` keeps a refresh token that still
+// works (full drive is a superset); only NEW sign-ins get the narrower drive.file. If a Drive
+// call ever returns 403 insufficientScopes, the renderer surfaces a clear "reconnect" message.
+const GOOGLE_OAUTH_SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
 let oauthSignInServer = null;
 
 // Fix Windows Program Files / Portable permission issues (Access Denied 0x5 GPU cache errors)
@@ -554,11 +561,196 @@ ipcMain.handle('google-oauth-signout', async () => {
   try {
     if (fs.existsSync(getOAuthTokenFilePath())) fs.unlinkSync(getOAuthTokenFilePath());
     if (fs.existsSync(getOAuthMetaFilePath())) fs.unlinkSync(getOAuthMetaFilePath());
+    // Keep cached folder IDs — Disconnect must NOT delete the Drive folder or local backups; the
+    // next connection (same or different account) re-resolves/recreates folders as needed.
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
+
+// ─── Google Drive backup (drive.file) — app-owned folder tree, main-process only ───
+// All Drive REST happens here with an access token the main process refreshes ITSELF from the
+// encrypted refresh token (never handed to the renderer). drive.file means list/search only ever
+// returns files/folders THIS app created, so the app can safely find-or-create its own
+// "NHC Pharmacy Backup/{Automatic,Manual}" tree without touching the rest of the user's Drive.
+const NHC_BACKUP_ROOT_NAME = 'NHC Pharmacy Backup';
+const NHC_BACKUP_FILENAME_RE = /^NHC_POS_[A-Za-z0-9_-]+\.json$/; // same identity rule as nhc-backup-policy.js
+function getDriveFoldersMetaPath() { return path.join(app.getPath('userData'), 'nhc_drive_folders.json'); }
+function readDriveFoldersMeta() {
+  try { return JSON.parse(fs.readFileSync(getDriveFoldersMetaPath(), 'utf8')); } catch (e) { return {}; }
+}
+function writeDriveFoldersMeta(meta) {
+  try { fs.writeFileSync(getDriveFoldersMetaPath(), JSON.stringify(meta || {}, null, 2), 'utf8'); } catch (e) {}
+}
+
+// Exchanges the stored encrypted refresh token for a fresh access token. Returns
+// { ok, accessToken } or { ok:false, error, needReconnect }. needReconnect=true means the grant
+// is gone/invalid (revoked, or scope downgrade requires re-consent) and the user must sign in again.
+async function getFreshGoogleAccessToken() {
+  if (!fs.existsSync(getOAuthTokenFilePath())) return { ok: false, error: 'Not connected to Google Drive', needReconnect: true };
+  let refreshToken;
+  try {
+    const buf = fs.readFileSync(getOAuthTokenFilePath());
+    refreshToken = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
+  } catch (e) { return { ok: false, error: 'Stored Google credential could not be read', needReconnect: true }; }
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ refresh_token: refreshToken, client_id: GOOGLE_OAUTH_CLIENT_ID, client_secret: GOOGLE_OAUTH_CLIENT_SECRET, grant_type: 'refresh_token' }).toString(),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!j.access_token) {
+      const needReconnect = j.error === 'invalid_grant' || res.status === 400 || res.status === 401;
+      return { ok: false, error: j.error_description || j.error || 'Could not refresh Google session', needReconnect };
+    }
+    return { ok: true, accessToken: j.access_token };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+async function driveFetch(token, url, options) {
+  const res = await fetch(url, { ...(options || {}), headers: { Authorization: `Bearer ${token}`, ...((options && options.headers) || {}) } });
+  if (res.status === 403) {
+    const t = await res.text().catch(() => '');
+    if (/insufficient/i.test(t) || /insufficientScopes/i.test(t)) { const e = new Error('Google Drive permission is out of date — please Disconnect and reconnect Google Drive.'); e.needReconnect = true; throw e; }
+    throw new Error(`Google Drive error (403): ${t.slice(0, 200)}`);
+  }
+  if (res.status === 401) { const e = new Error('Google session expired — please reconnect Google Drive.'); e.needReconnect = true; throw e; }
+  return res;
+}
+
+// Find a non-trashed app-created folder by name (optionally under a parent), or create it.
+async function ensureFolder(token, name, parentId) {
+  let q = `mimeType='application/vnd.google-apps.folder' and trashed=false and name='${name.replace(/'/g, "\\'")}'`;
+  if (parentId) q += ` and '${parentId}' in parents`;
+  const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent('files(id,name)')}&pageSize=10`;
+  const listRes = await driveFetch(token, listUrl);
+  const listJson = await listRes.json().catch(() => ({}));
+  if (listRes.ok && listJson.files && listJson.files.length) return listJson.files[0].id;
+  // Create it
+  const meta = { name: name, mimeType: 'application/vnd.google-apps.folder' };
+  if (parentId) meta.parents = [parentId];
+  const createRes = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta),
+  });
+  const createJson = await createRes.json().catch(() => ({}));
+  if (!createRes.ok || !createJson.id) throw new Error('Could not create Drive folder: ' + (createJson.error && createJson.error.message || createRes.status));
+  return createJson.id;
+}
+
+// Confirm a cached folder id still exists and isn't trashed (fast path), else re-resolve.
+async function folderStillValid(token, id) {
+  if (!id) return false;
+  try {
+    const res = await driveFetch(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=id,trashed`);
+    if (!res.ok) return false;
+    const j = await res.json().catch(() => ({}));
+    return !!(j && j.id && !j.trashed);
+  } catch (e) { return false; }
+}
+
+// Find-or-create NHC Pharmacy Backup / Automatic / Manual, reusing cached ids where still valid.
+async function ensureBackupFolders(token) {
+  const meta = readDriveFoldersMeta();
+  let rootId = (await folderStillValid(token, meta.rootId)) ? meta.rootId : await ensureFolder(token, NHC_BACKUP_ROOT_NAME, null);
+  let automaticId = (meta.rootId === rootId && await folderStillValid(token, meta.automaticId)) ? meta.automaticId : await ensureFolder(token, 'Automatic', rootId);
+  let manualId = (meta.rootId === rootId && await folderStillValid(token, meta.manualId)) ? meta.manualId : await ensureFolder(token, 'Manual', rootId);
+  writeDriveFoldersMeta({ rootId, automaticId, manualId });
+  return { rootId, automaticId, manualId };
+}
+
+ipcMain.handle('drive-status', async () => {
+  try {
+    if (!fs.existsSync(getOAuthMetaFilePath()) || !fs.existsSync(getOAuthTokenFilePath())) return { signedIn: false };
+    const meta = JSON.parse(fs.readFileSync(getOAuthMetaFilePath(), 'utf8'));
+    return { signedIn: !!meta.email, email: meta.email || null, rootFolderName: NHC_BACKUP_ROOT_NAME };
+  } catch (e) { return { signedIn: false }; }
+});
+
+ipcMain.handle('drive-ensure-folders', async () => {
+  const tok = await getFreshGoogleAccessToken();
+  if (!tok.ok) return { success: false, error: tok.error, needReconnect: !!tok.needReconnect };
+  try {
+    const folders = await ensureBackupFolders(tok.accessToken);
+    return { success: true, folders };
+  } catch (e) { return { success: false, error: e.message, needReconnect: !!e.needReconnect }; }
+});
+
+// Uploads a backup JSON string into Automatic/ or Manual/. Content is validated for NHC identity
+// (namespace/appName) and the filename pattern before any upload, so only genuine NHC backups land.
+ipcMain.handle('drive-upload-backup', async (event, payload) => {
+  const kind = payload && payload.kind;
+  const fileName = payload && payload.fileName;
+  const content = payload && payload.content;
+  if (kind !== 'Automatic' && kind !== 'Manual') return { success: false, error: 'Invalid backup kind.' };
+  if (typeof fileName !== 'string' || !NHC_BACKUP_FILENAME_RE.test(fileName)) return { success: false, error: 'Invalid NHC backup filename.' };
+  if (typeof content !== 'string' || content.length === 0) return { success: false, error: 'Empty backup content.' };
+  let parsed;
+  try { parsed = JSON.parse(content); } catch (e) { return { success: false, error: 'Backup content is not valid JSON.' }; }
+  const identOk = parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+    (parsed.backupNamespace === 'NHC_PHARMACY_POS' || parsed.appName === 'NHC Pharmacy POS');
+  if (!identOk) return { success: false, error: 'Refusing to upload: not a recognized NHC backup.' };
+  const tok = await getFreshGoogleAccessToken();
+  if (!tok.ok) return { success: false, error: tok.error, needReconnect: !!tok.needReconnect };
+  try {
+    const folders = await ensureBackupFolders(tok.accessToken);
+    const parentId = kind === 'Automatic' ? folders.automaticId : folders.manualId;
+    const boundary = 'nhcbk' + Date.now();
+    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`
+      + JSON.stringify({ name: fileName, parents: [parentId] })
+      + `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` + content + `\r\n--${boundary}--`;
+    const res = await driveFetch(tok.accessToken, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime',
+      { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.id) return { success: false, error: 'Upload failed: ' + (j.error && j.error.message || res.status) };
+    return { success: true, file: { id: j.id, name: j.name, modifiedTime: j.modifiedTime, type: kind } };
+  } catch (e) { return { success: false, error: e.message, needReconnect: !!e.needReconnect }; }
+});
+
+// Lists NHC backups from BOTH Automatic/ and Manual/, newest first, each tagged with its type.
+ipcMain.handle('drive-list-backups', async () => {
+  const tok = await getFreshGoogleAccessToken();
+  if (!tok.ok) return { success: false, error: tok.error, needReconnect: !!tok.needReconnect, files: [] };
+  try {
+    const folders = await ensureBackupFolders(tok.accessToken);
+    const out = [];
+    for (const [kind, fid] of [['Automatic', folders.automaticId], ['Manual', folders.manualId]]) {
+      const q = `'${fid}' in parents and trashed=false`;
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent('files(id,name,modifiedTime,size)')}&orderBy=modifiedTime desc&pageSize=100`;
+      const res = await driveFetch(tok.accessToken, url);
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(j.files)) {
+        for (const f of j.files) {
+          if (NHC_BACKUP_FILENAME_RE.test(f.name || '')) out.push({ id: f.id, name: f.name, modifiedTime: f.modifiedTime, size: f.size ? Number(f.size) : null, type: kind });
+        }
+      }
+    }
+    out.sort((a, b) => new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0));
+    return { success: true, files: out };
+  } catch (e) { return { success: false, error: e.message, needReconnect: !!e.needReconnect, files: [] }; }
+});
+
+// Downloads one backup's content, but ONLY if it lives inside our Automatic/ or Manual/ folder and
+// has an NHC filename — so a caller can never pull an arbitrary Drive file through this channel.
+ipcMain.handle('drive-download-backup', async (event, fileId) => {
+  if (typeof fileId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(fileId)) return { success: false, error: 'Invalid file id.' };
+  const tok = await getFreshGoogleAccessToken();
+  if (!tok.ok) return { success: false, error: tok.error, needReconnect: !!tok.needReconnect };
+  try {
+    const folders = await ensureBackupFolders(tok.accessToken);
+    const metaRes = await driveFetch(tok.accessToken, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,parents,trashed`);
+    const meta = await metaRes.json().catch(() => ({}));
+    if (!metaRes.ok || !meta.id) return { success: false, error: 'Backup not found.' };
+    const okParent = Array.isArray(meta.parents) && meta.parents.some((p) => p === folders.automaticId || p === folders.manualId);
+    if (meta.trashed || !okParent || !NHC_BACKUP_FILENAME_RE.test(meta.name || '')) return { success: false, error: 'Backup is outside the NHC backup folder or is not a valid NHC backup.' };
+    const dlRes = await driveFetch(tok.accessToken, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`);
+    if (!dlRes.ok) return { success: false, error: 'Could not read the backup content.' };
+    const content = await dlRes.text();
+    return { success: true, name: meta.name, content };
+  } catch (e) { return { success: false, error: e.message, needReconnect: !!e.needReconnect }; }
+});
+
 
 // ─── Telegram bot integration ───
 // The bot (unpacked_app/telegram-bot/bot.js) ships INSIDE the app package and is started
@@ -669,6 +861,112 @@ ipcMain.handle('telegram-bot-get-notifications', async (event, limit) => {
   }
 });
 
+// ─── Server-verified Platform Admin check (defense-in-depth for privileged writes) ───
+// Reuses the SAME session the app is already signed in with (currentSupabaseToken, relayed from
+// the renderer — see the 'supabase-session-token-changed' IPC below) to read the caller's own
+// profiles.is_platform_admin under RLS, exactly like the renderer's window.VHC_CLOUD.isPlatformAdmin().
+// This uses ONLY the public anon/publishable key + the user's own JWT — NO service-role key is
+// ever introduced. Fails closed: no session, a bad/expired token, an RLS/network error, or a
+// non-admin row all return false, so a privileged write is refused rather than allowed by mistake.
+const NHC_SUPABASE_URL = 'https://fjtgszdzbiepmdmnjsxn.supabase.co';
+const NHC_SUPABASE_ANON_KEY = 'sb_publishable_QG4Nk02c6MAXygDjhhApgg_5RA9V-vt'; // publishable key — not a secret; already embedded in the renderer's Supabase client
+function decodeJwtSub(token) {
+  try {
+    const seg = String(token).split('.')[1];
+    if (!seg) return null;
+    const json = Buffer.from(seg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    return JSON.parse(json).sub || null;
+  } catch (e) { return null; }
+}
+async function verifyCurrentUserIsPlatformAdmin() {
+  const token = currentSupabaseToken;
+  if (!token) return { ok: false, reason: 'no-session' };
+  const sub = decodeJwtSub(token);
+  if (!sub) return { ok: false, reason: 'bad-token' };
+  try {
+    const res = await fetch(
+      `${NHC_SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(sub)}&select=is_platform_admin`,
+      { headers: { apikey: NHC_SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return { ok: false, reason: `http-${res.status}` };
+    const rows = await res.json().catch(() => []);
+    const isAdmin = Array.isArray(rows) && rows[0] && rows[0].is_platform_admin === true;
+    return { ok: !!isAdmin, reason: isAdmin ? 'admin' : 'not-admin' };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+// ─── Telegram allowed-user management (admin-managed from Settings; no manual JSON editing) ───
+// The bot enforces access purely on the numeric `allowedUserIds`. Optional display names are
+// stored in a parallel `allowedUserNames` map (id → name), which the bot simply ignores (its
+// loadConfig() spreads unknown fields through untouched). Every other telegram_config.json
+// field is preserved exactly. The running bot child re-reads the file each poll (~3s), so a
+// saved change takes effect within seconds without restarting the app or the bot.
+ipcMain.handle('telegram-get-allowed-users', async () => {
+  try {
+    const cfg = readOrProvisionTelegramConfig();
+    const ids = Array.isArray(cfg.allowedUserIds) ? cfg.allowedUserIds : [];
+    const names = (cfg.allowedUserNames && typeof cfg.allowedUserNames === 'object') ? cfg.allowedUserNames : {};
+    return { success: true, users: ids.map((id) => ({ id: String(id), name: names[String(id)] || '' })) };
+  } catch (e) {
+    return { success: false, error: e.message, users: [] };
+  }
+});
+
+ipcMain.handle('telegram-save-allowed-users', async (event, users) => {
+  try {
+    // Defense-in-depth: never trust the renderer alone for a privileged write. Re-verify the
+    // caller is a Platform Admin server-side (their own JWT + RLS) before touching the config,
+    // so a non-admin renderer (or a tampered call) cannot change who may use the bot.
+    const adminCheck = await verifyCurrentUserIsPlatformAdmin();
+    if (!adminCheck.ok) {
+      logBotService(`Refused telegram-save-allowed-users: caller is not a verified Platform Admin (${adminCheck.reason}).`);
+      return { success: false, error: 'Not authorized — Platform Admin sign-in required.' };
+    }
+    if (!Array.isArray(users)) return { success: false, error: 'Invalid users payload.' };
+    // Validate every entry BEFORE writing anything, so a bad entry can never leave the config
+    // half-updated. Telegram user IDs are numeric (currently 6–10 digits; allow 5–15 for
+    // future-proofing). Duplicates are rejected rather than silently merged.
+    const seen = new Set();
+    const ids = [];
+    const names = {};
+    for (const u of users) {
+      const raw = String(u && u.id != null ? u.id : '').trim();
+      if (!/^\d{5,15}$/.test(raw)) {
+        return { success: false, error: `"${raw || '(empty)'}" is not a valid Telegram user ID. IDs are numbers only.` };
+      }
+      if (seen.has(raw)) return { success: false, error: `Duplicate Telegram user ID: ${raw}.` };
+      seen.add(raw);
+      ids.push(Number(raw));
+      const nm = u && typeof u.name === 'string' ? u.name.trim().slice(0, 60) : '';
+      if (nm) names[raw] = nm;
+    }
+    const cfg = readOrProvisionTelegramConfig();
+    cfg.allowedUserIds = ids;      // the ONLY field the bot enforces access on
+    cfg.allowedUserNames = names;  // display-only metadata; bot ignores it
+    fs.writeFileSync(TELEGRAM_BOT_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+    logBotService(`Telegram allowed-users updated from Settings: ${ids.length} user(s). The running bot will apply this on its next poll (no restart needed).`);
+    return { success: true, count: ids.length };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Controlled restart of just the bot child process — NOT the whole app. Not required for
+// allowed-user changes (those are picked up live), but exposed so Settings can offer an
+// explicit "restart bot service" action if a user ever wants to force an immediate reconnect.
+ipcMain.handle('telegram-bot-restart', async () => {
+  try {
+    logBotService('Controlled bot restart requested from Settings.');
+    stopTelegramBot();
+    startTelegramBot();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // ─── Telegram bot child-process lifecycle (embedded service) ───
 let botProcess = null;
 let botRestartTimer = null;
@@ -692,9 +990,15 @@ let currentSupabaseToken = process.env.VHC_TEST_SUPABASE_TOKEN || null;
 // silently lost, not just delayed).
 let botReady = false;
 ipcMain.on('supabase-session-token-changed', (event, token) => {
+  const had = !!currentSupabaseToken;
   currentSupabaseToken = token || null;
   if (botProcess && botReady) {
     try { botProcess.send({ channel: 'vhc-supabase-token', token: currentSupabaseToken }); } catch (e) {}
+    logBotService(`Relayed ${currentSupabaseToken ? 'a Supabase session token' : 'a SIGN-OUT (null token)'} to the running bot (renderer sign-in state changed).`);
+  } else if (currentSupabaseToken && !had) {
+    // Token arrived before the bot child confirmed ready — it will be sent on the 'vhc-bot-ready'
+    // handshake instead (see startTelegramBot). Logged so this ordering is visible, not a mystery.
+    logBotService('Received a Supabase session token from the renderer, but the bot child is not ready yet — it will be sent as soon as the child signals ready.');
   }
 });
 
@@ -736,8 +1040,25 @@ function updateTelegramBotStatus(patch) {
   rebuildTrayMenu();
 }
 
+// Appends a timestamped main-process diagnostic line to the SAME file the bot child's own
+// stdout/stderr is piped into (telegram_bot_service.log), so the whole lifecycle — main process
+// deciding to start/stop/restart the bot and relay the session token, plus the bot child's own
+// polling/command logs — reads as one ordered timeline. This is what makes "the bot process
+// never started" or "the app never relayed a session token" diagnosable from a single file.
+function logBotService(line) {
+  try {
+    if (!fs.existsSync(NHC_DATA_DIR)) fs.mkdirSync(NHC_DATA_DIR, { recursive: true });
+    fs.appendFileSync(nhcDataPath('telegram_bot_service.log'), `[${new Date().toISOString()}] [main] ${line}\n`);
+  } catch (e) {
+    // Logging must never be able to crash the app.
+  }
+}
+
 function startTelegramBot() {
-  if (botProcess) return; // already running — guards against duplicate spawns
+  if (botProcess) {
+    logBotService('startTelegramBot() called but a bot process is already running — ignoring (no duplicate spawn).');
+    return; // already running — guards against duplicate spawns
+  }
 
   // Auto-provision the local (non-secret) config file if this is a fresh PC — purely for
   // Settings-screen display/editing (allowedUserIds, report time, etc.); the bot itself
@@ -749,11 +1070,13 @@ function startTelegramBot() {
 
   const scriptPath = getBotScriptPath();
   if (!fs.existsSync(scriptPath)) {
+    logBotService(`ERROR: bot script not found at ${scriptPath} — the bot cannot start (check asarUnpack packaging). Will retry.`);
     updateTelegramBotStatus({ state: 'error', lastError: `Bot script not found at ${scriptPath}`, lastErrorAt: Date.now() });
     scheduleTelegramBotRestart();
     return;
   }
 
+  logBotService(`Forking Telegram bot child process: ${scriptPath} (Supabase session token currently ${currentSupabaseToken ? 'PRESENT' : 'NOT yet received'}).`);
   updateTelegramBotStatus({ state: 'starting', lastError: null });
 
   botReady = false;
@@ -764,6 +1087,7 @@ function startTelegramBot() {
     });
   } catch (e) {
     botProcess = null;
+    logBotService(`ERROR: fork() of the bot process failed: ${e.message}. Will retry.`);
     updateTelegramBotStatus({ state: 'error', lastError: e.message, lastErrorAt: Date.now() });
     scheduleTelegramBotRestart();
     return;
@@ -790,6 +1114,9 @@ function startTelegramBot() {
       botReady = true;
       if (currentSupabaseToken) {
         try { botProcess.send({ channel: 'vhc-supabase-token', token: currentSupabaseToken }); } catch (e) {}
+        logBotService('Bot child reported ready — relayed the current Supabase session token to it.');
+      } else {
+        logBotService('Bot child reported ready, but NO Supabase session token is available yet — the bot will report "waiting for sign-in" until the app finishes signing in.');
       }
       return;
     }
@@ -807,9 +1134,11 @@ function startTelegramBot() {
   botProcess.on('exit', (code, signal) => {
     botProcess = null;
     if (isQuitting) {
+      logBotService('Bot child exited as part of app shutdown (clean stop).');
       updateTelegramBotStatus({ state: 'stopped' });
       return;
     }
+    logBotService(`Bot child exited unexpectedly (code ${code}, signal ${signal || 'none'}) — scheduling automatic restart.`);
     // Any exit while we're not deliberately quitting is treated as a genuine crash —
     // including a "clean" exit 0, since this process is supposed to run forever (an infinite
     // polling loop that reports its own "waiting for sign-in" / "relay error" states rather
@@ -838,6 +1167,7 @@ function stopTelegramBot() {
   botRestartDelayMs = 3000;
   botReady = false;
   if (botProcess) {
+    logBotService('Stopping the Telegram bot child process (app is quitting).');
     try { botProcess.kill(); } catch (e) {}
     botProcess = null;
   }

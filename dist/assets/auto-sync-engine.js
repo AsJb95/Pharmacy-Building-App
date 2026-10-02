@@ -105,20 +105,29 @@
   function getBackupSettings() {
     try { return JSON.parse(localStorage.getItem('pos_settings') || '{}'); } catch (_) { return {}; }
   }
-  function getScriptUrlAndFolder() { return window.NHCBackup.config(getBackupSettings()); }
 
-  // Execute backup upload
+  // Automatic CLOUD uploads on/off (Settings → Cloud Backup toggle). LOCAL backups always run
+  // regardless of this flag or connectivity, so the Telegram bot's data file stays fresh. Default ON.
+  function autoCloudEnabled() {
+    try { return localStorage.getItem('nhc_auto_cloud_backup') !== 'false'; } catch (_) { return true; }
+  }
+  async function driveConnected() {
+    try {
+      const s = window.electronAPI && window.electronAPI.driveStatus ? await window.electronAPI.driveStatus() : null;
+      return !!(s && s.signedIn);
+    } catch (_) { return false; }
+  }
+
+  // Execute backup: ALWAYS write the local snapshot, then OPTIONALLY upload to Google Drive
+  // (Automatic folder) via the drive.file OAuth path. A cloud failure never blocks the app and
+  // never loses the local backup.
   async function performAutoSync(isClosing = false) {
-    const { error } = getScriptUrlAndFolder();
     const snapshot = getDatabaseSnapshot();
 
-    // Write the local snapshot FIRST, unconditionally — before attempting (or even checking
-    // reachability for) the cloud upload. This file (NHC_POS_AutoBackup.json) is also what
-    // the embedded Telegram bot reads for /today, /report, /inventory etc., so it must track
-    // the live local database regardless of internet/Google Drive availability. Previously
-    // this write only happened as a side effect of a SUCCESSFUL cloud upload, so a slow,
-    // misconfigured, or offline cloud sync silently left Telegram showing stale (often zero)
-    // data even though the POS app itself was fully up to date locally.
+    // Write the local snapshot FIRST, unconditionally — before any cloud attempt. This file
+    // (NHC_POS_AutoBackup.json) is also what the embedded Telegram bot reads for /today,
+    // /report, /inventory etc., so it must track the live local database regardless of
+    // internet/Google Drive availability.
     if (window.electronAPI && window.electronAPI.saveGDriveBackup) {
       try {
         const result = await window.electronAPI.saveGDriveBackup(JSON.stringify(snapshot, null, 2), AUTO_BACKUP_FILENAME);
@@ -129,44 +138,29 @@
       }
     }
 
-    if (error) {
-      setState({ status: 'unconfigured', errorMessage: error });
-      return false;
-    }
-
-    if (!navigator.onLine) {
-      setState({ status: 'offline', errorMessage: 'No internet connection' });
+    // Cloud upload is optional and asynchronous — it must NEVER block billing/POS. The local
+    // backup above already succeeded, so any cloud problem below only affects the cloud copy.
+    if (!autoCloudEnabled()) { setState({ status: 'synced', pendingChanges: false, errorMessage: '' }); return true; }
+    if (!navigator.onLine) { setState({ status: 'offline', errorMessage: 'No internet connection' }); return false; }
+    if (!(await driveConnected())) {
+      setState({ status: 'unconfigured', errorMessage: 'Connect Google Drive in Settings → Cloud Backup to enable cloud backup.' });
       return false;
     }
 
     setState({ status: 'syncing', errorMessage: '' });
-
     try {
-      const payload = {
+      const res = await window.electronAPI.driveUploadBackup({
+        kind: 'Automatic',
         fileName: AUTO_BACKUP_FILENAME,
-        fileContent: JSON.stringify(snapshot, null, 2)
-      };
-
-      const response = await window.NHCBackup.request(getBackupSettings(), 'upload', payload);
-
-      if (response && response.success) {
-        const now = new Date().toISOString();
-        setState({
-          status: 'synced',
-          pendingChanges: false,
-          lastSyncTime: now,
-          errorMessage: ''
-        });
-        return true;
-      } else {
-        throw new Error((response && response.error) || 'Upload returned failure');
-      }
-    } catch (err) {
-      setState({
-        status: 'error',
-        errorMessage: err.message || 'Auto sync failed'
+        content: JSON.stringify(snapshot, null, 2),
       });
-      // Schedule retry after 60s if not closing
+      if (res && res.success) {
+        setState({ status: 'synced', pendingChanges: false, lastSyncTime: new Date().toISOString(), errorMessage: '' });
+        return true;
+      }
+      throw new Error((res && res.error) || 'Upload returned failure');
+    } catch (err) {
+      setState({ status: 'error', errorMessage: err.message || 'Auto cloud backup failed' });
       if (!isClosing) {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => performAutoSync(false), RETRY_DELAY_MS);
@@ -180,12 +174,11 @@
     if (key && !DB_KEYS.includes(key)) return;
 
     const now = new Date().toISOString();
-    const configError = getScriptUrlAndFolder().error;
     setState({
       pendingChanges: true,
       lastChangeTime: now,
-      status: configError ? 'unconfigured' : navigator.onLine ? 'pending' : 'offline',
-      errorMessage: configError || ''
+      status: navigator.onLine ? 'pending' : 'offline',
+      errorMessage: ''
     });
 
     clearTimeout(debounceTimer);
@@ -222,27 +215,26 @@
     if (state.pendingChanges) performAutoSync(true);
   });
 
-  // Startup Cloud Check
+  // Startup Cloud Check — WhatsApp-style "restore from cloud?" prompt. On a FRESH install there is
+  // no local data (lastChangeTime null → localTime 0), so any cloud backup counts as newer and the
+  // prompt is offered after Google Drive is connected. Uses the drive.file OAuth path.
   async function checkForNewerCloudBackup() {
-    const cfg = getScriptUrlAndFolder();
-    if (cfg.error) { setState({ status: 'unconfigured', errorMessage: cfg.error }); return; }
     if (!navigator.onLine) return;
+    if (!(await driveConnected())) return; // not connected → nothing to offer yet (connect first)
 
     try {
-      const listRes = await window.NHCBackup.scriptList(getBackupSettings());
-
+      const listRes = await window.electronAPI.driveListBackups();
       if (listRes && listRes.success && Array.isArray(listRes.files) && listRes.files.length > 0) {
-        // Only NHC's own auto-backup file may trigger the "newer cloud backup" restore prompt. There is
-        // deliberately NO fallback to "the newest file in the folder": that folder may also hold another
-        // app's backups (e.g. VHC's), and offering to restore those into NHC would mix the two datasets.
-        // Manual restore also validates filename and NHC content identity.
-        let targetFile = listRes.files.find((f) => f.name === AUTO_BACKUP_FILENAME);
+        // Prefer NHC's own auto-backup; otherwise the newest NHC backup of any kind (Automatic or
+        // Manual). The main process already restricts the list to this app's own folder tree and
+        // NHC filenames, so there is no risk of mixing in another application's backups.
+        let targetFile = listRes.files.find((f) => f.name === AUTO_BACKUP_FILENAME) || listRes.files[0];
         if (!targetFile) return;
 
-        let cloudTime = new Date(targetFile.lastModified || targetFile.updated || targetFile.created || 0).getTime();
+        let cloudTime = new Date(targetFile.modifiedTime || 0).getTime();
         let localTime = state.lastChangeTime ? new Date(state.lastChangeTime).getTime() : 0;
 
-        // If cloud backup is newer by more than 10 seconds
+        // If cloud backup is newer by more than 10 seconds (true for a fresh install with no local data)
         if (cloudTime > 0 && cloudTime > localTime + 10000) {
           setState({
             cloudBackupAvailable: {
@@ -259,13 +251,22 @@
     }
   }
 
-  // Download and restore from cloud backup
+  // Download and restore from a Google Drive cloud backup (drive.file OAuth path). A safety copy of
+  // the CURRENT local data is written first, so a restore can never leave the device without a
+  // fallback of what was there immediately before.
   async function restoreFromCloudBackup(file) {
-    const { scriptUrl } = getScriptUrlAndFolder();
-    if (!scriptUrl || !file) return;
-
+    if (!file) return;
     try {
-      const backupData = await window.NHCBackup.scriptRead(getBackupSettings(), file);
+      try {
+        const current = getDatabaseSnapshot();
+        if (window.electronAPI && window.electronAPI.saveGDriveBackup) {
+          await window.electronAPI.saveGDriveBackup(JSON.stringify(current, null, 2), 'NHC_POS_PreRestoreSafety.json');
+        }
+      } catch (_) { /* safety copy is best-effort; the local auto-backup already exists too */ }
+
+      const dl = await window.electronAPI.driveDownloadBackup(file.id);
+      if (!dl || !dl.success) throw new Error((dl && dl.error) || 'Could not download the cloud backup.');
+      const backupData = window.NHCBackup.validate(JSON.parse(dl.content));
 
       // Restore data to localStorage without triggering change events
       if (backupData.settings) originalSetItem('pos_settings', JSON.stringify(window.NHCBackup.restoreSettings(backupData.settings, getBackupSettings())));
@@ -329,7 +330,7 @@
           <div style="background: #f8fafc; border-radius: 10px; padding: 1rem; border: 1px solid #e2e8f0; margin-bottom: 1.25rem; font-size: 0.82rem; color: #334155; line-height: 1.6;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
               <span style="font-weight: 600; color: #0369a1;">☁️ Cloud Backup:</span>
-              <span style="font-weight: 700; color: #0c4a6e;">${new Date(file.lastModified || file.updated || Date.now()).toLocaleString('en-IN')}</span>
+              <span style="font-weight: 700; color: #0c4a6e;">${new Date(file.modifiedTime || Date.now()).toLocaleString('en-IN')}</span>
             </div>
             <div style="display: flex; justify-content: space-between;">
               <span style="font-weight: 600; color: #64748b;">💻 Local Device:</span>
@@ -369,11 +370,22 @@
     },
     syncNow: () => performAutoSync(false),
     markDataChanged: markDataChanged,
-    checkForNewerCloudBackup: checkForNewerCloudBackup
+    checkForNewerCloudBackup: checkForNewerCloudBackup,
+    // Reuse hooks for the Settings → Cloud Backup card (nhc-cloud-backup.js), so manual backup and
+    // restore use the exact same snapshot format and restore logic as the automatic path.
+    getSnapshot: () => getDatabaseSnapshot(),
+    restoreFromCloud: (file) => restoreFromCloudBackup(file)
   };
 
-  const initialConfigError = getScriptUrlAndFolder().error;
-  if (initialConfigError) setState({ status: 'unconfigured', errorMessage: initialConfigError });
+  // Initial cloud status: if auto cloud backup is on but Google Drive isn't connected yet, show
+  // "unconfigured" (local backups still run). Checked async; never blocks startup.
+  (async () => {
+    try {
+      if (autoCloudEnabled() && !(await driveConnected())) {
+        setState({ status: 'unconfigured', errorMessage: 'Connect Google Drive in Settings → Cloud Backup to enable cloud backup.' });
+      }
+    } catch (_) {}
+  })();
 
   // If pending changes existed before reload, schedule auto-sync (including local backup).
   if (state.pendingChanges) {

@@ -187,6 +187,7 @@ function reportPeriodKeyboard() {
 }
 
 module.exports = {
+  RELAY_URL,
   sendTelegramMessage,
   sendMessageTo,
   callTelegramApi,

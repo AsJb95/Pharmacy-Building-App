@@ -22,7 +22,16 @@
     <script src="./assets/vhc-audit-engine.js"></script>
   <script type="module" src="./assets/auto-sync-engine.js"></script>
     <script type="module" src="./assets/index-doBKNLAj.js"></script>
+    <!-- Settings add-ons: admin-gated Telegram allowed-user management + Google Drive Cloud Backup.
+         Plain scripts, no edits to the compiled React bundle (same pattern as nhc-backup-policy.js). -->
+    <script src="./assets/nhc-telegram-users.js"></script>
+    <script src="./assets/nhc-cloud-backup.js"></script>
+    <!-- Settings enhancer: fills the empty Cloud Integrations section (Telegram + Google Drive +
+         Patient Sync) and applies modern visual polish. Reuses the two add-ons above; no edits to
+         the compiled React bundle. -->
+    <script src="./assets/nhc-settings-enhance.js"></script>
     <link rel="stylesheet" href="./assets/index-DiZjGBdb.css">
+    <link rel="stylesheet" href="./assets/nhc-settings-polish.css">
   </head>
   <body>
     <div id="root"></div>

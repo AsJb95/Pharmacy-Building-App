@@ -22,6 +22,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   googleOAuthRefresh: () => ipcRenderer.invoke('google-oauth-refresh'),
   googleOAuthSignOut: () => ipcRenderer.invoke('google-oauth-signout'),
   googleOAuthStatus: () => ipcRenderer.invoke('google-oauth-status'),
+  // Google Drive backup (drive.file, app-owned "NHC Pharmacy Backup/{Automatic,Manual}" tree).
+  // The access token is refreshed inside the main process and never exposed to the renderer.
+  driveStatus: () => ipcRenderer.invoke('drive-status'),
+  driveEnsureFolders: () => ipcRenderer.invoke('drive-ensure-folders'),
+  driveUploadBackup: (payload) => ipcRenderer.invoke('drive-upload-backup', payload),
+  driveListBackups: () => ipcRenderer.invoke('drive-list-backups'),
+  driveDownloadBackup: (fileId) => ipcRenderer.invoke('drive-download-backup', fileId),
   // Telegram bot integration — the bot now ships inside the app and is run by the main
   // process as a managed child process (see electron/main.js). These calls read/write only
   // the non-secret scheduling fields, and read its notification log for display in the
@@ -29,6 +36,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getTelegramBotSettings: () => ipcRenderer.invoke('telegram-bot-get-settings'),
   saveTelegramBotSettings: (settings) => ipcRenderer.invoke('telegram-bot-save-settings', settings),
   getTelegramBotNotifications: (limit) => ipcRenderer.invoke('telegram-bot-get-notifications', limit),
+  // Telegram allowed-user management (admin-gated in the UI). Reads/writes only the non-secret
+  // allowedUserIds (+ optional display names); the bot token is never involved. See main.js.
+  getTelegramAllowedUsers: () => ipcRenderer.invoke('telegram-get-allowed-users'),
+  saveTelegramAllowedUsers: (users) => ipcRenderer.invoke('telegram-save-allowed-users', users),
+  restartTelegramBot: () => ipcRenderer.invoke('telegram-bot-restart'),
   // Relays the Pharmacy app's current Supabase session token to the embedded bot process, so
   // it can authenticate to the secure telegram-relay Edge Function (which holds the real bot
   // token server-side) as a genuine signed-in instance of this app — no bot token is ever

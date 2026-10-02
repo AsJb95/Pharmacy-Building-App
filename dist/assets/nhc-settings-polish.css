@@ -1,0 +1,103 @@
+/*
+ * NHC Pharmacy — Settings visual polish (add-on stylesheet)
+ * ---------------------------------------------------------
+ * Loaded as a plain <link> by dist/index.html (same add-on pattern as nhc-*.js). It does NOT
+ * touch the compiled React bundle. It restyles ONLY the Settings sections that the live
+ * inspection flagged, using the app's EXISTING theme variables so light + dark both stay
+ * first-class automatically. Hooks ([data-nhc="…"]) are stamped onto the relevant cards at
+ * runtime by nhc-settings-enhance.js. Rules use !important because the bundle styles these
+ * elements inline; a stylesheet !important reliably wins over non-important inline styles and,
+ * unlike runtime DOM edits, is never wiped by a React re-render.
+ */
+
+/* ---------------- Appearance: compact tiles, less whitespace ---------------- */
+[data-nhc="appearance"] { padding: 1rem 1.25rem !important; }
+[data-nhc="appearance"] [data-nhc-el="desc"] { margin: 0.25rem 0 0.75rem !important; }
+[data-nhc="appearance-tile"] {
+  padding: 0.6rem 0.85rem !important;
+  border-radius: 12px !important;
+  gap: 0.6rem !important;
+}
+[data-nhc="appearance-tile"] > span:first-child { font-size: 1.15rem !important; }
+
+/* ---------------- Account: compact clean row ---------------- */
+[data-nhc="account"] { padding: 0.75rem 1.25rem !important; }
+
+/* ---------------- App Details: compact + no awkward truncation ---------------- */
+[data-nhc="appdetails"] { padding: 1rem 1.25rem !important; }
+[data-nhc="appdetails"] [data-nhc-el="grid"] { gap: 0.5rem 0.9rem !important; margin-bottom: 0.5rem !important; }
+/* let long values (e.g. the doctor name) wrap cleanly instead of clipping */
+[data-nhc="appdetails"] [data-nhc-el="grid"] > div > div:last-child { white-space: normal !important; overflow-wrap: anywhere !important; }
+
+/* changelog accordion (built by the enhancer) */
+[data-nhc-el="changelog-toggle"] {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  margin: 0.5rem 0 0; padding: 0.3rem 0.7rem;
+  font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  color: var(--accent); background: var(--accent-light);
+  border: 1px solid var(--accent-border); border-radius: 8px;
+}
+[data-nhc-el="changelog-head"] { margin: 0.9rem 0 0 !important; font-size: 0.9rem; color: var(--text-heading); font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
+
+/* ---------------- Admin Tools: tone down the saturated gradients ---------------- */
+[data-nhc="admin-tools"] { gap: 0.85rem !important; }
+[data-nhc="tool-backup"],
+[data-nhc="tool-stock"] {
+  background: var(--surface-raised) !important;
+  color: var(--text-primary) !important;
+  border: 1.5px solid var(--border-strong) !important;
+  border-radius: 14px !important;
+  padding: 0.95rem 1.1rem !important;
+  box-shadow: none !important;
+  gap: 0.85rem !important;
+}
+/* small accent treatment instead of a full-bleed gradient */
+[data-nhc="tool-backup"] { border-left: 4px solid var(--accent) !important; }
+[data-nhc="tool-stock"]  { border-left: 4px solid var(--purple-strong, #7c3aed) !important; }
+/* shrink the oversized leading icons */
+[data-nhc="tool-backup"] > div:first-child,
+[data-nhc="tool-stock"]  > div:first-child { font-size: 1.3rem !important; }
+/* readable secondary line on the now-neutral surface */
+[data-nhc="tool-backup"] > div:last-child > div:last-child,
+[data-nhc="tool-stock"]  > div:last-child > div:last-child { color: var(--text-secondary) !important; opacity: 1 !important; }
+
+/* ---------------- Admin Security: compact panel ---------------- */
+[data-nhc="admin-security"] { padding: 1rem 1.25rem !important; }
+[data-nhc-el="sec-unlock-btn"] {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 1rem; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+  color: var(--text-primary); background: var(--surface-raised);
+  border: 1.5px solid var(--border-strong); border-radius: 10px;
+}
+[data-nhc-el="sec-locked-note"] { font-size: 0.82rem; color: var(--text-secondary); margin: 0.1rem 0 0.75rem; }
+
+/* ---------------- Accordion rows: compact collapsed height ---------------- */
+[data-nhc="accordion"] { padding: 0.9rem 1.25rem !important; }
+
+/* ---------------- Cloud Integrations cards (built by the enhancer) ---------------- */
+.nhc-ci-card {
+  background: var(--surface-raised);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 1.05rem 1.15rem;
+  display: flex; flex-direction: column; gap: 0.55rem;
+}
+.nhc-ci-card h4 { margin: 0; font-size: 0.95rem; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 0.45rem; }
+.nhc-ci-sub { margin: 0; font-size: 0.78rem; color: var(--text-secondary); }
+.nhc-ci-statusline { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700; }
+.nhc-ci-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-soft); }
+.nhc-ci-row { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.78rem; }
+.nhc-ci-row > span:first-child { color: var(--text-secondary); }
+.nhc-ci-row > span:last-child { color: var(--text-primary); font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.nhc-ci-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.2rem; }
+.nhc-ci-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.48rem 0.85rem; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+  border-radius: 9px; border: 1px solid transparent; white-space: nowrap;
+}
+.nhc-ci-btn-primary { background: var(--accent); color: #fff; }
+.nhc-ci-btn-primary:hover { background: var(--accent-hover); }
+.nhc-ci-btn-outline { background: transparent; color: var(--text-primary); border-color: var(--border-strong); }
+.nhc-ci-btn-outline:hover { background: var(--surface-sunken); }
+.nhc-ci-toggle { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.8rem; font-weight: 600; color: var(--text-primary); cursor: pointer; }
+.nhc-ci-toggle input { width: 15px; height: 15px; accent-color: var(--accent); }

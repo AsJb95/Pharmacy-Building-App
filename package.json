@@ -1,7 +1,7 @@
 {
   "name": "vhc-pharmacy-pos",
   "private": true,
-  "version": "3.18.1",
+  "version": "3.18.3",
   "description": "NARPAVI HEALTH CARE POS Pharmacy Software",
   "author": "NHC Pharmacy",
   "type": "module",

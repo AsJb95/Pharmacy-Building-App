@@ -2,8 +2,8 @@
 // commands, enforces the user-ID allowlist, shows a persistent quick-action keyboard, and
 // also fires the scheduled "OP close" report automatically at configured times.
 //
-// This copy (unpacked_app/telegram-bot/bot.js) is the one that ships inside the VHC
-// Pharmacy POS installer: the Electron main process (electron/main.js) forks it as a
+// This copy (telegram-bot/bot.js) is the one that ships inside the NHC Pharmacy POS
+// installer: the Electron main process (electron/main.js) forks it as a
 // child process automatically on app startup and manages its lifecycle (restart on
 // crash, clean shutdown on Exit). It reports its own status back to the parent process
 // over the fork IPC channel (see sendStatus() below) whenever process.send is available,
@@ -15,7 +15,7 @@
 const { loadConfig, CONFIG_PATH } = require('./lib/config');
 const fs = require('fs');
 const path = require('path');
-const { getUpdates, sendMessageTo, mainKeyboard, advancedKeyboard, reportPeriodKeyboard, callTelegramApi } = require('./lib/telegram');
+const { getUpdates, sendMessageTo, mainKeyboard, advancedKeyboard, reportPeriodKeyboard, callTelegramApi, RELAY_URL } = require('./lib/telegram');
 const { isAuthorized } = require('./lib/auth');
 const { runCommand, runSearchCommand, runCustomRangeCommand, KNOWN_COMMANDS, HELP_TEXT } = require('./lib/commands');
 const { logNotification } = require('./lib/notifications');
@@ -23,9 +23,26 @@ const { loadSnapshot, todayKey, salesOnDate } = require('./lib/data');
 const { computeSalesSummary, computeStockAlerts, buildCloseReport } = require('./lib/report');
 const { checkBackupStatus } = require('./lib/backup-status');
 
+// ─── Diagnostic logging ───
+// Everything written through log() goes to stdout, which the Electron main process pipes into
+// C:\NHC_Pharmacy_Data\telegram_bot_service.log (see electron/main.js's logToFile). These lines
+// are the primary tool for answering "why did /start / a button give no reply?" — they make each
+// stage visible: config loaded, relay connected, each incoming message, the authorization
+// decision, which command ran, and whether the reply was actually sent. Kept deliberately quiet
+// on the every-3s empty poll (only non-empty polls and real events are logged) so the file stays
+// readable rather than flooding with "0 updates" lines.
+function log(msg) {
+  console.log(`[${new Date().toISOString()}] ${msg}`);
+}
+// Redacts everything but the last 4 digits of a numeric Telegram id in free text — safe to log.
+function shortId(id) {
+  const s = String(id ?? '');
+  return s.length <= 4 ? s : `…${s.slice(-4)}`;
+}
+
 // Written to the shared production data folder, not next to this script — under a real
 // install this script lives inside app.asar.unpacked (or even Program Files, when running
-// standalone), where a per-user process may not have write access. C:\VHC_Pharmacy_Data is
+// standalone), where a per-user process may not have write access. C:\NHC_Pharmacy_Data is
 // already the app's convention for all other writable runtime state.
 function schedulerStatePath(cfg) {
   return (cfg && cfg.schedulerStateFile) || 'C:\\NHC_Pharmacy_Data\\telegram_scheduler_state.json';
@@ -229,12 +246,14 @@ async function handleMessage(cfg, message) {
   const text = message.text;
   if (!text) return; // photos etc. are handled by the in-app bot's own inbox flow, not this one
 
-  if (resolveCommand(text) === '/whoami') {
+  const command = resolveCommand(text);
+  log(`Message from userId=${shortId(userId)} chatId=${shortId(chatId)}: "${String(text).slice(0, 40)}" → command=${command || '(none)'}`);
+
+  if (command === '/whoami') {
     await sendMessageTo(cfg, chatId, `Your Telegram user ID is: <b>${userId}</b>\n\nGive this to your admin to be added to the authorized list.`);
+    log(`Replied to /whoami for userId=${shortId(userId)}.`);
     return;
   }
-
-  const command = resolveCommand(text);
 
   // Not a recognized command/button — either it's the answer to a pending Search Medicine /
   // Custom Range prompt, or it's genuinely unrecognized text. Checked before the "unknown
@@ -264,6 +283,7 @@ async function handleMessage(cfg, message) {
   if (!isAuthorized(cfg, userId)) {
     await sendMessageTo(cfg, chatId, `🔒 You're not authorized to use this bot.\n\nYour Telegram user ID is <b>${userId}</b> — send it to your admin to be added.`);
     logNotification(cfg, { type: 'security', title: 'Unauthorized command attempt', summary: `User ${userId} tried "${command}"`, chatId, userId });
+    log(`REJECTED unauthorized userId=${shortId(userId)} for "${command}". Add this ID to allowedUserIds in ${CONFIG_PATH} to grant access.`);
     return;
   }
 
@@ -273,6 +293,7 @@ async function handleMessage(cfg, message) {
 
   if (command === '/help' || command === '/start') {
     await sendMessageTo(cfg, chatId, HELP_TEXT, { replyMarkup: mainKeyboard() });
+    log(`Replied to ${command} for authorized userId=${shortId(userId)} with the main keyboard.`);
     return;
   }
 
@@ -312,9 +333,10 @@ async function handleMessage(cfg, message) {
       return;
     }
     await sendMessageTo(cfg, chatId, result.text);
+    log(`Replied to "${command}" for authorized userId=${shortId(userId)} (${result.text.length} chars).`);
     logNotification(cfg, { type: 'command', title: `Command: ${command}`, summary: `Requested by user ${userId}`, chatId, userId });
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] Command "${command}" failed:`, err.message);
+    log(`Command "${command}" FAILED for userId=${shortId(userId)}: ${err.message}`);
     await sendMessageTo(cfg, chatId, `⚠️ Something went wrong running that command:\n${err.message}`);
     logNotification(cfg, { type: 'alert', title: `Command "${command}" failed`, summary: err.message, chatId, userId });
   }
@@ -323,7 +345,19 @@ async function handleMessage(cfg, message) {
 async function main() {
   reportState('starting');
   let cfg = reloadConfig(); // never throws — see lib/config.js
-  console.log(`[${new Date().toISOString()}] NHC Pharmacy Bot starting. Authorized users configured: ${(cfg.allowedUserIds || []).length}.`);
+
+  // ── Startup diagnostics ── one clear block that answers "is the bot even configured right?"
+  // before any polling begins. Distinguishes "missing config" from every downstream failure.
+  const ids = Array.isArray(cfg.allowedUserIds) ? cfg.allowedUserIds : [];
+  const configExists = fs.existsSync(CONFIG_PATH);
+  const dataFileExists = cfg.dataFile ? fs.existsSync(cfg.dataFile) : false;
+  log('──────── NHC Pharmacy Telegram Bot starting ────────');
+  log(`Config file: ${CONFIG_PATH} (${configExists ? 'found' : 'MISSING — using built-in defaults'})`);
+  log(`Authorized Telegram user IDs: ${ids.length} configured${ids.length ? ' (' + ids.map(shortId).join(', ') + ')' : ' — NOBODY can use commands until at least one is added'}`);
+  log(`Data file: ${cfg.dataFile || '(none)'} (${dataFileExists ? 'found' : 'NOT found yet — report commands will error until the POS app writes an auto-backup'})`);
+  log(`Scheduled report: ${cfg.autoReportEnabled ? 'enabled at ' + (Array.isArray(cfg.reportTimes) ? cfg.reportTimes.join(', ') : '?') : 'disabled'}; channel ${cfg.channelChatId ? 'configured' : 'NOT set (on-demand commands still work)'}`);
+  log(`Relay endpoint: ${RELAY_URL}`);
+  log(`Supabase session token: ${cfg.supabaseToken ? 'present (app is signed in)' : 'NOT yet received — waiting for the POS app to sign in'}`);
 
   let offset = 0;
   let retryDelayMs = 2000;
@@ -349,7 +383,7 @@ async function main() {
     try {
       if (!connectedLogged) {
         const me = await callTelegramApi(cfg, 'getMe', {});
-        console.log(`[${new Date().toISOString()}] Connected to Telegram as @${me.username} (via secure relay).`);
+        log(`Connected to Telegram as @${me.username} (via secure relay). Polling active — send /start to @${me.username} to test.`);
         connectedLogged = true;
       }
 
@@ -360,11 +394,12 @@ async function main() {
       // just asking frequently. A short, fixed delay between successful polls keeps this
       // well within Telegram's rate limits for a single low-traffic bot.
       const updates = await getUpdates(cfg, offset, 0);
+      if (updates.length) log(`getUpdates: received ${updates.length} update(s).`);
       for (const update of updates) {
         offset = update.update_id + 1;
         if (update.message) {
           await handleMessage(cfg, update.message).catch((e) =>
-            console.error(`[${new Date().toISOString()}] Failed to handle message:`, e.message)
+            log(`Failed to handle message (send/handler error): ${e.message}`)
           );
         }
       }
@@ -377,13 +412,14 @@ async function main() {
       consecutiveErrors++;
       retryDelayMs = Math.min(retryDelayMs * 2, 60000);
 
-      let state, message;
+      let state, message, category;
       if (err.noSessionError) {
         // Expected right after launch, before the Pharmacy app finishes signing in — self-
         // resolves the moment main.js relays a session token, no local fix needed. Retried
         // quickly rather than backing all the way off, since sign-in usually completes
         // within a few seconds of the app opening.
         state = 'starting';
+        category = 'WAITING-FOR-SIGN-IN';
         message = 'Waiting for the Pharmacy app to sign in…';
         retryDelayMs = Math.min(retryDelayMs, 5000);
       } else if (err.telegramAuthError) {
@@ -392,21 +428,26 @@ async function main() {
         // by itself. Still retried (the secret could be corrected at any time), just clearly
         // labeled so it isn't mistaken for an ordinary network hiccup.
         state = 'error';
-        message = 'Telegram relay reports the bot token is invalid — this must be fixed on the server (Edge Function secret), not on this PC.';
+        category = 'INVALID-SERVER-BOT-TOKEN';
+        message = 'Telegram relay reports the bot token is invalid — this must be fixed on the server (Edge Function TELEGRAM_BOT_TOKEN secret), not on this PC.';
       } else if (err.relayNotDeployed) {
         // The telegram-relay Edge Function itself doesn't exist yet in Supabase — a one-time
         // deployment step, not a per-PC problem. See lib/telegram.js for how this is
         // distinguished from a normal error, and telegram-bot/README.md for the fix.
         state = 'error';
+        category = 'RELAY-NOT-DEPLOYED';
         message = err.message;
       } else {
         // A single transient failure is reported as 'error' (still trying); several in a row
         // means the bot has effectively lost connectivity, reported as 'disconnected' so the
         // UI can distinguish "had one hiccup" from "internet/API has been down for a while".
         state = consecutiveErrors >= 3 ? 'disconnected' : 'error';
+        // A relay fetch that never completed (DNS/connection refused/timeout) is a network
+        // problem on this PC; anything else that got a reply is a Telegram/relay API failure.
+        category = /Relay request failed/i.test(err.message) ? 'NETWORK-FAILURE' : 'TELEGRAM-API-FAILURE';
         message = err.message;
       }
-      console.error(`[${new Date().toISOString()}] Polling error:`, message);
+      log(`Polling error [${category}] (attempt ${consecutiveErrors}): ${message}`);
       reportState(state, { ...statusFields, lastError: message, lastErrorAt: Date.now(), force: true });
       await new Promise((r) => setTimeout(r, retryDelayMs));
     }
