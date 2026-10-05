@@ -8,7 +8,8 @@
 // Supabase remains the owner of CLOUD stock: the renderer's existing applyInventoryDeductions ->
 // bulkUpdateInventory path is the only thing that changes cloud stock, exactly once per sale.
 // This module keeps a local shadow ledger only; it never talks to the network, and there is
-// deliberately NO sync queue here — nothing in this module can cause a second cloud deduction.
+// durable per-bill cloud sync state lives here too. It records upload status only; it never
+// talks to the network and cannot cause a second stock deduction.
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -218,6 +219,48 @@ const MIGRATIONS = [
         .run(now);
     },
   },
+  {
+    version: 4,
+    name: 'create_financial_sync_operations',
+    up(database) {
+      database.exec(`
+        CREATE TABLE financial_sync_operations (
+          id TEXT PRIMARY KEY,
+          bill_id TEXT NOT NULL,
+          operation_type TEXT NOT NULL,
+          sync_status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_attempt_at TEXT,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          cloud_confirmed_at TEXT,
+          cloud_sale_id TEXT,
+          UNIQUE (bill_id, operation_type)
+        );
+        CREATE INDEX idx_financial_sync_bill_id ON financial_sync_operations(bill_id);
+        CREATE INDEX idx_financial_sync_status ON financial_sync_operations(sync_status);
+      `);
+      const now = new Date().toISOString();
+      database
+        .prepare("UPDATE database_metadata SET value = '4', updated_at = ? WHERE key = 'schema_version'")
+        .run(now);
+    },
+  },
+  {
+    version: 5,
+    name: 'add_stock_reconciliation_contract',
+    up(database) {
+      database.exec(`
+        ALTER TABLE financial_sync_operations ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 1;
+        CREATE INDEX idx_financial_sync_contract_version ON financial_sync_operations(contract_version);
+      `);
+      const now = new Date().toISOString();
+      database
+        .prepare("UPDATE database_metadata SET value = '5', updated_at = ? WHERE key = 'schema_version'")
+        .run(now);
+    },
+  },
 ];
 
 function ensureMigrationsTable(database) {
@@ -344,6 +387,53 @@ export function getSchemaVersion() {
   return getDatabaseStatus().schemaVersion ?? null;
 }
 
+const OFFLINE_AUTH_IDENTITY_KEY = 'offline_auth_identity_v1';
+
+export function getOfflineAuthIdentity() {
+  if (!db) return null;
+  const row = db.prepare('SELECT value FROM database_metadata WHERE key = ?').get(OFFLINE_AUTH_IDENTITY_KEY);
+  if (!row || !row.value) return null;
+  try {
+    const value = JSON.parse(row.value);
+    if (value.version !== 1 || typeof value.userId !== 'string' || !value.userId.trim() ||
+        typeof value.email !== 'string' || !value.email.trim() ||
+        typeof value.projectHost !== 'string' || !value.projectHost.trim() ||
+        !Number.isFinite(Date.parse(value.confirmedAt)) || Date.parse(value.confirmedAt) > Date.now()) return null;
+    return {
+      version: 1,
+      userId: value.userId,
+      email: value.email,
+      projectHost: value.projectHost,
+      confirmedAt: value.confirmedAt,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+export function recordOfflineAuthIdentity(identity = {}) {
+  if (!db) return { success: false, error: 'Local database is unavailable' };
+  if (identity.onlineConfirmed !== true) return { success: false, error: 'Online authentication confirmation is required' };
+  const userId = String(identity.userId || '').trim();
+  const email = String(identity.email || '').trim();
+  const projectHost = String(identity.projectHost || '').trim().toLowerCase();
+  const confirmedAt = String(identity.confirmedAt || new Date().toISOString());
+  if (!userId || !email || !projectHost || !Number.isFinite(Date.parse(confirmedAt)) || Date.parse(confirmedAt) > Date.now()) {
+    return { success: false, error: 'Verified identity metadata is incomplete or invalid' };
+  }
+  const value = JSON.stringify({ version: 1, userId, email, projectHost, confirmedAt });
+  db.prepare(`INSERT INTO database_metadata (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+    .run(OFFLINE_AUTH_IDENTITY_KEY, value, new Date().toISOString());
+  return { success: true };
+}
+
+export function clearOfflineAuthIdentity() {
+  if (!db) return { success: false, error: 'Local database is unavailable' };
+  const result = db.prepare('DELETE FROM database_metadata WHERE key = ?').run(OFFLINE_AUTH_IDENTITY_KEY);
+  return { success: true, removed: result.changes > 0 };
+}
+
 /** Clean shutdown — checkpoints the WAL file back into the main database file. */
 export function closeDatabase() {
   if (db) {
@@ -421,20 +511,34 @@ function resolveOrCreateItem(database, now, { name, category, hsnCode, unitsPerP
   return id;
 }
 
-function resolveOrCreateStockBatch(database, now, { itemId, batchNo, expiryDate, mrp, netRate, gst, stockist, seedQty }) {
+function resolveOrCreateStockBatch(database, now, { itemId, serverId, locationId, batchNo, expiryDate, mrp, netRate, gst, stockist, seedQty }) {
+  const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const resolvedServerId = looksLikeUuid.test(serverId || '') ? serverId : null;
+  const resolvedLocationId = looksLikeUuid.test(locationId || '') ? locationId : null;
+  if (serverId && !resolvedServerId) throw businessError(`Invalid cloud stock batch identity: ${serverId}`);
+  if (locationId && !resolvedLocationId) throw businessError(`Invalid cloud location identity: ${locationId}`);
   const existing = database
     .prepare('SELECT * FROM stock_batches WHERE item_id = ? AND IFNULL(batch_no, \'\') = IFNULL(?, \'\') LIMIT 1')
     .get(itemId, batchNo || null);
-  if (existing) return existing;
+  if (existing) {
+    database.prepare(
+      `UPDATE stock_batches SET
+         server_id = CASE WHEN server_id IS NULL THEN ? ELSE server_id END,
+         location_id = CASE WHEN location_id IS NULL THEN ? ELSE location_id END,
+         updated_at = ?
+       WHERE id = ?`
+    ).run(resolvedServerId, resolvedLocationId, now, existing.id);
+    return database.prepare('SELECT * FROM stock_batches WHERE id = ?').get(existing.id);
+  }
 
   const id = generateId();
   const qty = Number.isFinite(seedQty) ? seedQty : 0;
   database
     .prepare(
-      `INSERT INTO stock_batches (id, item_id, batch_no, expiry_date, mrp, net_rate, gst, stockist, qty, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO stock_batches (id, server_id, item_id, location_id, batch_no, expiry_date, mrp, net_rate, gst, stockist, qty, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(id, itemId, batchNo || null, expiryDate || null, mrp ?? null, netRate ?? null, gst ?? null, stockist || null, qty, now, now);
+    .run(id, resolvedServerId, itemId, resolvedLocationId, batchNo || null, expiryDate || null, mrp ?? null, netRate ?? null, gst ?? null, stockist || null, qty, now, now);
   return database.prepare('SELECT * FROM stock_batches WHERE id = ?').get(id);
 }
 
@@ -537,6 +641,8 @@ export function createLocalSale(payload) {
         });
         let batch = resolveOrCreateStockBatch(db, now, {
           itemId,
+          serverId: cartItem.cloudBatchId || cartItem.stockBatchId,
+          locationId: cartItem.cloudLocationId || cartItem.locationId,
           batchNo: cartItem.batch,
           expiryDate: cartItem.expiry,
           mrp: parseFloat(cartItem.mrp ?? cartItem.price) || null,
@@ -545,6 +651,12 @@ export function createLocalSale(payload) {
           stockist: cartItem.stockist,
           seedQty: parseFloat(cartItem.stock),
         });
+        if (cartItem.cloudBatchId && batch.server_id !== cartItem.cloudBatchId) {
+          throw businessError(`Cloud batch identity was not persisted for ${cartItem.name || 'item'} (expected ${cartItem.cloudBatchId}, stored ${batch.server_id || 'null'})`);
+        }
+        if (cartItem.cloudLocationId && batch.location_id !== cartItem.cloudLocationId) {
+          throw businessError(`Cloud location identity was not persisted for ${cartItem.name || 'item'}`);
+        }
         const reportedStock = parseFloat(cartItem.stock);
         if (Number.isFinite(reportedStock) && reportedStock >= 0 && Math.abs(reportedStock - batch.qty) > 1e-9) {
           insertReconcile.run(
@@ -642,6 +754,22 @@ export function createLocalSale(payload) {
         );
       }
 
+      db.prepare(
+        `INSERT INTO financial_sync_operations (
+          id, bill_id, operation_type, sync_status, created_at, updated_at, retry_count, contract_version
+        ) VALUES (?, ?, 'UPLOAD_SALE', 'PENDING_CLOUD', ?, ?, 0, 2)
+        ON CONFLICT(bill_id, operation_type) DO UPDATE SET
+          sync_status = CASE
+            WHEN financial_sync_operations.sync_status = 'CLOUD_CONFIRMED' THEN financial_sync_operations.sync_status
+            ELSE 'PENDING_CLOUD'
+          END,
+          contract_version = CASE
+            WHEN financial_sync_operations.sync_status = 'CLOUD_CONFIRMED' THEN financial_sync_operations.contract_version
+            ELSE 2
+          END,
+          updated_at = excluded.updated_at`
+      ).run(generateId(), payload.billId, now, now);
+
       return { success: true, saleId, billId: payload.billId, lineCount: resolvedLines.length + extraParticulars.length };
     })();
     return result;
@@ -650,13 +778,108 @@ export function createLocalSale(payload) {
   }
 }
 
+export function getFinancialSyncOperations(statuses = null) {
+  if (!db) return [];
+  if (Array.isArray(statuses) && statuses.length) {
+    const placeholders = statuses.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM financial_sync_operations WHERE sync_status IN (${placeholders}) ORDER BY created_at ASC`).all(...statuses);
+  }
+  return db.prepare('SELECT * FROM financial_sync_operations ORDER BY created_at ASC').all();
+}
+
+export function getFinancialIntegritySnapshot() {
+  if (!db) return { success: false, error: 'Local database is not initialized', sales: [], operations: [] };
+  try {
+    return {
+      success: true,
+      sales: db.prepare('SELECT bill_id, status FROM sales ORDER BY created_at ASC, id ASC').all(),
+      operations: db.prepare(
+        'SELECT bill_id, operation_type, sync_status, contract_version FROM financial_sync_operations ORDER BY created_at ASC, id ASC'
+      ).all(),
+    };
+  } catch (error) {
+    return { success: false, error: error.message, sales: [], operations: [] };
+  }
+}
+
+export function getUnsyncedFinancialSyncOperations() {
+  return getFinancialSyncOperations(['PENDING_CLOUD', 'SYNCING', 'SYNC_FAILED']);
+}
+
+export function markFinancialSyncAttempt(billId, error = null) {
+  if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  const now = new Date().toISOString();
+  const existing = db.prepare("SELECT * FROM financial_sync_operations WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'").get(billId);
+  if (!existing) return { success: false, error: `No sync operation for ${billId}` };
+  if (error) {
+    db.prepare(
+      `UPDATE financial_sync_operations
+       SET sync_status = 'SYNC_FAILED', last_attempt_at = ?, retry_count = retry_count + 1, last_error = ?, updated_at = ?
+       WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+    ).run(now, error, now, billId);
+  } else {
+    db.prepare(
+      `UPDATE financial_sync_operations
+       SET sync_status = 'SYNCING', last_attempt_at = ?, last_error = NULL, updated_at = ?
+       WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+    ).run(now, now, billId);
+  }
+  return { success: true, billId, status: error ? 'SYNC_FAILED' : 'SYNCING' };
+}
+
+export function markFinancialSyncConfirmed(billId, cloudSaleId = null) {
+  if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  const now = new Date().toISOString();
+  const info = db.prepare(
+    `UPDATE financial_sync_operations
+     SET sync_status = 'CLOUD_CONFIRMED', cloud_confirmed_at = ?, cloud_sale_id = ?, last_error = NULL, updated_at = ?
+     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+  ).run(now, cloudSaleId || null, now, billId);
+  return { success: info.changes > 0, billId, status: 'CLOUD_CONFIRMED' };
+}
+
 /** Read-only lookup used by tests/verification — never exposed to the renderer as a generic query. */
 export function getLocalSaleByBillId(billId) {
   if (!db) return null;
   const sale = db.prepare('SELECT * FROM sales WHERE bill_id = ?').get(billId);
   if (!sale) return null;
-  const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
-  return { ...sale, sale_items: items };
+  const items = db.prepare(
+    `SELECT si.*, i.server_id AS server_item_id,
+            sb.server_id AS server_stock_batch_id, sb.location_id AS cloud_location_id
+     FROM sale_items si
+     LEFT JOIN items i ON i.id = si.item_id
+     LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
+     WHERE si.sale_id = ?`
+  ).all(sale.id);
+  const stockMovements = db.prepare(
+    `SELECT sm.*, i.server_id AS server_item_id,
+            sb.server_id AS server_stock_batch_id, sb.location_id AS cloud_location_id
+     FROM stock_movements sm
+     LEFT JOIN items i ON i.id = sm.item_id
+     LEFT JOIN stock_batches sb
+       ON sb.item_id = sm.item_id AND IFNULL(sb.batch_no, '') = IFNULL(sm.batch_no, '')
+     WHERE sm.bill_id = ? AND sm.type = 'BILL'
+     ORDER BY sm.created_at, sm.id`
+  ).all(billId);
+  return { ...sale, sale_items: items, stock_movements: stockMovements };
+}
+
+export function getPendingStockOverlays() {
+  if (!db) return [];
+  return db.prepare(
+    `SELECT sm.id AS local_movement_id, sm.bill_id, sm.opening, sm.closing, sm.qty,
+            sm.batch_no, i.server_id AS server_item_id,
+            sb.server_id AS server_stock_batch_id, sb.location_id AS cloud_location_id
+     FROM financial_sync_operations fso
+     JOIN stock_movements sm ON sm.bill_id = fso.bill_id AND sm.type = 'BILL'
+     LEFT JOIN items i ON i.id = sm.item_id
+     LEFT JOIN stock_batches sb
+       ON sb.item_id = sm.item_id AND IFNULL(sb.batch_no, '') = IFNULL(sm.batch_no, '')
+     WHERE fso.operation_type = 'UPLOAD_SALE'
+       AND fso.contract_version >= 2
+       AND fso.sync_status <> 'CLOUD_CONFIRMED'
+     ORDER BY sm.created_at, sm.id`
+  ).all();
 }
 
 /**

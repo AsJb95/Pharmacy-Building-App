@@ -11,13 +11,136 @@
 // try/catch that reports errors instead of throwing into the UI.
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://yrgtnhvnwkqudxdcrkhm.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC';
+const PRODUCTION_SUPABASE_URL = 'https://yrgtnhvnwkqudxdcrkhm.supabase.co';
+const PRODUCTION_SUPABASE_ANON_KEY = 'sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC';
+function resolveSupabaseRuntimeConfig() {
+  const runtime = window.electronAPI && window.electronAPI.getSupabaseRuntimeConfig
+    ? window.electronAPI.getSupabaseRuntimeConfig()
+    : null;
+  const environmentName = (runtime && runtime.environmentName) || 'PRODUCTION';
+  const isTest = environmentName === 'TEST';
+  const supabaseUrl = runtime ? runtime.supabaseUrl : PRODUCTION_SUPABASE_URL;
+  const supabaseAnonKey = runtime ? runtime.supabaseAnonKey : PRODUCTION_SUPABASE_ANON_KEY;
+  const isProductionUrl = String(supabaseUrl).replace(/\/+$/, '') === PRODUCTION_SUPABASE_URL.replace(/\/+$/, '');
+  const missing = !supabaseUrl || !supabaseAnonKey;
+  const disabledReason = (runtime && runtime.disabledReason) ||
+    (environmentName === 'TEST' && missing ? 'SAFE CLOUD TEST TARGET REQUIRED' : '') ||
+    (environmentName === 'TEST' && isProductionUrl ? 'PRODUCTION SUPABASE BLOCKED FOR DESTRUCTIVE TESTING' : '');
+  return {
+    environmentName,
+    supabaseUrl,
+    supabaseAnonKey,
+    isProductionUrl,
+    cloudWritesAllowed: runtime && typeof runtime.cloudWritesAllowed === 'boolean'
+      ? runtime.cloudWritesAllowed
+      : !isTest && !missing,
+    disabledReason,
+  };
+}
+
+const CLOUD_CONFIG = resolveSupabaseRuntimeConfig();
+const SUPABASE_URL = CLOUD_CONFIG.supabaseUrl;
+const SUPABASE_ANON_KEY = CLOUD_CONFIG.supabaseAnonKey;
 const PHARMACY_LOCATION_NAME = 'VHC Pharmacy Counter';
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+// A deliberately unroutable client prevents TEST mode from ever falling back to
+// production while still allowing this plain-script module to initialise.
+const CLIENT_URL = SUPABASE_URL || 'https://vhc-test-target-required.invalid';
+const CLIENT_KEY = SUPABASE_ANON_KEY || 'safe-test-target-required';
+const supabase = createClient(CLIENT_URL, CLIENT_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
+
+let offlineAuthMode = false;
+let offlineAuthTransportFailure = false;
+
+function projectHost() {
+  try { return new URL(SUPABASE_URL).hostname.toLowerCase(); } catch (e) { return ''; }
+}
+
+function setOfflineAuthMode(enabled, identity = null, transportFailure = false) {
+  offlineAuthMode = enabled === true;
+  offlineAuthTransportFailure = offlineAuthMode && transportFailure === true;
+  try {
+    window.dispatchEvent(new CustomEvent('vhc-offline-auth-mode', {
+      detail: { enabled: offlineAuthMode, identity: offlineAuthMode ? identity : null },
+    }));
+  } catch (e) {}
+}
+
+function isTransportFailure(error) {
+  return !!(window.VHC_RUNTIME_POLICY && window.VHC_RUNTIME_POLICY.isTransportFailure(error));
+}
+
+async function recordVerifiedOfflineIdentity(user) {
+  if (!user || !user.id || !user.email || !window.electronAPI?.recordOfflineAuthIdentity) return;
+  try {
+    await window.electronAPI.recordOfflineAuthIdentity({
+      onlineConfirmed: true,
+      userId: String(user.id),
+      email: String(user.email),
+      projectHost: projectHost(),
+      confirmedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn('[VHC_AUTH] Could not persist offline identity metadata:', error?.message || error);
+  }
+}
+
+async function readOfflineIdentity() {
+  try {
+    return window.electronAPI?.getOfflineAuthIdentity
+      ? await window.electronAPI.getOfflineAuthIdentity()
+      : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function probeCloudTransport(timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { error } = await supabase.from('sales').select('id').limit(1).abortSignal(controller.signal);
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error(`Supabase auth bootstrap probe timed out after ${timeoutMs}ms`);
+      timeoutError.code = 'REACHABILITY_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function assertCloudWritesAllowed(actionName) {
+  if (offlineAuthMode) throw new Error(`Cloud write blocked in offline-auth mode (${actionName}).`);
+  if (!CLOUD_CONFIG.cloudWritesAllowed) {
+    throw new Error(CLOUD_CONFIG.disabledReason || 'SAFE CLOUD TEST TARGET REQUIRED');
+  }
+  if (CLOUD_CONFIG.environmentName === 'TEST' && CLOUD_CONFIG.isProductionUrl) {
+    throw new Error('PRODUCTION SUPABASE BLOCKED FOR DESTRUCTIVE TESTING');
+  }
+  return true;
+}
+
+function installEnvironmentIndicator() {
+  if (CLOUD_CONFIG.environmentName !== 'TEST' || !document || document.getElementById('vhc-test-env-indicator')) return;
+  const div = document.createElement('div');
+  div.id = 'vhc-test-env-indicator';
+  div.textContent = `Environment: TEST${CLOUD_CONFIG.disabledReason ? ' - cloud writes disabled' : ''}`;
+  div.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:999999;background:#facc15;color:#111827;border:2px solid #92400e;border-radius:6px;padding:7px 10px;font:700 12px system-ui,-apple-system,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.25);';
+  document.body.appendChild(div);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', installEnvironmentIndicator, { once: true });
+} else {
+  installEnvironmentIndicator();
+}
 
 // The app stores expiry as free-text "MM/YY" (see parseExpiryToDate in the
 // React bundle), but stock_batches.expiry_date is a real Postgres `date`
@@ -75,13 +198,33 @@ function cacheSet(key, value) {
 function withErrorReport(fn) {
   return async (...args) => {
     try {
+      if (CLOUD_WRITE_FUNCTIONS.has(fn.name)) assertCloudWritesAllowed(fn.name);
       return await fn(...args);
     } catch (e) {
-      console.error('[VHC_CLOUD] action failed:', e);
-      return { error: e.message || String(e) };
+      const details = describeCloudError(e);
+      console.error(`[VHC_CLOUD] action failed (${fn.name || 'anonymous'}):`, details, e);
+      return { error: details.message, ...details };
     }
   };
 }
+
+function describeCloudError(error) {
+  return {
+    code: error && error.code ? String(error.code) : null,
+    message: error && error.message ? String(error.message) : String(error),
+    details: error && error.details ? String(error.details) : null,
+    hint: error && error.hint ? String(error.hint) : null,
+  };
+}
+
+const CLOUD_WRITE_FUNCTIONS = new Set([
+  'addInventoryItem', 'addInventoryItemsBulk', 'restoreInventoryFromBackup',
+  'updateInventoryItem', 'adjustStockBulk', 'deleteInventoryItem',
+  'clearInventoryData', 'factoryReset', 'upsertPatientFromOPD',
+  'restorePatientsFromBackup', 'addManualPatient', 'mergeManualPatientInto',
+  'createSale', 'deleteSale', 'deleteSaleByBillId', 'restoreSaleHistory',
+  'updateAlertsConfig', 'acceptPharmacyTransfer', 'rejectPharmacyTransfer',
+]);
 
 // ============================================================
 // Auth
@@ -93,6 +236,8 @@ async function signIn(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
   currentSession = data.session;
+  setOfflineAuthMode(false);
+  await recordVerifiedOfflineIdentity(data.session?.user);
   return data.session;
 }
 
@@ -102,10 +247,132 @@ async function getSession() {
   return data.session;
 }
 
-async function signOut() {
-  await supabase.auth.signOut();
+async function getAuthBootstrap() {
+  let session = null;
+  let authError = null;
+  try {
+    const result = await supabase.auth.getSession();
+    session = result?.data?.session || null;
+    authError = result?.error || null;
+    currentSession = session;
+  } catch (error) {
+    authError = error;
+  }
+
+  let verificationError = null;
+  if (session && !authError) {
+    try {
+      const verified = await supabase.auth.getUser();
+      verificationError = verified?.error || null;
+      if (!verificationError && verified?.data?.user?.id === session.user?.id) {
+        currentSession = session;
+        setOfflineAuthMode(false);
+        await recordVerifiedOfflineIdentity(verified.data.user);
+        return { session, mode: 'online' };
+      }
+      if (!verificationError) verificationError = Object.assign(new Error('Authenticated user did not match cached session'), { code: 'AUTH_IDENTITY_MISMATCH' });
+    } catch (error) {
+      verificationError = error;
+    }
+  }
+
+  const error = verificationError || authError;
+  const offlineIdentity = await readOfflineIdentity();
+  let bootstrapError = error;
+  if (!session && !bootstrapError && offlineIdentity && offlineIdentity.projectHost === projectHost()) {
+    try {
+      await probeCloudTransport();
+    } catch (probeError) {
+      bootstrapError = probeError;
+    }
+  }
+  const policy = window.VHC_RUNTIME_POLICY;
+  const decision = policy
+    ? policy.decideAuthBootstrap({ session: null, authError: bootstrapError, offlineIdentity, projectHost: projectHost() })
+    : { mode: 'signin' };
+  if (decision.mode === 'offline') {
+    currentSession = null;
+    setOfflineAuthMode(true, decision.identity, true);
+    return { session: null, mode: 'offline', offlineIdentity: decision.identity };
+  }
+
   currentSession = null;
+  setOfflineAuthMode(false);
+  if (bootstrapError && !isTransportFailure(bootstrapError) && bootstrapError.status && [401, 403].includes(Number(bootstrapError.status))) {
+    try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) {}
+    try { await window.electronAPI?.clearOfflineAuthIdentity?.(); } catch (e) {}
+  }
+  return {
+    session: null,
+    mode: 'signin',
+    error: bootstrapError ? { code: bootstrapError.code || null, status: bootstrapError.status || null, message: bootstrapError.message || String(bootstrapError) } : null,
+  };
 }
+
+// A lightweight authenticated read used only to establish operational cloud reachability.
+// navigator.onLine is a hint, not proof that the configured Supabase project is reachable.
+async function checkReachability(options = {}) {
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 5000);
+  if (offlineAuthMode && offlineAuthTransportFailure) {
+    const error = new Error('Network request failed during offline auth bootstrap');
+    error.code = 'ERR_NETWORK';
+    throw error;
+  }
+  const session = await getSession();
+  if (!session) {
+    const error = new Error('No authenticated Supabase session');
+    error.code = 'AUTH_SESSION_MISSING';
+    throw error;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { error } = await supabase
+      .from('sales')
+      .select('id')
+      .limit(1)
+      .abortSignal(controller.signal);
+    if (error) throw error;
+    setOfflineAuthMode(false);
+    await recordVerifiedOfflineIdentity(session.user);
+    return { ok: true, checkedAt: new Date().toISOString() };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error(`Supabase reachability check timed out after ${timeoutMs}ms`);
+      timeoutError.code = 'REACHABILITY_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function signOut() {
+  try {
+    await supabase.auth.signOut({ scope: 'local' });
+  } finally {
+    currentSession = null;
+    setOfflineAuthMode(false);
+    try { await window.electronAPI?.clearOfflineAuthIdentity?.(); } catch (e) {}
+    window.dispatchEvent(new CustomEvent('vhc-cloud-signed-out'));
+  }
+}
+
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    currentSession = null;
+    setOfflineAuthMode(false);
+    window.dispatchEvent(new CustomEvent('vhc-cloud-signed-out'));
+  } else if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+    currentSession = session;
+    setOfflineAuthMode(false);
+  }
+});
+
+window.addEventListener('online', () => {
+  offlineAuthTransportFailure = false;
+});
 
 // ============================================================
 // Locations / catalog
@@ -160,6 +427,7 @@ function rowToInventoryItem(row) {
   return {
     id: row.id,
     itemId: row.item_id,
+    locationId: row.location_id,
     name: row.items?.name || '',
     batch: row.batch_no || '',
     expiry: row.expiry_date || '',
@@ -363,6 +631,24 @@ async function adjustStockBulk(deductions, context) {
   }
   await fetchInventory();
   return results;
+}
+
+async function reconcileStockMovement(payload) {
+  assertCloudWritesAllowed('reconcileStockMovement');
+  const { data, error } = await supabase.rpc('reconcile_stock_movement', { payload });
+  if (error) throw error;
+  return data;
+}
+
+async function findStockMovementByKey(movementKey) {
+  if (!movementKey) return null;
+  const { data, error } = await supabase
+    .from('stock_movements')
+    .select('id, movement_key, item_id, location_id, batch_no, type, qty, opening, closing, bill_id, reason, created_at')
+    .eq('movement_key', movementKey)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 async function deleteInventoryItem(id) {
@@ -599,6 +885,7 @@ async function createSale(payload) {
     bill_id: payload.billId,
     patient_id: patientId,
     patient_name: payload.patientName || null,
+    patient_snapshot: payload.patientSnapshot || null,
     doctor_name: payload.doctorName || null,
     payment_mode: payload.paymentMode || null,
     subtotal: payload.subtotal,
@@ -623,6 +910,17 @@ async function createSale(payload) {
   if (error) throw error;
   await Promise.all([fetchSalesHistory(), fetchInventory()]);
   return data;
+}
+
+async function findSaleByBillId(billId) {
+  if (!billId) return null;
+  const { data, error } = await supabase
+    .from('sales')
+    .select('*, sale_items(*)')
+    .eq('bill_id', billId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 async function deleteSale(saleId) {
@@ -1005,6 +1303,7 @@ async function autoRecoverLocalInventoryIfNeeded() {
       const raw = localStorage.getItem('pos_inventory');
       const local = raw ? JSON.parse(raw) : [];
       if (Array.isArray(local) && local.length > 0) {
+        assertCloudWritesAllowed('autoRecoverLocalInventoryIfNeeded');
         const result = await restoreInventoryFromBackup(local);
         if (result.failed > 0) {
           console.error('[VHC_CLOUD] auto-recovery had failures, will retry next launch:', result.errors);
@@ -1019,6 +1318,7 @@ async function autoRecoverLocalInventoryIfNeeded() {
 }
 
 async function init() {
+  installEnvironmentIndicator();
   await getSession();
   if (!currentSession) return; // caller must signIn() first
   await ensurePharmacyLocation();
@@ -1043,8 +1343,17 @@ async function init() {
 }
 
 window.VHC_CLOUD = {
+  getEnvironmentConfig: () => ({
+    environmentName: CLOUD_CONFIG.environmentName,
+    supabaseUrl: CLOUD_CONFIG.supabaseUrl,
+    isProductionUrl: CLOUD_CONFIG.isProductionUrl,
+    cloudWritesAllowed: CLOUD_CONFIG.cloudWritesAllowed,
+    disabledReason: CLOUD_CONFIG.disabledReason,
+  }),
   signIn: withErrorReport(signIn),
   getSession,
+  getAuthBootstrap,
+  checkReachability,
   signOut: withErrorReport(signOut),
   init: withErrorReport(init),
 
@@ -1055,6 +1364,10 @@ window.VHC_CLOUD = {
   restoreInventoryFromBackup: withErrorReport(restoreInventoryFromBackup),
   updateInventoryItem: withErrorReport(updateInventoryItem),
   adjustStockBulk: withErrorReport(adjustStockBulk),
+  reconcileStockMovement: withErrorReport(reconcileStockMovement),
+  reconcileStockMovementStrict: reconcileStockMovement,
+  findStockMovementByKey: withErrorReport(findStockMovementByKey),
+  findStockMovementByKeyStrict: findStockMovementByKey,
   deleteInventoryItem: withErrorReport(deleteInventoryItem),
 
   getAllPatients,
@@ -1068,6 +1381,10 @@ window.VHC_CLOUD = {
   getSalesHistory,
   fetchSalesHistory: withErrorReport(fetchSalesHistory),
   createSale: withErrorReport(createSale),
+  findSaleByBillId: withErrorReport(findSaleByBillId),
+  createSaleStrict: createSale,
+  findSaleByBillIdStrict: findSaleByBillId,
+  describeCloudError,
   deleteSale: withErrorReport(deleteSale),
   deleteSaleByBillId: withErrorReport(deleteSaleByBillId),
   restoreSaleHistory: withErrorReport(restoreSaleHistory),

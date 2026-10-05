@@ -18,6 +18,7 @@ const SEQ_KEY         = 'vhc_stock_seq';
 const FIN_AUDIT_KEY   = 'pos_financial_audit_logs';
 const FIN_ALERT_KEY   = 'vhc_financial_integrity_alerts';
 const SALES_KEY       = 'vhc_pos_sales_history';
+const INVENTORY_KEYS  = new Set(['pos_inventory', 'vhc_pos_inventory']);
 
 // Auto-incrementing sequence counter for stable chronological ordering
 function _nextSeq() {
@@ -58,6 +59,53 @@ function _readJsonArray(key) {
 
 function _writeJsonArray(key, arr, limit) {
   try { localStorage.setItem(key, JSON.stringify(arr.slice(0, limit || 5000))); } catch (e) {}
+}
+
+function _storageHealthFailure(message, error) {
+  const alert = {
+    id: _genId(),
+    ts: new Date().toISOString(),
+    source: 'local-storage-health',
+    issueCount: 1,
+    issues: [{ severity: 'error', code: 'LOCAL_STORAGE_HEALTH_FAILED', message, error: error && error.message || '' }],
+  };
+  try {
+    const alerts = _readJsonArray(FIN_ALERT_KEY);
+    alerts.unshift(alert);
+    _writeJsonArray(FIN_ALERT_KEY, alerts, 500);
+  } catch (e) {}
+  logFinancial('LOCAL_STORAGE_HEALTH_FAILED', { source: 'localStorage', message, next: alert });
+  _showFinancialWarning(alert);
+  console.error('[VHC_AUDIT] Local storage health failure:', message, error || '');
+  return alert;
+}
+
+function runStorageHealthCheck(opts) {
+  const options = opts || {};
+  const key = `vhc_storage_healthcheck_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const value = JSON.stringify({ ts: new Date().toISOString(), nonce: key });
+  try {
+    localStorage.setItem(key, value);
+    const readBack = localStorage.getItem(key);
+    if (readBack !== value) throw new Error('Health-check read-back did not match written value.');
+    localStorage.removeItem(key);
+    if (localStorage.getItem(key) !== null) throw new Error('Health-check cleanup key still exists after remove.');
+    return { ok: true, source: options.source || 'manual', ts: new Date().toISOString() };
+  } catch (e) {
+    return { ok: false, source: options.source || 'manual', alert: _storageHealthFailure('Local storage write/read/cleanup check failed.', e) };
+  }
+}
+
+function _verifyInventoryWrite(key, value) {
+  if (!INVENTORY_KEYS.has(key)) return;
+  const readBack = localStorage.getItem(key);
+  if (readBack !== String(value)) {
+    throw new Error(`Inventory storage verification failed for ${key}.`);
+  }
+  const parsed = readBack ? JSON.parse(readBack) : [];
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Inventory storage for ${key} is not a valid medicine list.`);
+  }
 }
 
 function _round2(n) {
@@ -196,7 +244,22 @@ function _installSalesHistoryWatch() {
     const originalSetItem = localStorage.setItem.bind(localStorage);
     localStorage.setItem = function(key, value) {
       let before = key === SALES_KEY ? _readJsonArray(SALES_KEY) : null;
-      originalSetItem(key, value);
+      try {
+        originalSetItem(key, value);
+        _verifyInventoryWrite(key, value);
+      } catch (e) {
+        const storageKey = String(key || '');
+        const criticalKey = storageKey === SALES_KEY || INVENTORY_KEYS.has(storageKey);
+        if (!criticalKey) throw e;
+        const action = storageKey === SALES_KEY ? 'LOCAL_SALES_HISTORY_SAVE_FAILED' : INVENTORY_KEYS.has(storageKey) ? 'LOCAL_INVENTORY_SAVE_FAILED' : 'LOCAL_STORAGE_SAVE_FAILED';
+        logFinancial(action, {
+          source: 'localStorage',
+          message: `${storageKey || 'localStorage'} write failed or failed read-back verification.`,
+          next: { key: storageKey, error: e && e.message || String(e) },
+        });
+        _storageHealthFailure(`${storageKey || 'localStorage'} write failed or failed read-back verification.`, e);
+        throw e;
+      }
       if (key !== SALES_KEY) return;
       let after = _readJsonArray(SALES_KEY);
       const beforeIds = new Set(before.map((b) => b && b.billId).filter(Boolean));
@@ -217,6 +280,496 @@ function _installSalesHistoryWatch() {
     };
   } catch (e) {
     console.error('[VHC_AUDIT] failed to install sales history watch:', e);
+  }
+}
+
+function _showFinancialWarning(alert) {
+  try {
+    if (!alert || !(alert.issueCount || alert.cloudOnlyCount || alert.localOnlyCount ||
+      alert.duplicateLocalCount || alert.duplicateCloudCount || alert.orphanOperationCount || alert.deletedLocalCloudPresentCount)) return;
+    const existing = document.getElementById('vhc-financial-integrity-warning');
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.id = 'vhc-financial-integrity-warning';
+    div.dataset.vhcWarningType = alert.auditType || 'LOCAL_FINANCIAL_INTEGRITY';
+    div.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:999999;max-width:420px;background:#7f1d1d;color:#fff;border:1px solid #fecaca;border-radius:8px;box-shadow:0 16px 40px rgba(0,0,0,.25);padding:14px 16px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.45;';
+    const count = Number.isFinite(alert.issueCount)
+      ? alert.issueCount
+      : (alert.localOnlyCount || 0) + (alert.duplicateLocalCount || 0) +
+        (alert.duplicateCloudCount || 0) + (alert.orphanOperationCount || 0) +
+        (alert.deletedLocalCloudPresentCount || 0);
+    div.innerHTML = `<strong style="display:block;font-size:14px;margin-bottom:4px;">Financial integrity warning</strong><span>${count} issue(s) need admin review. No records were changed.</span><button id="vhc-financial-warning-close" style="float:right;margin-left:10px;background:#991b1b;color:#fff;border:1px solid #fecaca;border-radius:6px;padding:3px 7px;cursor:pointer;">Close</button>`;
+    document.body.appendChild(div);
+    const btn = div.querySelector('#vhc-financial-warning-close');
+    if (btn) btn.onclick = () => div.remove();
+  } catch (e) {}
+}
+
+function _resolveCloudMismatchWarnings() {
+  const alerts = _readJsonArray(FIN_ALERT_KEY);
+  const remaining = alerts.filter((alert) => !(
+    alert && (
+      alert.auditType === 'LOCAL_CLOUD_MISMATCH_AUDIT' ||
+      (Object.prototype.hasOwnProperty.call(alert, 'cloudOnlyCount') &&
+        Object.prototype.hasOwnProperty.call(alert, 'localOnlyCount'))
+    )
+  ));
+  if (remaining.length !== alerts.length) _writeJsonArray(FIN_ALERT_KEY, remaining, 500);
+  const existing = document.getElementById('vhc-financial-integrity-warning');
+  if (existing && existing.dataset && existing.dataset.vhcWarningType === 'LOCAL_CLOUD_MISMATCH_AUDIT') {
+    existing.remove();
+  }
+}
+
+async function runCloudLocalMismatchAudit(opts) {
+  const options = opts || {};
+  let localBills = null;
+  let operations = null;
+  try {
+    if (!(window.electronAPI && window.electronAPI.getFinancialIntegritySnapshot)) {
+      return { status: 'SKIPPED_LOCAL_UNVERIFIED', cloudAuditStatus: 'UNKNOWN', authoritative: false, error: 'Durable local financial audit snapshot unavailable' };
+    }
+    const snapshot = await window.electronAPI.getFinancialIntegritySnapshot();
+    if (!snapshot || snapshot.success !== true || !Array.isArray(snapshot.sales) || !Array.isArray(snapshot.operations)) {
+      return { status: 'SKIPPED_LOCAL_UNVERIFIED', cloudAuditStatus: 'UNKNOWN', authoritative: false, error: snapshot && snapshot.error || 'Durable local financial audit snapshot was not verified' };
+    }
+    localBills = snapshot.sales;
+    operations = snapshot.operations;
+  } catch (e) {
+    return { status: 'SKIPPED_LOCAL_UNVERIFIED', cloudAuditStatus: 'UNKNOWN', authoritative: false, error: e && e.message || String(e) };
+  }
+
+  const reachability = window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.getReachabilityState
+    ? window.VHC_FINANCIAL_SYNC.getReachabilityState()
+    : _cloudReachability;
+  const policy = window.VHC_RUNTIME_POLICY;
+  const activeLocalBills = localBills.filter((bill) => !['deleted', 'cancelled', 'canceled'].includes(String(bill && bill.status || '').toLowerCase()));
+  const localIds = activeLocalBills.map((bill) => bill && (bill.billId || bill.bill_id)).filter(Boolean).map(String);
+  const localDuplicateIds = Array.from(new Set(localIds.filter((id, index) => localIds.indexOf(id) !== index)));
+  const unavailable = (status, error) => {
+    if (localDuplicateIds.length) {
+      const duplicateAlert = {
+        id: _genId(), ts: new Date().toISOString(), source: options.source || 'cloud-local-audit',
+        auditType: 'LOCAL_DUPLICATE_BILL_AUDIT', issueCount: localDuplicateIds.length,
+        duplicateLocal: localDuplicateIds, issues: localDuplicateIds.map((billId) => ({ code: 'DUPLICATE_LOCAL_BILL_ID', billId })),
+      };
+      const alerts = _readJsonArray(FIN_ALERT_KEY);
+      alerts.unshift(duplicateAlert);
+      _writeJsonArray(FIN_ALERT_KEY, alerts, 500);
+      logFinancial('LOCAL_DUPLICATE_BILL_AUDIT', {
+        source: duplicateAlert.source,
+        message: `Local audit: ${localDuplicateIds.length} duplicate bill id(s). Cloud comparison was skipped.`,
+        next: duplicateAlert,
+      });
+      _showFinancialWarning(duplicateAlert);
+    }
+    return {
+      status,
+      cloudAuditStatus: 'UNKNOWN',
+      authoritative: false,
+      error: error || null,
+      cloudOnly: [], localOnly: [], expectedPending: [], duplicateLocal: localDuplicateIds,
+    };
+  };
+
+  // Cached sales history is display data only. A mismatch audit requires both a verified
+  // online reachability state and a successful fresh authenticated cloud read.
+  if (!navigator.onLine || reachability !== 'online') {
+    return unavailable(!navigator.onLine || reachability === 'offline' ? 'SKIPPED_OFFLINE' : 'SKIPPED_CLOUD_UNVERIFIED');
+  }
+
+  let cloudRows;
+  try {
+    if (!(window.VHC_CLOUD && window.VHC_CLOUD.fetchSalesHistory)) {
+      return unavailable('SKIPPED_CLOUD_UNVERIFIED', 'Fresh cloud sales read unavailable');
+    }
+    cloudRows = await window.VHC_CLOUD.fetchSalesHistory();
+    if (!Array.isArray(cloudRows)) {
+      const error = cloudRows && (cloudRows.error || cloudRows.message || cloudRows.code)
+        ? cloudRows
+        : 'Fresh cloud sales read did not return a verified row set';
+      const transportFailure = policy && policy.isTransportFailure
+        ? policy.isTransportFailure(error)
+        : /failed to fetch|fetch failed|timeout|dns|connection refused|network/i.test(String(error && error.message || error));
+      const state = transportFailure ? 'offline' : 'failed';
+      _setCloudReachability(state, { source: options.source || 'cloud-local-audit', error: String(error.message || error) });
+      return unavailable(transportFailure ? 'SKIPPED_OFFLINE' : 'SKIPPED_CLOUD_UNVERIFIED', error);
+    }
+  } catch (error) {
+    const transportFailure = policy && policy.isTransportFailure
+      ? policy.isTransportFailure(error)
+      : /failed to fetch|fetch failed|timeout|dns|connection refused|network/i.test(String(error && error.message || error));
+    const state = transportFailure ? 'offline' : 'failed';
+    _setCloudReachability(state, { source: options.source || 'cloud-local-audit', error: error && error.message || String(error) });
+    return unavailable(transportFailure ? 'SKIPPED_OFFLINE' : 'SKIPPED_CLOUD_UNVERIFIED', error && error.message || String(error));
+  }
+
+  // A fresh cloud set contains sales from every terminal. Only durable local ownership
+  // evidence can make an absent cloud counterpart an integrity mismatch.
+  if (!policy || typeof policy.compareBillSets !== 'function') {
+    return unavailable('SKIPPED_AUDIT_POLICY_UNAVAILABLE', 'Financial audit policy unavailable');
+  }
+  const comparison = policy.compareBillSets(localBills, cloudRows, operations);
+  const {
+    cloudOnly = [], remoteOnly = [], localOnly = [], expectedPending = [], expectedUnsynced = [],
+    duplicateLocal = [], duplicateCloud = [], orphanOperations = [], deletedLocalCloudPresent = [],
+  } = comparison;
+  const issueCount = new Set([
+    ...localOnly, ...duplicateLocal, ...duplicateCloud, ...orphanOperations, ...deletedLocalCloudPresent,
+  ]).size;
+  const alert = {
+    id: _genId(),
+    ts: new Date().toISOString(),
+    source: options.source || 'cloud-local-audit',
+    auditType: 'LOCAL_CLOUD_MISMATCH_AUDIT',
+    issueCount,
+    localCount: activeLocalBills.length,
+    cloudCount: cloudRows.length,
+    cloudOnlyCount: cloudOnly.length,
+    remoteOnlyCount: remoteOnly.length,
+    localOnlyCount: localOnly.length,
+    duplicateLocalCount: duplicateLocal.length,
+    duplicateCloudCount: duplicateCloud.length,
+    orphanOperationCount: orphanOperations.length,
+    deletedLocalCloudPresentCount: deletedLocalCloudPresent.length,
+    expectedPendingCount: expectedPending.length,
+    expectedUnsyncedCount: expectedUnsynced.length,
+    cloudOnly,
+    remoteOnly,
+    localOnly,
+    expectedPending,
+    expectedUnsynced,
+    duplicateLocal,
+    duplicateCloud,
+    orphanOperations,
+    deletedLocalCloudPresent,
+  };
+  if (issueCount || options.alwaysStore) {
+    const alerts = _readJsonArray(FIN_ALERT_KEY);
+    alerts.unshift(alert);
+    _writeJsonArray(FIN_ALERT_KEY, alerts, 500);
+    logFinancial('LOCAL_CLOUD_MISMATCH_AUDIT', {
+      source: alert.source,
+      message: `Financial audit: ${localOnly.length} owned local bill(s) missing in cloud, ${duplicateLocal.length} duplicate local, ${duplicateCloud.length} duplicate cloud, ${orphanOperations.length} orphan sync operation(s), ${deletedLocalCloudPresent.length} deleted-local bill(s) still active in cloud.`,
+      next: alert,
+    });
+    _showFinancialWarning(alert);
+    console.warn('[VHC_AUDIT] Local/cloud mismatch audit:', alert);
+  } else {
+    _resolveCloudMismatchWarnings();
+  }
+  alert.status = 'FRESH';
+  alert.cloudAuditStatus = 'FRESH_AUTHORITATIVE';
+  alert.authoritative = true;
+  return alert;
+}
+
+let _financialSyncInFlight = false;
+let _reachabilityProbeInFlight = null;
+let _cloudReachability = 'unknown';
+
+function _saleItemToCloudItem(item) {
+  const qty = parseFloat(item.quantity ?? item.qty ?? 0) || 0;
+  const rate = parseFloat(item.rate ?? item.price ?? item.mrp ?? 0) || 0;
+  return {
+    category: item.category || 'Medicine',
+    drugName: item.drug_name || item.drugName || item.name || item.item_name || 'Unknown item',
+    batchNo: item.batch_no || item.batchNo || item.batch || 'N/A',
+    expiryDate: item.expiry_date || item.expiryDate || item.expiry || 'N/A',
+    quantity: qty,
+    rate,
+    total: parseFloat(item.total_amount ?? item.total ?? (qty * rate)) || 0,
+    // item_id/stock_batch_id are local SQLite UUIDs. They are not Supabase
+    // foreign keys unless an explicit server id was persisted alongside them.
+    itemId: item.server_item_id || item.serverItemId || null,
+    stockBatchId: item.server_stock_batch_id || item.serverStockBatchId || null,
+    hsnCode: item.hsn_code || item.hsnCode || null,
+    gst: item.gst_percent ?? item.gst ?? null,
+  };
+}
+
+function _localSaleToCloudPayload(localSale) {
+  if (!localSale) throw new Error('Missing local sale');
+  const items = Array.isArray(localSale.sale_items) ? localSale.sale_items.map(_saleItemToCloudItem) : [];
+  let patientSnapshot = localSale.patient_snapshot || localSale.patientSnapshot || null;
+  let paymentBreakdown = localSale.payment_breakdown || localSale.paymentBreakdown || null;
+  try { if (typeof patientSnapshot === 'string') patientSnapshot = JSON.parse(patientSnapshot); } catch (e) { patientSnapshot = null; }
+  try { if (typeof paymentBreakdown === 'string') paymentBreakdown = JSON.parse(paymentBreakdown); } catch (e) { paymentBreakdown = null; }
+  return {
+    billId: localSale.bill_id || localSale.billId,
+    // sales.patient_id is the local SQLite patient UUID. Use the original
+    // external/legacy id from the snapshot so the cloud layer can resolve it.
+    patientId: patientSnapshot && (patientSnapshot.patientId || patientSnapshot.patient_id) || null,
+    patientName: localSale.patient_name || localSale.patientName || 'Walk-in',
+    patientSnapshot,
+    patientContact: localSale.patient_contact || localSale.patientContact || null,
+    doctorName: localSale.doctor_name || localSale.doctorName || null,
+    paymentMode: localSale.payment_mode || localSale.paymentMode || null,
+    subtotal: parseFloat(localSale.subtotal ?? 0) || 0,
+    totalTax: parseFloat(localSale.total_tax ?? localSale.totalTax ?? 0) || 0,
+    totalAmount: parseFloat(localSale.total_amount ?? localSale.totalAmount ?? 0) || 0,
+    gstMode: localSale.gst_mode || localSale.gstMode || null,
+    discount: parseFloat(localSale.discount ?? 0) || 0,
+    discountPercent: parseFloat(localSale.discount_percent ?? localSale.discountPercent ?? 0) || 0,
+    amountReceived: localSale.amount_received ?? localSale.amountReceived ?? null,
+    outstandingAmount: localSale.outstanding_amount ?? localSale.outstandingAmount ?? null,
+    paymentStatus: localSale.payment_status || localSale.paymentStatus || null,
+    paymentBreakdown,
+    recordedBy: localSale.recorded_by || localSale.recordedBy || null,
+    saleDate: localSale.sale_date || localSale.created_at || localSale.date || undefined,
+    recordOnly: true,
+    items,
+  };
+}
+
+function _cloudSaleMatchesLocal(localSale, cloudSale) {
+  if (!localSale || !cloudSale) return { ok: false, reason: 'missing sale' };
+  const localTotal = Number(localSale.total_amount ?? localSale.totalAmount ?? 0);
+  const cloudTotal = Number(cloudSale.total_amount ?? cloudSale.totalAmount ?? 0);
+  if (Math.abs(localTotal - cloudTotal) > 0.02) {
+    return { ok: false, reason: `amount mismatch local=${localTotal} cloud=${cloudTotal}` };
+  }
+  const localItems = Array.isArray(localSale.sale_items) ? localSale.sale_items : [];
+  const cloudItems = Array.isArray(cloudSale.sale_items) ? cloudSale.sale_items : [];
+  if (cloudItems.length < localItems.length) {
+    return { ok: false, reason: `missing sale_items local=${localItems.length} cloud=${cloudItems.length}` };
+  }
+  const paymentFields = [
+    ['amount_received', 'amountReceived'],
+    ['outstanding_amount', 'outstandingAmount'],
+  ];
+  for (const [snake, camel] of paymentFields) {
+    const localValue = Number(localSale[snake] ?? localSale[camel] ?? 0);
+    const cloudValue = Number(cloudSale[snake] ?? cloudSale[camel] ?? 0);
+    if (Math.abs(localValue - cloudValue) > 0.02) {
+      return { ok: false, reason: `${snake} mismatch local=${localValue} cloud=${cloudValue}` };
+    }
+  }
+  const localPaymentStatus = String(localSale.payment_status || localSale.paymentStatus || '');
+  const cloudPaymentStatus = String(cloudSale.payment_status || cloudSale.paymentStatus || '');
+  if (localPaymentStatus && cloudPaymentStatus && localPaymentStatus !== cloudPaymentStatus) {
+    return { ok: false, reason: `payment_status mismatch local=${localPaymentStatus} cloud=${cloudPaymentStatus}` };
+  }
+  return { ok: true };
+}
+
+function _stockMovementKey(billId, movement) {
+  return `VHC:BILL:${billId}:${movement.id}`;
+}
+
+async function _reconcileStockForOperation(op, localSale) {
+  if (Number(op && op.contract_version || 1) < 2) {
+    return { skipped: true, reason: 'legacy financial sync contract' };
+  }
+  if (!(window.VHC_CLOUD && window.VHC_CLOUD.reconcileStockMovementStrict && window.VHC_CLOUD.findStockMovementByKeyStrict)) {
+    throw new Error('STOCK_RECONCILIATION_API_UNAVAILABLE');
+  }
+  const movements = (Array.isArray(localSale.stock_movements) ? localSale.stock_movements : [])
+    .filter((movement) => movement && movement.type === 'BILL');
+  for (const movement of movements) {
+    const movementKey = _stockMovementKey(localSale.bill_id || localSale.billId, movement);
+    const payload = {
+      movement_key: movementKey,
+      bill_id: localSale.bill_id || localSale.billId,
+      stock_batch_id: movement.server_stock_batch_id || null,
+      item_id: movement.server_item_id || null,
+      location_id: movement.cloud_location_id || null,
+      batch_no: movement.batch_no || null,
+      expected_opening: Number(movement.opening),
+      closing: Number(movement.closing),
+      quantity_delta: Number(movement.qty),
+      movement_type: 'BILL',
+      reason: movement.reason || `Bill:${localSale.bill_id || localSale.billId}`,
+    };
+    if (!payload.stock_batch_id && !(payload.item_id && payload.location_id && payload.batch_no)) {
+      throw new Error(`STOCK_BATCH_IDENTITY_MISSING: ${movementKey}`);
+    }
+    const result = await window.VHC_CLOUD.reconcileStockMovementStrict(payload);
+    const status = String(result && result.status || '').toUpperCase();
+    if (status === 'CONFLICT') {
+      throw new Error(`STOCK_RECONCILIATION_CONFLICT: ${movementKey} expected=${payload.expected_opening} actual=${result.actual_opening}`);
+    }
+    if (status !== 'APPLIED' && status !== 'ALREADY_APPLIED') {
+      throw new Error(`STOCK_RECONCILIATION_FAILED: ${movementKey} status=${status || 'UNKNOWN'}`);
+    }
+    const verified = await window.VHC_CLOUD.findStockMovementByKeyStrict(movementKey);
+    if (!verified || verified.movement_key !== movementKey) {
+      throw new Error(`STOCK_RECONCILIATION_READBACK_FAILED: ${movementKey}`);
+    }
+  }
+  return { reconciled: movements.length };
+}
+
+function _describeFinancialSyncError(error) {
+  if (window.VHC_CLOUD && window.VHC_CLOUD.describeCloudError) {
+    const details = window.VHC_CLOUD.describeCloudError(error);
+    return [details.code, details.message, details.details, details.hint].filter(Boolean).join(' | ');
+  }
+  return error && error.message ? error.message : String(error);
+}
+
+function _emitFinancialSyncState(detail) {
+  try { window.dispatchEvent(new CustomEvent('vhc-financial-sync-state', { detail: detail || {} })); } catch (e) {}
+}
+
+function _isNetworkStyleCloudError(error) {
+  if (window.VHC_RUNTIME_POLICY) return window.VHC_RUNTIME_POLICY.isTransportFailure(error);
+  const details = _describeFinancialSyncError(error).toLowerCase();
+  return /failed to fetch|fetch failed|networkerror when attempting to fetch|network request failed|err_internet_disconnected|err_name_not_resolved|err_connection_(closed|reset|refused|timed_out)|econnrefused|econnreset|etimedout|enotfound|eai_again/.test(details);
+}
+
+function _setCloudReachability(status, extra) {
+  _cloudReachability = status;
+  _emitFinancialSyncState({ status: status === 'failed' ? 'failed' : status, reachability: status, ...(extra || {}) });
+  return { status, ...(extra || {}) };
+}
+
+async function checkCloudReachability(opts) {
+  const options = opts || {};
+  if (!navigator.onLine) return _setCloudReachability('offline', { source: options.source || 'navigator-offline' });
+  if (_reachabilityProbeInFlight) return _reachabilityProbeInFlight;
+  _cloudReachability = 'checking';
+  _emitFinancialSyncState({ status: 'checking', reachability: 'checking', source: options.source || 'reachability-check' });
+  _reachabilityProbeInFlight = (async () => {
+    try {
+      if (!(window.VHC_CLOUD && window.VHC_CLOUD.checkReachability)) {
+        throw Object.assign(new Error('Cloud reachability API unavailable'), { code: 'REACHABILITY_API_UNAVAILABLE' });
+      }
+      await window.VHC_CLOUD.checkReachability({ timeoutMs: options.timeoutMs || 5000 });
+      return _setCloudReachability('online', { source: options.source || 'reachability-check' });
+    } catch (error) {
+      const status = _isNetworkStyleCloudError(error) ? 'offline' : 'failed';
+      return _setCloudReachability(status, {
+        source: options.source || 'reachability-check',
+        error: _describeFinancialSyncError(error),
+      });
+    } finally {
+      _reachabilityProbeInFlight = null;
+    }
+  })();
+  return _reachabilityProbeInFlight;
+}
+
+async function deriveLegacyPendingChangesFlag() {
+  if (!(window.electronAPI && window.electronAPI.getUnsyncedFinancialSyncOperations)) return null;
+  const pending = await window.electronAPI.getUnsyncedFinancialSyncOperations();
+  const hasPending = Array.isArray(pending) && pending.length > 0;
+  try { localStorage.setItem('vhc_pending_changes', String(hasPending)); } catch (e) {}
+  return { pending: hasPending, count: hasPending ? pending.length : 0 };
+}
+
+async function _syncOneFinancialOperation(op) {
+  const billId = op && (op.bill_id || op.billId);
+  if (!billId) return { billId: null, ok: false, error: 'Missing bill_id' };
+  try {
+    if (!(window.electronAPI && window.electronAPI.getLocalSale)) throw new Error('Local sale reader unavailable');
+    if (!(window.VHC_CLOUD && window.VHC_CLOUD.findSaleByBillIdStrict && window.VHC_CLOUD.createSaleStrict)) throw new Error('Cloud sync API unavailable');
+    await window.electronAPI.markFinancialSyncAttempt(billId, null);
+    _emitFinancialSyncState({ status: 'syncing', billId });
+    const localSale = await window.electronAPI.getLocalSale(billId);
+    if (!localSale) throw new Error(`Local sale not found for ${billId}`);
+    const cloudPayload = _localSaleToCloudPayload(localSale);
+    let cloudSale;
+    try {
+      cloudSale = await window.VHC_CLOUD.findSaleByBillIdStrict(billId);
+    } catch (error) {
+      throw new Error(`SALE_PRECHECK_FAILED: ${_describeFinancialSyncError(error)}`);
+    }
+    if (!cloudSale) {
+      try {
+        await window.VHC_CLOUD.createSaleStrict(cloudPayload);
+      } catch (error) {
+        throw new Error(`SALE_CREATE_FAILED: ${_describeFinancialSyncError(error)}`);
+      }
+      try {
+        cloudSale = await window.VHC_CLOUD.findSaleByBillIdStrict(billId);
+      } catch (error) {
+        throw new Error(`SALE_CREATED_BUT_READBACK_FAILED: ${_describeFinancialSyncError(error)}`);
+      }
+      if (!cloudSale) throw new Error(`SALE_CREATED_BUT_READBACK_FAILED: bill_id ${billId} was not visible after create_sale`);
+    } else {
+      const beforeRepair = _cloudSaleMatchesLocal(localSale, cloudSale);
+      if (!beforeRepair.ok && String(beforeRepair.reason || '').startsWith('missing sale_items')) {
+        try {
+          await window.VHC_CLOUD.createSaleStrict(cloudPayload);
+          cloudSale = await window.VHC_CLOUD.findSaleByBillIdStrict(billId);
+        } catch (error) {
+          throw new Error(`SALE_ITEMS_REPAIR_FAILED: ${_describeFinancialSyncError(error)}`);
+        }
+        if (!cloudSale) throw new Error(`SALE_ITEMS_REPAIR_READBACK_FAILED: bill_id ${billId} was not visible after repair`);
+      }
+    }
+    const verified = _cloudSaleMatchesLocal(localSale, cloudSale);
+    if (!verified.ok) throw new Error(verified.reason || 'Cloud verification failed');
+    const stockResult = await _reconcileStockForOperation(op, localSale);
+    const cloudSaleId = cloudSale && (cloudSale.id || cloudSale.sale_id || null);
+    await window.electronAPI.markFinancialSyncConfirmed(billId, cloudSaleId);
+    if (stockResult && !stockResult.skipped && window.VHC_CLOUD.fetchInventory) {
+      await window.VHC_CLOUD.fetchInventory();
+      try { window.dispatchEvent(new CustomEvent('vhc-cloud-change', { detail: { table: 'stock_batches', source: 'stock-reconciliation' } })); } catch (e) {}
+    }
+    _cloudReachability = 'online';
+    _emitFinancialSyncState({ status: 'synced', reachability: 'online', billId, cloudSaleId });
+    logFinancial('SYNC_UPLOAD_BILL_CONFIRMED', {
+      billId,
+      source: 'cloud',
+      message: `Cloud sale, payment, items and required stock movements verified by bill_id.`,
+      next: { cloudSaleId, stockResult },
+    });
+    return { billId, ok: true, cloudSaleId };
+  } catch (e) {
+    const message = e && e.message ? e.message : String(e);
+    try { await window.electronAPI.markFinancialSyncAttempt(billId, message); } catch (markErr) {}
+    const reachability = _isNetworkStyleCloudError(e) ? 'offline' : 'failed';
+    _cloudReachability = reachability;
+    _emitFinancialSyncState({ status: reachability === 'offline' ? 'offline' : 'failed', reachability, billId, error: message });
+    logFinancial('SYNC_UPLOAD_BILL_FAILED', {
+      billId,
+      source: 'cloud',
+      message,
+    });
+    return { billId, ok: false, error: message };
+  }
+}
+
+async function runFinancialSyncWorker(opts) {
+  if (_financialSyncInFlight) return { skipped: true, reason: 'sync already running' };
+  _financialSyncInFlight = true;
+  const options = opts || {};
+  const results = [];
+  try {
+    if (!(window.electronAPI && window.electronAPI.getUnsyncedFinancialSyncOperations)) {
+      return { skipped: true, reason: 'financial sync database API unavailable' };
+    }
+    const reachability = options.reachabilityVerified
+      ? { status: _cloudReachability }
+      : await checkCloudReachability({ source: options.source || 'financial-sync-worker' });
+    if (!reachability || reachability.status !== 'online') {
+      await deriveLegacyPendingChangesFlag();
+      return { skipped: true, reason: `cloud ${reachability && reachability.status || 'unknown'}` };
+    }
+    const session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
+    if (!session) {
+      await deriveLegacyPendingChangesFlag();
+      _setCloudReachability('failed', { source: options.source || 'financial-sync-worker', error: 'No authenticated cloud session' });
+      return { skipped: true, reason: 'no authenticated cloud session' };
+    }
+    const ops = await window.electronAPI.getUnsyncedFinancialSyncOperations();
+    if (Array.isArray(ops) && ops.length) _emitFinancialSyncState({ status: 'syncing', reachability: 'online' });
+    for (const op of (Array.isArray(ops) ? ops : [])) {
+      results.push(await _syncOneFinancialOperation(op));
+    }
+    await deriveLegacyPendingChangesFlag();
+    const anyFailed = results.some((result) => !result.ok);
+    const finalReachability = anyFailed ? _cloudReachability : 'online';
+    _emitFinancialSyncState({
+      status: finalReachability === 'offline' ? 'offline' : anyFailed ? 'failed' : 'synced',
+      reachability: finalReachability,
+      results,
+    });
+    return { source: options.source || 'financial-sync-worker', processed: results.length, results };
+  } finally {
+    _financialSyncInFlight = false;
   }
 }
 
@@ -1093,6 +1646,8 @@ window.VHC_AUDIT = {
   logStock,
   logFinancial,
   runFinancialIntegrityAudit,
+  runCloudLocalMismatchAudit,
+  runStorageHealthCheck,
   ensurePatientId,
   migratePatientIds,
   getAllPatients,
@@ -1106,6 +1661,16 @@ window.VHC_AUDIT = {
   promptAdminGate,
 };
 
+window.VHC_FINANCIAL_SYNC = {
+  run: runFinancialSyncWorker,
+  checkReachability: checkCloudReachability,
+  getReachabilityState: () => _cloudReachability,
+  deriveLegacyPendingChangesFlag,
+  _localSaleToCloudPayload,
+  _reconcileStockForOperation,
+  _stockMovementKey,
+};
+
 // ─────────────────────────────────────────────────────────────
 // 8. INITIALIZE
 // ─────────────────────────────────────────────────────────────
@@ -1113,8 +1678,29 @@ function init() {
   injectStyles();
   migratePatientIds();
   _installSalesHistoryWatch();
+  window.addEventListener('vhc-offline-auth-mode', (event) => {
+    if (event && event.detail && event.detail.enabled) {
+      _setCloudReachability('offline', { source: 'offline-auth-bootstrap' });
+    }
+  });
+  setTimeout(() => runStorageHealthCheck({ source: 'startup' }), 1000);
+  setTimeout(() => checkCloudReachability({ source: 'startup' }).catch((e) => console.warn('[VHC_SYNC] startup reachability check failed:', e && e.message ? e.message : e)), 500);
   setTimeout(() => runFinancialIntegrityAudit({ source: 'startup' }), 2000);
+  setTimeout(() => runCloudLocalMismatchAudit({ source: 'startup', alwaysStore: false }).catch((e) => console.warn('[VHC_AUDIT] startup cloud/local audit failed:', e?.message || e)), 5000);
+  setTimeout(() => deriveLegacyPendingChangesFlag().catch((e) => console.warn('[VHC_SYNC] pending flag derivation failed:', e && e.message ? e.message : e)), 2500);
+  setTimeout(() => runFinancialSyncWorker({ source: 'startup' }).catch((e) => console.warn('[VHC_SYNC] startup worker failed:', e && e.message ? e.message : e)), 8000);
+  setInterval(() => runStorageHealthCheck({ source: 'periodic' }), 30 * 60 * 1000);
   setInterval(() => runFinancialIntegrityAudit({ source: 'periodic' }), 30 * 60 * 1000);
+  setInterval(() => runCloudLocalMismatchAudit({ source: 'periodic', alwaysStore: false }).catch((e) => console.warn('[VHC_AUDIT] periodic cloud/local audit failed:', e?.message || e)), 30 * 60 * 1000);
+  setInterval(() => runFinancialSyncWorker({ source: 'periodic' }).catch((e) => console.warn('[VHC_SYNC] periodic worker failed:', e && e.message ? e.message : e)), 60 * 1000);
+  window.addEventListener('online', () => {
+    checkCloudReachability({ source: 'browser-online' }).then((result) => {
+      if (result && result.status === 'online') {
+        return runFinancialSyncWorker({ source: 'browser-online', reachabilityVerified: true });
+      }
+    }).catch((e) => console.warn('[VHC_SYNC] online reachability check failed:', e && e.message ? e.message : e));
+  });
+  window.addEventListener('offline', () => _setCloudReachability('offline', { source: 'browser-offline' }));
   // No floating launcher button — it overlapped the sidebar nav. The console is opened from
   // a proper entry point in Settings instead (see the React bundle's Settings screen), via
   // window.VHC_AUDIT.promptAdminGate(window.VHC_AUDIT.openStockHistory).

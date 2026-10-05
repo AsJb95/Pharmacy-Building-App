@@ -1,0 +1,18 @@
+{
+  "fixtureSet": "VHC SAFE CLOUD SYNTHETIC VALIDATION",
+  "patientName": "Synthetic VHC Test Patient",
+  "bills": [
+    { "billId": "TEST-VHC-CASH-001", "paymentMode": "Cash", "totalAmount": 100.00, "amountReceived": 100.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Tablet A", "category": "Medicine", "quantity": 2, "rate": 50, "total": 100 }] },
+    { "billId": "TEST-VHC-UPI-001", "paymentMode": "UPI", "totalAmount": 120.00, "amountReceived": 120.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Tablet B", "category": "Medicine", "quantity": 2, "rate": 60, "total": 120 }] },
+    { "billId": "TEST-VHC-CARD-001", "paymentMode": "Card", "totalAmount": 140.00, "amountReceived": 140.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Tablet C", "category": "Medicine", "quantity": 2, "rate": 70, "total": 140 }] },
+    { "billId": "TEST-VHC-CREDIT-001", "paymentMode": "Credit", "totalAmount": 160.00, "amountReceived": 0, "outstandingAmount": 160.00, "paymentStatus": "Credit", "items": [{ "drugName": "Synthetic Tablet D", "category": "Medicine", "quantity": 2, "rate": 80, "total": 160 }] },
+    { "billId": "TEST-VHC-SPLIT-001", "paymentMode": "Split", "totalAmount": 200.00, "amountReceived": 200.00, "outstandingAmount": 0, "paymentStatus": "Paid", "paymentBreakdown": { "Cash": 75, "UPI": 125 }, "items": [{ "drugName": "Synthetic Tablet E", "category": "Medicine", "quantity": 2, "rate": 100, "total": 200 }] },
+    { "billId": "TEST-VHC-MULTI-001", "paymentMode": "Cash", "totalAmount": 90.00, "amountReceived": 90.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Tablet F", "category": "Medicine", "quantity": 1, "rate": 40, "total": 40 }, { "drugName": "Synthetic Tablet G", "category": "Medicine", "quantity": 1, "rate": 50, "total": 50 }] },
+    { "billId": "TEST-VHC-OFFLINE-PENDING-001", "scenario": "offline-pending", "paymentMode": "Cash", "totalAmount": 50.00, "amountReceived": 50.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Offline Item", "category": "Medicine", "quantity": 1, "rate": 50, "total": 50 }] },
+    { "billId": "TEST-VHC-PARTIAL-ITEMS-001", "scenario": "partial-sale-items", "paymentMode": "UPI", "totalAmount": 75.00, "amountReceived": 75.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Partial A", "category": "Medicine", "quantity": 1, "rate": 25, "total": 25 }, { "drugName": "Synthetic Partial B", "category": "Medicine", "quantity": 1, "rate": 50, "total": 50 }] },
+    { "billId": "TEST-VHC-EXISTING-CLOUD-001", "scenario": "existing-cloud-sale", "paymentMode": "Card", "totalAmount": 65.00, "amountReceived": 65.00, "outstandingAmount": 0, "paymentStatus": "Paid", "items": [{ "drugName": "Synthetic Existing Item", "category": "Medicine", "quantity": 1, "rate": 65, "total": 65 }] },
+    { "billId": "TEST-VHC-PENDING-A", "scenario": "multiple-pending-success", "paymentMode": "Cash", "totalAmount": 31.00, "items": [{ "drugName": "Synthetic Pending A", "quantity": 1, "rate": 31, "total": 31 }] },
+    { "billId": "TEST-VHC-PENDING-B", "scenario": "multiple-pending-failure", "paymentMode": "UPI", "totalAmount": 32.00, "items": [{ "drugName": "Synthetic Pending B", "quantity": 1, "rate": 32, "total": 32 }] },
+    { "billId": "TEST-VHC-PENDING-C", "scenario": "multiple-pending-remains", "paymentMode": "Credit", "totalAmount": 33.00, "items": [{ "drugName": "Synthetic Pending C", "quantity": 1, "rate": 33, "total": 33 }] }
+  ]
+}

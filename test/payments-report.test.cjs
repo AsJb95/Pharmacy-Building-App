@@ -32,6 +32,22 @@ function round2(n) {
   return Math.round((parseFloat(n) || 0) * 100) / 100;
 }
 
+function billEpochMs(billId) {
+  const m = String(billId || '').match(/^BILL-(\d{10,})$/);
+  return m ? Number(m[1]) : null;
+}
+
+function businessDate(value, billId) {
+  const source = value || billEpochMs(billId);
+  if (!source) return '';
+  const d = new Date(source);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(d)
+    .reduce((acc, p) => (p.type !== 'literal' && (acc[p.type] = p.value), acc), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 // Credit-repayment settlement math (mirrors dist/assets/index-doBKNLAj.js's
 // computeCreditSettlement — keep in sync). Never mutates `bill`.
 function computeCreditSettlement(bill) {
@@ -487,13 +503,22 @@ test('29. Cloud-synced bill with JSON-string payment_breakdown remains visible',
   assert.strictEqual(computePaymentSummary(rows).totalCollected, 120);
 });
 
-test('30. Same-day and end-of-day date filtering remains string-date safe', () => {
+test('30. Same-day and end-of-day date filtering uses IST business date', () => {
   const tx = [
     ...expandBillToPaymentTransactions(bill({ billId: 'B-START', date: '2026-09-24T00:00:00.000+05:30', paymentMode: 'Cash', totalAmount: 1, paymentBreakdown: { Cash: 1 } })),
     ...expandBillToPaymentTransactions(bill({ billId: 'B-END', date: '2026-09-24T23:59:59.999+05:30', paymentMode: 'Cash', totalAmount: 1, paymentBreakdown: { Cash: 1 } })),
+    ...expandBillToPaymentTransactions(bill({ billId: 'B-UTC-ROLL', date: '2026-09-24T20:00:00.000Z', paymentMode: 'Cash', totalAmount: 1, paymentBreakdown: { Cash: 1 } })),
   ];
-  const filtered = tx.filter((t) => t.date.slice(0, 10) === '2026-09-24');
+  const filtered = tx.filter((t) => businessDate(t.date, t.billId) === '2026-09-24');
   assert.strictEqual(filtered.length, 2);
+  const sep25 = tx.filter((t) => businessDate(t.date, t.billId) === '2026-09-25');
+  assert.strictEqual(sep25.length, 1);
+});
+
+test('30b. Bill ID epoch fallback uses IST date when stored date is missing', () => {
+  const ms = Date.parse('2026-09-24T18:31:00.000Z');
+  const tx = expandBillToPaymentTransactions(bill({ billId: `BILL-${ms}`, date: '', paymentMode: 'Cash', totalAmount: 1, paymentBreakdown: { Cash: 1 } }));
+  assert.strictEqual(businessDate(tx[0].date, tx[0].billId), '2026-09-25');
 });
 
 test('31. Null optional fields do not exclude a valid paid bill', () => {

@@ -871,6 +871,21 @@ ipcMain.handle('database:get-schema-version', async () => {
   if (!mod) return null;
   try { return mod.getSchemaVersion(); } catch (e) { return null; }
 });
+ipcMain.handle('database:get-offline-auth-identity', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return null;
+  try { return mod.getOfflineAuthIdentity(); } catch (e) { return null; }
+});
+ipcMain.handle('database:record-offline-auth-identity', async (event, identity) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.recordOfflineAuthIdentity(identity || {}); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:clear-offline-auth-identity', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.clearOfflineAuthIdentity(); } catch (e) { return { success: false, error: e.message }; }
+});
 
 // Local-first billing. These only ever touch vhc_pharmacy.db — nothing here talks to Supabase or
 // changes cloud stock (the renderer's existing bulkUpdateInventory path remains its sole owner).
@@ -888,6 +903,11 @@ ipcMain.handle('database:get-local-sale', async (event, billId) => {
   const mod = await initLocalDatabase();
   if (!mod) return null;
   try { return mod.getLocalSaleByBillId(billId); } catch (e) { return null; }
+});
+ipcMain.handle('database:get-pending-stock-overlays', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getPendingStockOverlays(); } catch (e) { return []; }
 });
 
 // Credit repayments and history reads (local SQLite only).
@@ -910,6 +930,34 @@ ipcMain.handle('database:get-sales-history', async () => {
   const mod = await initLocalDatabase();
   if (!mod) return [];
   try { return mod.getSalesHistory(); } catch (e) { console.error('[LocalDB] getSalesHistory failed:', e.message); return []; }
+});
+ipcMain.handle('database:get-financial-sync-operations', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getFinancialSyncOperations(); } catch (e) { console.error('[LocalDB] getFinancialSyncOperations failed:', e.message); return []; }
+});
+ipcMain.handle('database:get-financial-integrity-snapshot', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return { success: false, error: 'Local database is unavailable', sales: [], operations: [] };
+  try { return mod.getFinancialIntegritySnapshot(); } catch (e) {
+    console.error('[LocalDB] getFinancialIntegritySnapshot failed:', e.message);
+    return { success: false, error: e.message, sales: [], operations: [] };
+  }
+});
+ipcMain.handle('database:get-unsynced-financial-sync-operations', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getUnsyncedFinancialSyncOperations(); } catch (e) { console.error('[LocalDB] getUnsyncedFinancialSyncOperations failed:', e.message); return []; }
+});
+ipcMain.handle('database:mark-financial-sync-attempt', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncAttempt(payload && payload.billId, payload && payload.error); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:mark-financial-sync-confirmed', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncConfirmed(payload && payload.billId, payload && payload.cloudSaleId); } catch (e) { return { success: false, error: e.message }; }
 });
 
 // Administrative clears. Each is one explicit, transactional database operation (no SQL from the

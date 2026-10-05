@@ -1,8 +1,38 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const PROD_SUPABASE_URL = 'https://yrgtnhvnwkqudxdcrkhm.supabase.co';
+const PROD_SUPABASE_ANON_KEY = 'sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC';
+
+function getSupabaseRuntimeConfig() {
+  const requested = String(process.env.VHC_SUPABASE_ENVIRONMENT || process.env.VHC_SUPABASE_ENV || 'PRODUCTION').trim().toUpperCase();
+  const environmentName = requested === 'TEST' || requested === 'PRODUCTION' ? requested : 'INVALID';
+  const url = environmentName === 'TEST'
+    ? String(process.env.VHC_TEST_SUPABASE_URL || '').trim()
+    : (environmentName === 'PRODUCTION' ? String(process.env.VHC_SUPABASE_URL || PROD_SUPABASE_URL).trim() : '');
+  const anonKey = environmentName === 'TEST'
+    ? String(process.env.VHC_TEST_SUPABASE_ANON_KEY || '').trim()
+    : (environmentName === 'PRODUCTION' ? String(process.env.VHC_SUPABASE_ANON_KEY || PROD_SUPABASE_ANON_KEY).trim() : '');
+  const productionUrl = PROD_SUPABASE_URL;
+  const isProductionUrl = url.replace(/\/+$/, '') === productionUrl.replace(/\/+$/, '');
+  const missing = !url || !anonKey;
+  return {
+    environmentName,
+    supabaseUrl: url,
+    supabaseAnonKey: anonKey,
+    productionUrl,
+    isProductionUrl,
+    cloudWritesAllowed: environmentName === 'PRODUCTION' ? !missing : (!missing && !isProductionUrl),
+    disabledReason: environmentName === 'INVALID'
+      ? `Unsupported VHC Supabase environment: ${requested}`
+      : (missing ? 'SAFE CLOUD TEST TARGET REQUIRED'
+        : (environmentName === 'TEST' && isProductionUrl ? 'PRODUCTION SUPABASE BLOCKED FOR DESTRUCTIVE TESTING' : '')),
+  };
+}
+
 // Override native alert and confirm to use IPC to the main process
 // This prevents the renderer from losing focus when these dialogs close
 contextBridge.exposeInMainWorld('electronAPI', {
+  getSupabaseRuntimeConfig,
   // Single source of truth for the version shown in the UI — reads directly
   // from the packaged app's package.json via Electron's own app.getVersion(),
   // instead of a hand-maintained string that can (and did) drift out of sync.
@@ -10,13 +40,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Local SQLite database (vhc_pharmacy.db) — narrow, named calls only; no SQL passthrough.
   getDatabaseStatus: () => ipcRenderer.invoke('database:get-status'),
   getDatabaseSchemaVersion: () => ipcRenderer.invoke('database:get-schema-version'),
+  getOfflineAuthIdentity: () => ipcRenderer.invoke('database:get-offline-auth-identity'),
+  recordOfflineAuthIdentity: (identity) => ipcRenderer.invoke('database:record-offline-auth-identity', identity),
+  clearOfflineAuthIdentity: () => ipcRenderer.invoke('database:clear-offline-auth-identity'),
   createLocalSale: (payload) => ipcRenderer.invoke('database:create-local-sale', payload),
   cancelLocalSale: (billId) => ipcRenderer.invoke('database:cancel-local-sale', billId),
   getLocalSale: (billId) => ipcRenderer.invoke('database:get-local-sale', billId),
+  getPendingStockOverlays: () => ipcRenderer.invoke('database:get-pending-stock-overlays'),
   recordCreditRepayment: (payload) => ipcRenderer.invoke('database:record-credit-repayment', payload),
   getCreditRepayments: (billId) => ipcRenderer.invoke('database:get-credit-repayments', billId),
   getCreditSettlement: (billId) => ipcRenderer.invoke('database:get-credit-settlement', billId),
   getSalesHistory: () => ipcRenderer.invoke('database:get-sales-history'),
+  getFinancialSyncOperations: () => ipcRenderer.invoke('database:get-financial-sync-operations'),
+  getFinancialIntegritySnapshot: () => ipcRenderer.invoke('database:get-financial-integrity-snapshot'),
+  getUnsyncedFinancialSyncOperations: () => ipcRenderer.invoke('database:get-unsynced-financial-sync-operations'),
+  markFinancialSyncAttempt: (billId, error) => ipcRenderer.invoke('database:mark-financial-sync-attempt', { billId, error }),
+  markFinancialSyncConfirmed: (billId, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-confirmed', { billId, cloudSaleId }),
   // Administrative clears used by Clear Sales History / Reset / Factory Reset / Restore.
   adminClearLocalSalesHistory: () => ipcRenderer.invoke('database:admin-clear-sales-history'),
   adminClearLocalSalesAndLedger: () => ipcRenderer.invoke('database:admin-clear-sales-and-ledger'),

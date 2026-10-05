@@ -49,7 +49,18 @@
       else localStorage.removeItem('vhc_last_change_time');
     }
     if (patch.pendingChanges !== undefined) {
-      localStorage.setItem('vhc_pending_changes', String(patch.pendingChanges));
+      if (patch.pendingChanges === false && window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.deriveLegacyPendingChangesFlag) {
+        window.VHC_FINANCIAL_SYNC.deriveLegacyPendingChangesFlag()
+          .then((derived) => {
+            if (derived && typeof derived.pending === 'boolean') {
+              state = { ...state, pendingChanges: derived.pending };
+              notifyListeners();
+            }
+          })
+          .catch((e) => console.warn('[VHC_AUTO_SYNC] pending flag derivation failed; not clearing financial pending marker:', e && e.message ? e.message : e));
+      } else {
+        localStorage.setItem('vhc_pending_changes', String(patch.pendingChanges));
+      }
     }
     notifyListeners();
   }
@@ -321,6 +332,15 @@
         alert('Invalid cloud backup file structure.');
         return;
       }
+      const declaredApp = String(backupData.appName || backupData.productName || backupData.app || '').trim();
+      if (declaredApp && !/VHC Pharmacy POS|VHC Pharmacy|VARNIKA HEALTH CARE/i.test(declaredApp)) {
+        const msg = `Blocked restore: this backup belongs to "${declaredApp}", not VHC Pharmacy POS. No data was changed.`;
+        if (window.VHC_AUDIT && window.VHC_AUDIT.logFinancial) {
+          window.VHC_AUDIT.logFinancial('BACKUP_RESTORE_REJECTED', { source: 'cloud-auto-backup', message: msg, next: { appName: declaredApp, fileName: file.name || '' } });
+        }
+        alert(msg);
+        return;
+      }
 
       // Restore data to localStorage without triggering change events
       if (backupData.settings) originalSetItem('pos_settings', JSON.stringify(backupData.settings));
@@ -370,7 +390,11 @@
         originalSetItem('vhc_pos_inventory', JSON.stringify(backupData.inventory));
       }
 
-      originalSetItem('vhc_pending_changes', 'false');
+      if (window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.deriveLegacyPendingChangesFlag) {
+        window.VHC_FINANCIAL_SYNC.deriveLegacyPendingChangesFlag().catch((e) => console.warn('[VHC_AUTO_SYNC] pending flag derivation failed after restore; not clearing financial pending marker:', e && e.message ? e.message : e));
+      } else {
+        originalSetItem('vhc_pending_changes', 'false');
+      }
       originalSetItem('vhc_last_sync_time', new Date().toISOString());
 
       alert('✅ Database successfully restored from Cloud Backup! Refreshing page...');

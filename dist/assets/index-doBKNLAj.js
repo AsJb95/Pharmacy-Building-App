@@ -15410,35 +15410,77 @@ var Mn = (...e) =>
     t.exports = Nr();
   })();
 function AutoSyncBadgeComponent() {
-  const [syncState, setSyncState] = (0, _.useState)(
-    window.VHCAutoSync ? window.VHCAutoSync.getState() : { status: "synced", lastSyncTime: null }
-  );
+  const [syncState, setSyncState] = (0, _.useState)({ status: "checking", reachability: "unknown", pending: 0 });
 
   (0, _.useEffect)(() => {
-    if (!window.VHCAutoSync) return;
-    const unsubscribe = window.VHCAutoSync.subscribe((s) => setSyncState({ ...s }));
-    return () => unsubscribe();
+    let active = true;
+    let reachability = "unknown";
+    const refresh = async (event) => {
+      if (!active || !(window.electronAPI && window.electronAPI.getFinancialSyncOperations)) return;
+      const detail = event && event.detail || {};
+      if (detail.reachability) reachability = detail.reachability;
+      if (!navigator.onLine) reachability = "offline";
+      const operations = await window.electronAPI.getFinancialSyncOperations();
+      if (!active) return;
+      const pending = (Array.isArray(operations) ? operations : []).filter((op) => op.sync_status !== "CLOUD_CONFIRMED");
+      const failed = pending.some((op) => op.sync_status === "SYNC_FAILED");
+      const syncing = pending.some((op) => op.sync_status === "SYNCING");
+      const status = reachability === "offline"
+        ? "offline"
+        : detail.status === "syncing" || syncing
+          ? "syncing"
+          : reachability === "failed" || detail.status === "failed" || failed
+            ? "failed"
+            : reachability === "online"
+              ? pending.length ? "syncing" : "synced"
+              : "checking";
+      setSyncState({
+        pending: pending.length,
+        reachability,
+        status
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, 3000);
+    window.addEventListener("vhc-financial-sync-state", refresh);
+    window.addEventListener("online", refresh);
+    window.addEventListener("offline", refresh);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("vhc-financial-sync-state", refresh);
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("offline", refresh);
+    };
   }, []);
 
   const handleSyncClick = () => {
-    if (window.VHCAutoSync) {
-      window.VHCAutoSync.syncNow();
+    if (window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.run) {
+      window.VHC_FINANCIAL_SYNC.run({ source: "sidebar-manual" });
     }
   };
 
   const getStatusBadge = () => {
     const status = syncState.status || "synced";
-    const formattedTime = syncState.lastSyncTime
-      ? new Date(syncState.lastSyncTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
-      : "";
+    const pending = Number(syncState.pending || 0);
 
     switch (status) {
+      case "checking":
+        return {
+          icon: "…",
+          dotColor: "#64748b",
+          label: "Checking…",
+          sub: "Verifying financial cloud",
+          bg: "#f8fafc",
+          border: "#cbd5e1",
+          text: "#475569"
+        };
       case "syncing":
         return {
           icon: "🔄",
           dotColor: "#3b82f6",
-          label: "Syncing to Drive...",
-          sub: "Uploading snapshot",
+          label: "Syncing\u2026",
+          sub: pending ? `${pending} pending` : "Financial records",
           bg: "#eff6ff",
           border: "#bfdbfe",
           text: "#1e40af"
@@ -15447,18 +15489,18 @@ function AutoSyncBadgeComponent() {
         return {
           icon: "⏳",
           dotColor: "#f59e0b",
-          label: "Pending Changes",
-          sub: "Auto-sync in ~30s",
+          label: "Syncing\u2026",
+          sub: pending ? `${pending} pending` : "Financial records",
           bg: "#fffbeb",
           border: "#fde68a",
           text: "#b45309"
         };
-      case "error":
+      case "failed":
         return {
           icon: "⚠️",
           dotColor: "#ef4444",
-          label: "Sync Failed",
-          sub: "Click to retry",
+          label: `Sync Failed \u2022 ${pending} Pending`,
+          sub: "Click to retry financial sync",
           bg: "#fef2f2",
           border: "#fecaca",
           text: "#991b1b"
@@ -15467,8 +15509,8 @@ function AutoSyncBadgeComponent() {
         return {
           icon: "📡",
           dotColor: "#6b7280",
-          label: "Offline Mode",
-          sub: "Will sync when online",
+          label: `Offline \u2022 ${pending} Pending`,
+          sub: "Financial records saved locally",
           bg: "#f3f4f6",
           border: "#e5e7eb",
           text: "#374151"
@@ -15478,8 +15520,8 @@ function AutoSyncBadgeComponent() {
         return {
           icon: "☁️",
           dotColor: "#10b981",
-          label: "Cloud Backup Synced",
-          sub: formattedTime ? `Last synced: ${formattedTime}` : "Up to date",
+          label: "Online \u2022 Synced",
+          sub: "All financial records confirmed",
           bg: "#ecfdf5",
           border: "#a7f3d0",
           text: "#047857"
@@ -15491,7 +15533,7 @@ function AutoSyncBadgeComponent() {
 
   return (0, J.jsxs)("div", {
     onClick: handleSyncClick,
-    title: "Click to sync now with Google Drive",
+    title: "Financial cloud sync status; click to retry",
     style: {
       padding: "0.5rem 0.65rem",
       borderRadius: "10px",
@@ -16351,7 +16393,28 @@ var Fr = (0, _.createContext)(),
       l = async () => {
         try {
           await window.VHC_CLOUD.fetchInventory();
-          a(window.VHC_CLOUD.getInventory().map(c));
+          let cloudInventory = window.VHC_CLOUD.getInventory().map(c);
+          if (window.electronAPI && window.electronAPI.getPendingStockOverlays) {
+            try {
+              let overlays = await window.electronAPI.getPendingStockOverlays();
+              let byBatch = new Map(), byLogical = new Map();
+              (Array.isArray(overlays) ? overlays : []).forEach((row) => {
+                if (row.server_stock_batch_id) byBatch.set(String(row.server_stock_batch_id), Number(row.closing));
+                else if (row.server_item_id && row.cloud_location_id) {
+                  let key = `${String(row.server_item_id)}|${String(row.cloud_location_id)}|${String(row.batch_no || ``).trim().toLowerCase()}`;
+                  byLogical.set(key, Number(row.closing));
+                }
+              });
+              cloudInventory = cloudInventory.map((item) => {
+                if (byBatch.has(String(item.id))) return { ...item, stock: byBatch.get(String(item.id)) };
+                let key = `${String(item.itemId || ``)}|${String(item.locationId || ``)}|${String(item.batch || ``).trim().toLowerCase()}`;
+                return byLogical.has(key) ? { ...item, stock: byLogical.get(key) } : item;
+              });
+            } catch (overlayErr) {
+              console.warn(`[VHC_STOCK] Could not apply pending local stock overlay:`, overlayErr);
+            }
+          }
+          a(cloudInventory);
         } catch (e) {
           console.log(`Error loading cloud inventory:`, e);
         }
@@ -51526,7 +51589,8 @@ function Nh() {
     [splitPaymentPopupOpen, setSplitPaymentPopupOpen] = (0, _.useState)(!1),
     [splitCashInput, setSplitCashInput] = (0, _.useState)(``),
     [splitUpiInput, setSplitUpiInput] = (0, _.useState)(``),
-    [tabPendingClose, setTabPendingClose] = (0, _.useState)(null);
+    [tabPendingClose, setTabPendingClose] = (0, _.useState)(null),
+    checkoutInFlight = (0, _.useRef)(false);
   (_.useEffect(() => {
     try {
       localStorage.setItem(`pos_active_discount_percent`, discountPercent);
@@ -51749,8 +51813,10 @@ function Nh() {
     [ne, re] = [activeTab.lastBillId, vhcField(`lastBillId`)],
     [U, ie] = [activeTab.lastBillSnapshot, vhcField(`lastBillSnapshot`)],
     ae = (e, t, n, r, i, a, o, s, extraParticulars, gstModeForBill, discountForBill, discountPercentForBill, patientSnapshotForBill, paymentDetailsForBill) => {
-      try {
-        let c = [
+      let previousRaw = localStorage.getItem(`vhc_pos_sales_history`) || `[]`;
+      let previous = JSON.parse(previousRaw);
+      if (!Array.isArray(previous)) throw new Error(`Local sales history is not a valid bill list.`);
+      let c = [
           {
             billId: e,
             date: new Date().toISOString(),
@@ -51801,12 +51867,13 @@ function Nh() {
               ...(extraParticulars || []),
             ],
           },
-          ...JSON.parse(
-            localStorage.getItem(`vhc_pos_sales_history`) || `[]`,
-          ).filter((t) => t.billId !== e),
+          ...previous.filter((t) => t && t.billId !== e),
         ];
-        localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(c));
-        if (window.VHC_AUDIT && window.VHC_AUDIT.logFinancial) {
+      localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(c));
+      let persisted = JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`);
+      if (!Array.isArray(persisted) || !persisted.some((bill) => bill && bill.billId === e))
+        throw new Error(`Bill ${e} was not found after local sales-history save.`);
+      if (window.VHC_AUDIT && window.VHC_AUDIT.logFinancial) {
           window.VHC_AUDIT.logFinancial(`BILL_CREATED`, {
             billId: e,
             source: `local`,
@@ -51818,9 +51885,7 @@ function Nh() {
             { billId: e, source: `local`, next: c[0].paymentBreakdown, message: `Payment details recorded for Bill ${e}.` },
           );
         }
-      } catch (e) {
-        console.error(`Failed to save bill to local sales history:`, e);
-      }
+      return { ok: !0, bill: c[0], count: c.length };
     },
     oe = async () => {
       if (!hasActiveBillContent) {
@@ -51831,18 +51896,17 @@ function Nh() {
         i(`Please enter the Split Payment amounts and click Apply first.`, `warning`);
         return;
       }
+      if (checkoutInFlight.current) {
+        i(`Checkout is already being saved. Please wait for the result.`, `warning`);
+        return null;
+      }
+      checkoutInFlight.current = true;
       // Who was signed in to Cloud Sync at the moment this sale completed — the Payments
       // report's "Recorded By" column reads this. getSession() reads the already-cached
       // local session (no network round trip); resolves to null pre-cloud-sync-login or if
       // signed out, which the report shows as "—", never a fabricated attribution.
-      let recordedByEmail = await (async () => {
-        try {
-          let session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
-          return session && session.user && session.user.email || null;
-        } catch {
-          return null;
-        }
-      })();
+      // Attribution is optional. It must never make local checkout wait for cloud auth.
+      let recordedByEmail = null;
       let r = [...o],
         injSnapshot = injectionItems.slice(),
         procSnapshot = procedureItems.slice(),
@@ -51893,7 +51957,7 @@ function Nh() {
           if (manualName) {
             let local = window.VHC_AUDIT && window.VHC_AUDIT.addManualPatient ? window.VHC_AUDIT.addManualPatient(manualName) : null;
             try {
-              if (window.VHC_CLOUD && window.VHC_CLOUD.addManualPatient) {
+              if (false && window.VHC_CLOUD && window.VHC_CLOUD.addManualPatient) {
                 let cloudPatient = await window.VHC_CLOUD.addManualPatient(manualName);
                 if (cloudPatient && !cloudPatient.error)
                   return { patientId: cloudPatient.id, name: cloudPatient.name, contact: ``, age: ``, sex: ``, address: ``, source: `Manual Entry` };
@@ -51983,19 +52047,14 @@ function Nh() {
         // patientSnapshot captured above, so the stock-ledger entry always reflects the exact
         // patient this bill was billed to, never live selection state.
         let deductionContext = { billId: billIdForContext || ``, patientName: patientSnapshot.name, patientId: patientSnapshot.patientId };
-        // On-screen paint only (no cloud call — see applyLocalStockDeduction in the inventory
-        // provider). Cloud stock is still changed exactly once, by bulkUpdateInventory below.
+        // On-screen paint only. Durable cloud stock reconciliation is owned by the versioned
+        // financial worker after the local SQLite transaction commits.
         if (localSaleRecorded && paintLocalStock) {
           try { paintLocalStock(deductionList); } catch (paintErr) { console.warn(`[LocalSQLite] local stock paint failed:`, paintErr); }
         }
-        if (bulkUpdateInventory) bulkUpdateInventory(deductionList, deductionContext);
-        else
-          deductionList.forEach(({ id, qty }) => {
-            let inv = e.find((x) => x.id === id);
-            inv && t(inv.id, { ...inv, stock: inv.stock - qty });
-          });
       };
-      try {
+      // Legacy HTTP checkout is disabled: SQLite is the sole authoritative commit.
+      if (false) { try {
         let o = await fetch(`/api/checkout`, {
           method: `POST`,
           headers: { "Content-Type": `application/json` },
@@ -52029,10 +52088,17 @@ function Nh() {
               discountPercent: effectiveDiscountPercent,
               discountMode,
             };
+          try {
+            ae(c.billId, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot, paymentDetails);
+          } catch (saveErr) {
+            console.error(`CRITICAL: bill ${c.billId} was not saved to local sales history. Checkout stopped before stock/receipt success.`, saveErr);
+            i(`Payment was NOT completed because the bill could not be saved locally. Please keep this screen open and contact admin. ${saveErr && saveErr.message ? saveErr.message : saveErr}`, `error`, 12e3);
+            window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_BILL_SAVE_FAILED`, { billId: c.billId, source: `local`, message: saveErr && saveErr.message ? saveErr.message : String(saveErr) });
+            return null;
+          }
           return (
             re(c.billId),
             ie(billSnapshot),
-            ae(c.billId, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot, paymentDetails),
             n(
               `SALE`,
               `Completed ${f} payment for ₹${a.toFixed(2)} for ${d} (Bill: ${c.billId})`,
@@ -52049,7 +52115,7 @@ function Nh() {
         }
       } catch (e) {
         console.error(e);
-      }
+      } }
       let m = `BILL-${Date.now()}`,
         billSnapshot2 = {
           cart: r,
@@ -52068,12 +52134,25 @@ function Nh() {
           discountPercent: effectiveDiscountPercent,
           discountMode,
         };
-      // Local-first record (SQLite, main process): the sale, its lines and its stock effect are
-      // committed atomically and work fully offline. A BUSINESS rejection (`rejected`: e.g. the
-      // main process finds a quantity above the stock this cart reported, a non-positive
-      // quantity, or a duplicate bill id) stops the sale — nothing after this has run yet. Any
-      // other failure (no local database, locked/corrupt file, ...) must NOT stop a pharmacy
-      // sale: it falls through to the existing legacy flow exactly as before this feature.
+      // Local Storage is a compatibility mirror only. SQLite must commit first.
+      let localHistorySaved = !1;
+      // Mandatory local-first record (SQLite, main process): the sale, its lines, stock ledger,
+      // and durable cloud-sync operation are committed atomically and work fully offline. Cloud
+      // failure is tolerated later; local financial persistence failure stops checkout here.
+      if (!(window.electronAPI && window.electronAPI.createLocalSale)) {
+        if (localHistorySaved) {
+          try {
+            let rollbackBills = JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`);
+            Array.isArray(rollbackBills) && localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(rollbackBills.filter((bill) => bill && bill.billId !== m)));
+          } catch (rollbackErr) {
+            console.error(`[VHC_CHECKOUT] Could not roll back local sales history for unavailable local database ${m}:`, rollbackErr);
+          }
+        }
+        i(`Payment was NOT completed because the local billing database is unavailable. Please keep this screen open and contact admin.`, `error`, 12e3);
+        window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_BILL_SQLITE_UNAVAILABLE`, { billId: m, source: `local`, message: `createLocalSale API unavailable` });
+        checkoutInFlight.current = false;
+        return null;
+      }
       if (window.electronAPI && window.electronAPI.createLocalSale) {
         try {
           let localResult = await window.electronAPI.createLocalSale({
@@ -52091,6 +52170,8 @@ function Nh() {
             items: r.map((cartItem) => ({
               name: cartItem.name,
               itemId: cartItem.itemId,
+              cloudBatchId: cartItem.id,
+              cloudLocationId: cartItem.locationId,
               category: cartItem.category || `Medicine`,
               batch: cartItem.batch,
               expiry: cartItem.expiry,
@@ -52112,54 +52193,63 @@ function Nh() {
           });
           if (localResult && localResult.success) {
             localSaleRecorded = !0;
+            try {
+              ae(m, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot, paymentDetails);
+              localHistorySaved = !0;
+            } catch (mirrorErr) {
+              console.error(`[VHC_CHECKOUT] SQLite committed but Local Storage mirror failed for ${m}:`, mirrorErr);
+              i(`Bill saved locally, but the legacy report mirror needs admin review.`, `warning`, 8e3);
+              window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_HISTORY_MIRROR_FAILED`, { billId: m, source: `local`, message: mirrorErr && mirrorErr.message ? mirrorErr.message : String(mirrorErr) });
+            }
           } else if (localResult && localResult.rejected) {
+            if (localHistorySaved) {
+              try {
+                let rollbackBills = JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`);
+                Array.isArray(rollbackBills) && localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(rollbackBills.filter((bill) => bill && bill.billId !== m)));
+              } catch (rollbackErr) {
+                console.error(`[VHC_CHECKOUT] Could not roll back local sales history for rejected bill ${m}:`, rollbackErr);
+              }
+            }
             i(`Sale could not be saved: ${localResult.error || `Rejected by the local database`}`, `error`, 6e3);
+            checkoutInFlight.current = false;
             return null;
           } else {
-            console.warn(`[LocalSQLite] createLocalSale unavailable/failed — continuing with the existing billing flow:`, localResult && localResult.error);
+            if (localHistorySaved) {
+              try {
+                let rollbackBills = JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`);
+                Array.isArray(rollbackBills) && localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(rollbackBills.filter((bill) => bill && bill.billId !== m)));
+              } catch (rollbackErr) {
+                console.error(`[VHC_CHECKOUT] Could not roll back local sales history for failed local database ${m}:`, rollbackErr);
+              }
+            }
+            i(`Payment was NOT completed because the bill could not be saved to the local billing database. ${localResult && localResult.error ? localResult.error : ``}`, `error`, 12e3);
+            window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_BILL_SQLITE_SAVE_FAILED`, { billId: m, source: `local`, message: localResult && localResult.error ? localResult.error : `createLocalSale returned no success` });
+            checkoutInFlight.current = false;
+            return null;
           }
         } catch (localErr) {
-          console.warn(`[LocalSQLite] createLocalSale threw — continuing with the existing billing flow:`, localErr);
+          if (localHistorySaved) {
+            try {
+              let rollbackBills = JSON.parse(localStorage.getItem(`vhc_pos_sales_history`) || `[]`);
+              Array.isArray(rollbackBills) && localStorage.setItem(`vhc_pos_sales_history`, JSON.stringify(rollbackBills.filter((bill) => bill && bill.billId !== m)));
+            } catch (rollbackErr) {
+              console.error(`[VHC_CHECKOUT] Could not roll back local sales history for thrown local database error ${m}:`, rollbackErr);
+            }
+          }
+          console.error(`[LocalSQLite] createLocalSale threw; checkout stopped for ${m}:`, localErr);
+          i(`Payment was NOT completed because the local billing database failed. ${localErr && localErr.message ? localErr.message : localErr}`, `error`, 12e3);
+          window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_BILL_SQLITE_SAVE_FAILED`, { billId: m, source: `local`, message: localErr && localErr.message ? localErr.message : String(localErr) });
+          checkoutInFlight.current = false;
+          return null;
         }
       }
-      // Best-effort, non-blocking cloud sync of the sale RECORD only (cross-terminal
-      // reporting visibility). recordOnly forces affects_stock=false on every line so
-      // create_sale never touches stock_batches — stock is still adjusted exactly once,
-      // by applyInventoryDeductions below, completely unchanged from before this
-      // integration. Never awaited: a slow or unreachable cloud must never delay or
-      // block a real sale. Local billing (ae() below) remains the source of truth
-      // until this path has been verified in real use — see recordOnly's comment in
-      // cloud-src/vhc-cloud-sync.js for how to graduate off it later.
-      if (window.VHC_CLOUD && window.VHC_CLOUD.createSale) {
-        try {
-          let cloudItems = [
-            ...r.map((cartItem) => {
-              let unitsPerPackVal = parseFloat(cartItem.unitsPerPack || cartItem.units_per_pack) || 1,
-                perUnit = (parseFloat(cartItem.mrp ?? cartItem.price) || 0) / unitsPerPackVal,
-                cloudRate = cartItem.customUnitPrice !== void 0 && cartItem.customUnitPrice !== `` ? parseFloat(cartItem.customUnitPrice) || 0 : perUnit,
-                cloudQty = parseInt(cartItem.qty, 10) || 1;
-              return { category: `Medicine`, drugName: cartItem.name, batchNo: cartItem.batch || `N/A`, expiryDate: cartItem.expiry || `N/A`, quantity: cloudQty, rate: cloudRate, total: cloudRate * cloudQty };
-            }),
-            ...extraParticulars,
-          ];
-          window.VHC_CLOUD.createSale({
-            billId: m, patientId: patientSnapshot.patientId, patientName: d, patientContact: patientSnapshot.contact, doctorName: p,
-            paymentMode: f, subtotal: s, totalTax: l, totalAmount: a, gstMode: billGstMode,
-            discount: billDiscount, discountPercent: effectiveDiscountPercent,
-            amountReceived: paymentDetails.amountReceived, outstandingAmount: paymentDetails.outstandingAmount,
-            paymentStatus: paymentDetails.status, paymentBreakdown: paymentDetails.breakdown, recordedBy: paymentDetails.recordedBy,
-            items: cloudItems, recordOnly: !0,
-          }).then((cloudRes) => {
-            window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`SYNC_UPLOAD_BILL`, { billId: m, source: `cloud`, next: { paymentMode: f, amountReceived: paymentDetails.amountReceived, outstandingAmount: paymentDetails.outstandingAmount, paymentStatus: paymentDetails.status, paymentBreakdown: paymentDetails.breakdown }, message: cloudRes && cloudRes.error ? `Cloud sale upload failed: ${cloudRes.error}` : `Cloud sale upload completed/accepted.` });
-            cloudRes && cloudRes.error && console.warn(`[VHC_CLOUD] createSale (record-only) failed for ${m}:`, cloudRes.error);
-          })
-            .catch((cloudErr) => console.warn(`[VHC_CLOUD] createSale (record-only) threw for ${m}:`, cloudErr));
-        } catch (cloudSetupErr) { console.warn(`[VHC_CLOUD] createSale (record-only) setup failed for ${m}:`, cloudSetupErr); }
+      if (window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.run) {
+        setTimeout(() => window.VHC_FINANCIAL_SYNC.run({ source: `checkout:${m}` }), 500);
       }
+      checkoutInFlight.current = false;
       return (
         re(m),
         ie(billSnapshot2),
-        ae(m, r, a, s, l, d, p, f, extraParticulars, billGstMode, billDiscount, effectiveDiscountPercent, patientSnapshot, paymentDetails),
         applyInventoryDeductions(m),
         n(
           `SALE`,
@@ -57202,6 +57292,10 @@ function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, require
 function vhcNormalizeBackup(raw, sourceLabel) {
   let obj = raw;
   if (Array.isArray(raw)) obj = { inventory: raw };
+  let declaredApp = obj && typeof obj == `object` ? String(obj.appName || obj.productName || obj.app || ``).trim() : ``;
+  if (declaredApp && !/VHC Pharmacy POS|VHC Pharmacy|VARNIKA HEALTH CARE/i.test(declaredApp)) {
+    throw new Error(`This backup belongs to "${declaredApp}", not VHC Pharmacy POS. Nothing was restored.`);
+  }
   let isLegacy = !obj || typeof obj != `object` || !obj.appName || !obj.backupType;
   let pick = (...vals) => vals.find((v) => v !== void 0 && v !== null);
   let settings = pick(obj.settings, obj.config, obj.data?.settings, obj.storeSettings);
@@ -57322,6 +57416,8 @@ function Lh() {
     [k, A] = (0, _.useState)(null),
     [isStoreConfigMinimized, setIsStoreConfigMinimized] = (0, _.useState)(true),
     [isCloudSyncMinimized, setIsCloudSyncMinimized] = (0, _.useState)(true),
+    [isChangelogExpanded, setIsChangelogExpanded] = (0, _.useState)(false),
+    [showAdminUnlock, setShowAdminUnlock] = (0, _.useState)(false),
     [isRestoringData, setIsRestoringData] = (0, _.useState)(!1),
     restoreLockRef = (0, _.useRef)(!1),
     beginRestoreOrWarn = () => {
@@ -58298,9 +58394,10 @@ function Lh() {
   })();
   let appDetailsTile = (label, value) =>
     (0, J.jsxs)(`div`, {
+      className: `vhc-settings-detail`,
       children: [
-        (0, J.jsx)(`div`, { style: { fontSize: `0.72rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: label }),
-        (0, J.jsx)(`div`, { style: { fontSize: `0.92rem`, fontWeight: `700`, color: `var(--text-primary)`, marginTop: `0.15rem` }, children: value }),
+        (0, J.jsx)(`div`, { className: `vhc-settings-detail-label`, children: label }),
+        (0, J.jsx)(`div`, { className: `vhc-settings-detail-value`, children: value }),
       ],
     });
   let saveTelegramBotSettingsHandler = async () => {
@@ -58325,7 +58422,7 @@ function Lh() {
     }
   };
   return (0, J.jsxs)(`div`, {
-    className: `animate-fade-in pb-4`,
+    className: `animate-fade-in pb-4 vhc-settings-page`,
     children: [
       (0, J.jsxs)(`div`, {
         className: `flex-between mb-4`,
@@ -58343,7 +58440,7 @@ function Lh() {
       // Appearance — Light / Dark theme. UI-only; persisted in its own
       // `vhc_pos_theme` key (see vhcUseTheme). Switch applies instantly.
       (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4`,
+        className: `glass-panel mb-4 vhc-settings-appearance`,
         style: {
           padding: `1.25rem 1.5rem`,
           background: `var(--surface)`,
@@ -58453,7 +58550,7 @@ function Lh() {
       // window, requiring a full app restart to recover — this in-app modal doesn't have
       // that failure mode and is what every other confirmation in this app already uses.
       (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4`,
+        className: `glass-panel mb-4 vhc-settings-account`,
         style: { padding: `1.25rem 1.5rem`, display: `flex`, alignItems: `center`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `1rem` },
         children: [
           (0, J.jsxs)(`div`, {
@@ -58479,7 +58576,7 @@ function Lh() {
       // setting (storeName) — nothing customer-specific is hardcoded beyond that setting's own
       // default. There is no global doctor setting in this app (doctor is per-bill), so none is shown.
       (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4`,
+        className: `glass-panel mb-4 vhc-settings-details`,
         style: {
           padding: `1.25rem 1.5rem`,
           background: `var(--surface)`,
@@ -58492,6 +58589,7 @@ function Lh() {
             children: `ℹ️ App Details`,
           }),
           (0, J.jsxs)(`div`, {
+            className: `vhc-settings-detail-grid`,
             style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`, gap: `0.75rem`, marginBottom: `1rem` },
             children: [
               appDetailsTile(`Application`, `VHC Pharmacy POS`),
@@ -58508,12 +58606,18 @@ function Lh() {
               ),
             ],
           }),
-          (0, J.jsx)(`h4`, {
-            style: { margin: `1rem 0 0.5rem`, fontSize: `0.9rem`, color: `var(--text-heading)` },
-            children: `📋 Changelog`,
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `vhc-settings-changelog-toggle`,
+            "aria-expanded": isChangelogExpanded,
+            onClick: () => setIsChangelogExpanded((open) => !open),
+            children: [
+              (0, J.jsxs)(`span`, { children: [`What's New`, appDetailsInfo.version ? ` in v${appDetailsInfo.version}` : ``] }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-changelog-action`, children: isChangelogExpanded ? `Hide` : `View` }),
+            ],
           }),
-          (0, J.jsxs)(`ul`, {
-            style: { margin: 0, paddingLeft: `1.2rem`, fontSize: `0.8rem`, color: `var(--text-secondary)`, lineHeight: `1.7` },
+          isChangelogExpanded && (0, J.jsxs)(`ul`, {
+            className: `vhc-settings-changelog-content`,
             children: [
               (0, J.jsx)(`li`, { children: `Local-first reliability improvements, SQLite transaction storage, offline billing persistence, credit repayment persistence, improved transaction history and reporting reliability` }),
               (0, J.jsx)(`li`, { children: `Added this App Details / Changelog section` }),
@@ -58527,7 +58631,7 @@ function Lh() {
       // sections below collapse up naturally since this is a conditional array entry, not a
       // fixed-height placeholder.
       isPlatformAdmin && (0, J.jsxs)(`div`, {
-        className: `mb-4`,
+        className: `mb-4 vhc-settings-tools`,
         style: {
           display: `grid`,
           gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))`,
@@ -58537,29 +58641,27 @@ function Lh() {
           (0, J.jsxs)(`button`, {
             type: `button`,
             onClick: () => setAuthModalTarget(`backup`),
-            className: `glass-panel-hover`,
             style: {
               textAlign: `left`,
               cursor: `pointer`,
-              background: `linear-gradient(135deg, #0284c7 0%, #0369a1 100%)`,
-              color: `#ffffff`,
-              border: `none`,
+              background: `var(--surface)`,
+              color: `var(--text-primary)`,
+              border: `1px solid var(--border-strong)`,
               borderRadius: `16px`,
               padding: `1.4rem`,
               display: `flex`,
               alignItems: `center`,
               gap: `1rem`,
-              boxShadow: `0 6px 18px rgba(2,132,199,0.25)`,
-              transition: `transform 0.15s ease, box-shadow 0.15s ease`,
+              boxShadow: `var(--card-shadow)`,
+              transition: `border-color 0.15s ease, box-shadow 0.15s ease`,
             },
-            onMouseOver: (evt) => { evt.currentTarget.style.transform = `translateY(-2px)`; evt.currentTarget.style.boxShadow = `0 10px 24px rgba(2,132,199,0.32)`; },
-            onMouseOut: (evt) => { evt.currentTarget.style.transform = `translateY(0)`; evt.currentTarget.style.boxShadow = `0 6px 18px rgba(2,132,199,0.25)`; },
+            className: `glass-panel-hover vhc-settings-tool`,
             children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `1.9rem` }, children: `🔐` }),
+              (0, J.jsx)(`div`, { className: `vhc-settings-tool-icon`, children: `🔐` }),
               (0, J.jsxs)(`div`, {
                 children: [
-                  (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `1.05rem` }, children: `Backup & Restore` }),
-                  (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, opacity: 0.9, marginTop: `0.2rem` }, children: `Local, Google Drive, schedule & security` }),
+                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-title`, children: `Backup & Restore` }),
+                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-description`, children: `Local backups, Google Drive, schedule and security` }),
                 ],
               }),
             ],
@@ -58569,29 +58671,27 @@ function Lh() {
             onClick: () => {
               window.VHC_AUDIT && window.VHC_AUDIT.promptAdminGate && window.VHC_AUDIT.promptAdminGate(window.VHC_AUDIT.openStockHistory);
             },
-            className: `glass-panel-hover`,
             style: {
               textAlign: `left`,
               cursor: `pointer`,
-              background: `linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)`,
-              color: `#ffffff`,
-              border: `none`,
+              background: `var(--surface)`,
+              color: `var(--text-primary)`,
+              border: `1px solid var(--border-strong)`,
               borderRadius: `16px`,
               padding: `1.4rem`,
               display: `flex`,
               alignItems: `center`,
               gap: `1rem`,
-              boxShadow: `0 6px 18px rgba(124,58,237,0.25)`,
-              transition: `transform 0.15s ease, box-shadow 0.15s ease`,
+              boxShadow: `var(--card-shadow)`,
+              transition: `border-color 0.15s ease, box-shadow 0.15s ease`,
             },
-            onMouseOver: (evt) => { evt.currentTarget.style.transform = `translateY(-2px)`; evt.currentTarget.style.boxShadow = `0 10px 24px rgba(124,58,237,0.32)`; },
-            onMouseOut: (evt) => { evt.currentTarget.style.transform = `translateY(0)`; evt.currentTarget.style.boxShadow = `0 6px 18px rgba(124,58,237,0.25)`; },
+            className: `glass-panel-hover vhc-settings-tool`,
             children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `1.9rem` }, children: `📊` }),
+              (0, J.jsx)(`div`, { className: `vhc-settings-tool-icon`, children: `📊` }),
               (0, J.jsxs)(`div`, {
                 children: [
-                  (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `1.05rem` }, children: `Stock Audit` }),
-                  (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, opacity: 0.9, marginTop: `0.2rem` }, children: `Stock movement history, reconciliation & manual patients` }),
+                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-title`, children: `Stock Audit` }),
+                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-description`, children: `Movement history and stock reconciliation` }),
                 ],
               }),
             ],
@@ -58599,7 +58699,7 @@ function Lh() {
         ],
       }),
       isPlatformAdmin && (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4`,
+        className: `glass-panel mb-4 vhc-settings-security`,
         style: {
           padding: `1.5rem`,
           border: c ? `2px solid var(--danger-color)` : `1px solid var(--panel-border)`,
@@ -58635,7 +58735,7 @@ function Lh() {
                     borderColor: `var(--danger-color)`,
                     color: `var(--danger-strong)`,
                   },
-                  onClick: () => l(!1),
+                  onClick: () => { l(!1); setShowAdminUnlock(false); },
                   children: `🔒 Lock Admin Session`,
                 }),
             ],
@@ -58707,7 +58807,20 @@ function Lh() {
                   }),
                 ],
               })
-            : (0, J.jsxs)(`div`, {
+              : !showAdminUnlock
+                ? (0, J.jsxs)(`div`, {
+                    className: `vhc-settings-security-locked`,
+                    children: [
+                      (0, J.jsx)(`p`, { children: `Administrative controls are locked.` }),
+                      (0, J.jsx)(`button`, {
+                        type: `button`,
+                        className: `btn btn-outline`,
+                        onClick: () => setShowAdminUnlock(true),
+                        children: `Unlock Admin Controls`,
+                      }),
+                    ],
+                  })
+                : (0, J.jsxs)(`div`, {
                 children: [
                   (0, J.jsx)(`p`, {
                     style: {
@@ -58755,7 +58868,7 @@ function Lh() {
         ],
       }),
       (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4`,
+        className: `glass-panel mb-4 vhc-settings-section vhc-settings-pharmacy-section`,
         style: {
           padding: `1.25rem 1.5rem`,
           background: `var(--surface)`,
@@ -58764,7 +58877,8 @@ function Lh() {
         },
         children: [
           (0, J.jsxs)(`div`, {
-            onClick: () => setIsStoreConfigMinimized((prev) => !prev),
+              className: `vhc-settings-section-header`,
+              onClick: () => setIsStoreConfigMinimized((prev) => !prev),
             style: {
               display: `flex`,
               justifyContent: `space-between`,
@@ -58814,6 +58928,7 @@ function Lh() {
               (0, J.jsxs)(`button`, {
                 type: `button`,
                 className: `btn-icon`,
+                "aria-expanded": !isStoreConfigMinimized,
                 style: {
                   background: `var(--surface-raised)`,
                   padding: `0.35rem 0.65rem`,
@@ -59192,7 +59307,7 @@ function Lh() {
         ],
       }),
       isPlatformAdmin && (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4`,
+        className: `glass-panel mb-4 vhc-settings-section vhc-settings-cloud-section`,
         style: {
           padding: `1.25rem 1.5rem`,
           background: `var(--surface)`,
@@ -59202,7 +59317,8 @@ function Lh() {
         },
         children: [
           (0, J.jsxs)(`div`, {
-            onClick: () => setIsCloudSyncMinimized((prev) => !prev),
+              className: `vhc-settings-section-header`,
+              onClick: () => setIsCloudSyncMinimized((prev) => !prev),
             style: {
               display: `flex`,
               justifyContent: `space-between`,
@@ -59249,6 +59365,7 @@ function Lh() {
               (0, J.jsxs)(`button`, {
                 type: `button`,
                 className: `btn-icon`,
+                "aria-expanded": !isCloudSyncMinimized,
                 style: {
                   background: `var(--surface-raised)`,
                   padding: `0.35rem 0.65rem`,
@@ -59478,14 +59595,13 @@ function Lh() {
                         children: `Telegram Bot Token`,
                       }),
                       (0, J.jsx)(`input`, {
-                        type: `text`,
+                        type: `password`,
                         name: `telegramToken`,
                         className: `input-field`,
-                        value:
-                          e.telegramToken ||
-                          `7854129841:AAHvhcpharm_bot_active_token`,
+                        value: e.telegramToken || ``,
                         onChange: B,
-                        placeholder: `e.g. 7854129841:AAH...`,
+                        autoComplete: `new-password`,
+                        placeholder: `Saved token is hidden`,
                         style: { fontSize: `0.8rem` },
                       }),
                     ],
@@ -61848,6 +61964,20 @@ function paymentMethodLabel(key) {
 function round2(n) {
   return Math.round((parseFloat(n) || 0) * 100) / 100;
 }
+function vhcBillEpochMs(billId) {
+  let m = String(billId || ``).match(/^BILL-(\d{10,})$/);
+  return m ? Number(m[1]) : null;
+}
+function vhcBusinessDate(value, billId) {
+  let source = value || vhcBillEpochMs(billId);
+  if (!source) return ``;
+  let d = new Date(source);
+  if (Number.isNaN(d.getTime())) return ``;
+  let parts = new Intl.DateTimeFormat(`en-CA`, { timeZone: `Asia/Kolkata`, year: `numeric`, month: `2-digit`, day: `2-digit` })
+    .formatToParts(d)
+    .reduce((acc, p) => (p.type !== `literal` && (acc[p.type] = p.value), acc), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 // Credit-repayment settlement math — pure, no hooks/DOM (mirrored in
 // test/payments-report.test.cjs, keep in sync if this changes). NEVER mutates
 // `bill` and NEVER overwrites the ORIGINAL paymentBreakdown / amountReceived /
@@ -62783,7 +62913,7 @@ function a_() {
       );
     }, [n]),
     D = n.filter((e) => {
-      let t = e.date ? e.date.slice(0, 10) : ``;
+      let t = vhcBusinessDate(e.date, e.billId);
       if (f === `date` && m) {
         if (t !== m) return !1;
       } else if (f === `month` && g) {
@@ -65289,13 +65419,15 @@ function l_() {
 function VhcCloudAuthGate({ children }) {
   let [ready, setReady] = (0, _.useState)(!1),
     [session, setSession] = (0, _.useState)(null),
+    [offlineIdentity, setOfflineIdentity] = (0, _.useState)(null),
     [email, setEmail] = (0, _.useState)(``),
     [password, setPassword] = (0, _.useState)(``),
     [err, setErr] = (0, _.useState)(``),
     [loading, setLoading] = (0, _.useState)(!1);
   (0, _.useEffect)(() => {
     (async () => {
-      let s = await window.VHC_CLOUD.getSession();
+      let authState = await window.VHC_CLOUD.getAuthBootstrap();
+      let s = authState && authState.session;
       if (s) {
         // A signed-in session is real regardless of whether the FOLLOWING init() call
         // succeeds — init() (location resolution, initial fetches, realtime subscribe) can
@@ -65309,6 +65441,11 @@ function VhcCloudAuthGate({ children }) {
         if (initResult && initResult.error) {
           console.error(`[VHC_CLOUD] Cloud init failed after sign-in check — app will still open; retry via reload once network is restored —`, initResult.error);
         }
+      } else if (authState && authState.mode === `offline` && authState.offlineIdentity) {
+        // This identity was recorded only after successful online authentication.
+        // Offline mode never synthesizes or restores a Supabase session/token.
+        setOfflineIdentity(authState.offlineIdentity);
+        setSession({ offline: !0, user: authState.offlineIdentity });
       }
       setReady(!0);
     })();
@@ -65319,7 +65456,7 @@ function VhcCloudAuthGate({ children }) {
   // data (localStorage caches, sales history, inventory, settings) is touched here at all.
   (0, _.useEffect)(() => {
     let onSignedOut = () => {
-      (setSession(null), setEmail(``), setPassword(``), setErr(``));
+      (setSession(null), setOfflineIdentity(null), setEmail(``), setPassword(``), setErr(``));
     };
     return (
       window.addEventListener(`vhc-cloud-signed-out`, onSignedOut),

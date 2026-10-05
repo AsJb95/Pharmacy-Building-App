@@ -20254,12 +20254,119 @@ ${suffix}`;
   if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 20 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 22 or later. For more information, visit: https://github.com/orgs/supabase/discussions/45715");
 
   // cloud-src/vhc-cloud-sync.js
-  var SUPABASE_URL = "https://yrgtnhvnwkqudxdcrkhm.supabase.co";
-  var SUPABASE_ANON_KEY = "sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC";
+  var PRODUCTION_SUPABASE_URL = "https://yrgtnhvnwkqudxdcrkhm.supabase.co";
+  var PRODUCTION_SUPABASE_ANON_KEY = "sb_publishable_7fL9ZcI18hC1XiMqeCLhlg_YXNzABAC";
+  function resolveSupabaseRuntimeConfig() {
+    const runtime = window.electronAPI && window.electronAPI.getSupabaseRuntimeConfig ? window.electronAPI.getSupabaseRuntimeConfig() : null;
+    const environmentName = runtime && runtime.environmentName || "PRODUCTION";
+    const isTest = environmentName === "TEST";
+    const supabaseUrl = runtime ? runtime.supabaseUrl : PRODUCTION_SUPABASE_URL;
+    const supabaseAnonKey = runtime ? runtime.supabaseAnonKey : PRODUCTION_SUPABASE_ANON_KEY;
+    const isProductionUrl = String(supabaseUrl).replace(/\/+$/, "") === PRODUCTION_SUPABASE_URL.replace(/\/+$/, "");
+    const missing = !supabaseUrl || !supabaseAnonKey;
+    const disabledReason = runtime && runtime.disabledReason || (environmentName === "TEST" && missing ? "SAFE CLOUD TEST TARGET REQUIRED" : "") || (environmentName === "TEST" && isProductionUrl ? "PRODUCTION SUPABASE BLOCKED FOR DESTRUCTIVE TESTING" : "");
+    return {
+      environmentName,
+      supabaseUrl,
+      supabaseAnonKey,
+      isProductionUrl,
+      cloudWritesAllowed: runtime && typeof runtime.cloudWritesAllowed === "boolean" ? runtime.cloudWritesAllowed : !isTest && !missing,
+      disabledReason
+    };
+  }
+  var CLOUD_CONFIG = resolveSupabaseRuntimeConfig();
+  var SUPABASE_URL = CLOUD_CONFIG.supabaseUrl;
+  var SUPABASE_ANON_KEY = CLOUD_CONFIG.supabaseAnonKey;
   var PHARMACY_LOCATION_NAME = "VHC Pharmacy Counter";
-  var supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  var CLIENT_URL = SUPABASE_URL || "https://vhc-test-target-required.invalid";
+  var CLIENT_KEY = SUPABASE_ANON_KEY || "safe-test-target-required";
+  var supabase = createClient(CLIENT_URL, CLIENT_KEY, {
     auth: { persistSession: true, autoRefreshToken: true }
   });
+  var offlineAuthMode = false;
+  var offlineAuthTransportFailure = false;
+  function projectHost() {
+    try {
+      return new URL(SUPABASE_URL).hostname.toLowerCase();
+    } catch (e) {
+      return "";
+    }
+  }
+  function setOfflineAuthMode(enabled, identity = null, transportFailure = false) {
+    offlineAuthMode = enabled === true;
+    offlineAuthTransportFailure = offlineAuthMode && transportFailure === true;
+    try {
+      window.dispatchEvent(new CustomEvent("vhc-offline-auth-mode", {
+        detail: { enabled: offlineAuthMode, identity: offlineAuthMode ? identity : null }
+      }));
+    } catch (e) {
+    }
+  }
+  function isTransportFailure(error) {
+    return !!(window.VHC_RUNTIME_POLICY && window.VHC_RUNTIME_POLICY.isTransportFailure(error));
+  }
+  async function recordVerifiedOfflineIdentity(user) {
+    if (!user || !user.id || !user.email || !window.electronAPI?.recordOfflineAuthIdentity) return;
+    try {
+      await window.electronAPI.recordOfflineAuthIdentity({
+        onlineConfirmed: true,
+        userId: String(user.id),
+        email: String(user.email),
+        projectHost: projectHost(),
+        confirmedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } catch (error) {
+      console.warn("[VHC_AUTH] Could not persist offline identity metadata:", error?.message || error);
+    }
+  }
+  async function readOfflineIdentity() {
+    try {
+      return window.electronAPI?.getOfflineAuthIdentity ? await window.electronAPI.getOfflineAuthIdentity() : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  async function probeCloudTransport(timeoutMs = 5e3) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const { error } = await supabase.from("sales").select("id").limit(1).abortSignal(controller.signal);
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        const timeoutError = new Error(`Supabase auth bootstrap probe timed out after ${timeoutMs}ms`);
+        timeoutError.code = "REACHABILITY_TIMEOUT";
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  function assertCloudWritesAllowed(actionName) {
+    if (offlineAuthMode) throw new Error(`Cloud write blocked in offline-auth mode (${actionName}).`);
+    if (!CLOUD_CONFIG.cloudWritesAllowed) {
+      throw new Error(CLOUD_CONFIG.disabledReason || "SAFE CLOUD TEST TARGET REQUIRED");
+    }
+    if (CLOUD_CONFIG.environmentName === "TEST" && CLOUD_CONFIG.isProductionUrl) {
+      throw new Error("PRODUCTION SUPABASE BLOCKED FOR DESTRUCTIVE TESTING");
+    }
+    return true;
+  }
+  function installEnvironmentIndicator() {
+    if (CLOUD_CONFIG.environmentName !== "TEST" || !document || document.getElementById("vhc-test-env-indicator")) return;
+    const div = document.createElement("div");
+    div.id = "vhc-test-env-indicator";
+    div.textContent = `Environment: TEST${CLOUD_CONFIG.disabledReason ? " - cloud writes disabled" : ""}`;
+    div.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:999999;background:#facc15;color:#111827;border:2px solid #92400e;border-radius:6px;padding:7px 10px;font:700 12px system-ui,-apple-system,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.25);";
+    document.body.appendChild(div);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installEnvironmentIndicator, { once: true });
+  } else {
+    installEnvironmentIndicator();
+  }
   function toISODateString(year, month, day) {
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
@@ -20298,120 +20405,189 @@ ${suffix}`;
     } catch {
     }
   }
-  function describeError(e) {
-    if (e && e.message) return e.message;
-    try {
-      const s = JSON.stringify(e);
-      if (s && s !== "{}") return s;
-    } catch (e2) {}
-    return String(e);
-  }
   function withErrorReport(fn) {
     return async (...args) => {
       try {
+        if (CLOUD_WRITE_FUNCTIONS.has(fn.name)) assertCloudWritesAllowed(fn.name);
         return await fn(...args);
       } catch (e) {
-        console.error(`[VHC_CLOUD] action failed (${fn.name || "anonymous"}):`, describeError(e), e);
-        return { error: describeError(e) };
+        const details = describeCloudError(e);
+        console.error(`[VHC_CLOUD] action failed (${fn.name || "anonymous"}):`, details, e);
+        return { error: details.message, ...details };
       }
     };
   }
-  var currentSession = null;
-  // Realtime's postgres_changes broadcasts are authorized by RLS evaluated on the Realtime
-  // connection itself — that connection does NOT automatically inherit the JWT from
-  // supabase.auth.signInWithPassword()/getSession(); it stays anonymous unless explicitly
-  // told otherwise via supabase.realtime.setAuth(). Any RLS policy that depends on
-  // auth.uid() (as sales/sale_items/patients/alerts_config's policies do, via
-  // is_known_user() -> current_role_name() -> auth.uid()) then silently denies every
-  // broadcast on that connection — not an error, just nothing ever arrives. stock_batches
-  // only kept working because it happens to have a second, auth-independent anon policy.
-  // onAuthStateChange covers every case that establishes or refreshes a session — initial
-  // load with a persisted session, an interactive sign-in, and the client's own automatic
-  // background token refresh (autoRefreshToken: true) — so the realtime connection's auth
-  // never drifts out of sync with the REST/RPC session, without touching any RLS policy.
-  function syncRealtimeAuth(session, source) {
-    try {
-      if (session && session.access_token) {
-        supabase.realtime.setAuth(session.access_token);
-        console.log(`[VHC_REALTIME] realtime.setAuth() called (source: ${source}) — realtime connection now carries this session's JWT.`);
-      } else {
-        console.log(`[VHC_REALTIME] syncRealtimeAuth(${source}) called with no session — nothing to set.`);
-      }
-    } catch (e) {
-      console.error(`[VHC_REALTIME] realtime.setAuth() failed (source: ${source}) —`, e && e.message || e);
-    }
-    // Also hand this same session token to the embedded Telegram bot (a separate background
-    // process — see electron/main.js), which needs it to authenticate to the secure
-    // telegram-relay Edge Function. Piggybacks on this function since it already fires on
-    // every case that establishes/refreshes/clears a session (see the comment above it).
-    try {
-      if (window.electronAPI && window.electronAPI.setSupabaseSessionToken) {
-        window.electronAPI.setSupabaseSessionToken(session && session.access_token ? session.access_token : null);
-      }
-    } catch (e) {}
+  function describeCloudError(error) {
+    return {
+      code: error && error.code ? String(error.code) : null,
+      message: error && error.message ? String(error.message) : String(error),
+      details: error && error.details ? String(error.details) : null,
+      hint: error && error.hint ? String(error.hint) : null
+    };
   }
-  supabase.auth.onAuthStateChange((event, session) => {
-    syncRealtimeAuth(session, `onAuthStateChange:${event}`);
-    // Fires for every sign-out cause (Logout button, expired/revoked session), not just a
-    // manual signOut() call, so VhcCloudAuthGate always falls back to the login screen —
-    // never leaves the app rendered against a session that's actually gone.
-    if (event === "SIGNED_OUT") {
-      try {
-        window.dispatchEvent(new CustomEvent("vhc-cloud-signed-out"));
-      } catch (e) {}
-    }
-  });
+  var CLOUD_WRITE_FUNCTIONS = /* @__PURE__ */ new Set([
+    "addInventoryItem",
+    "addInventoryItemsBulk",
+    "restoreInventoryFromBackup",
+    "updateInventoryItem",
+    "adjustStockBulk",
+    "deleteInventoryItem",
+    "clearInventoryData",
+    "factoryReset",
+    "upsertPatientFromOPD",
+    "restorePatientsFromBackup",
+    "addManualPatient",
+    "mergeManualPatientInto",
+    "createSale",
+    "deleteSale",
+    "deleteSaleByBillId",
+    "restoreSaleHistory",
+    "updateAlertsConfig",
+    "acceptPharmacyTransfer",
+    "rejectPharmacyTransfer"
+  ]);
+  var currentSession = null;
   async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     currentSession = data.session;
-    syncRealtimeAuth(data.session, "signIn");
+    setOfflineAuthMode(false);
+    await recordVerifiedOfflineIdentity(data.session?.user);
     return data.session;
   }
   async function getSession() {
     const { data } = await supabase.auth.getSession();
     currentSession = data.session;
-    syncRealtimeAuth(data.session, "getSession");
     return data.session;
   }
-  async function signOut() {
-    await supabase.auth.signOut();
-    currentSession = null;
-  }
-  // Reads the REAL server-side profiles.is_platform_admin flag (RLS-protected — a user
-  // can only read their own row) rather than any local/frontend value, so Settings'
-  // destructive Danger Zone actions gate on genuine Supabase-verified platform-admin
-  // status, not a client-side password. Fails closed (false) on any error/missing
-  // session — never let a network hiccup or query error be mistaken for admin access.
-  async function isPlatformAdmin() {
-    if (!currentSession) return false;
+  async function getAuthBootstrap() {
+    let session = null;
+    let authError = null;
     try {
-      const { data, error } = await supabase.from("profiles").select("is_platform_admin").eq("id", currentSession.user.id).maybeSingle();
-      if (error) {
-        console.error("[VHC_CLOUD] isPlatformAdmin query failed:", error);
-        return false;
+      const result = await supabase.auth.getSession();
+      session = result?.data?.session || null;
+      authError = result?.error || null;
+      currentSession = session;
+    } catch (error2) {
+      authError = error2;
+    }
+    let verificationError = null;
+    if (session && !authError) {
+      try {
+        const verified = await supabase.auth.getUser();
+        verificationError = verified?.error || null;
+        if (!verificationError && verified?.data?.user?.id === session.user?.id) {
+          currentSession = session;
+          setOfflineAuthMode(false);
+          await recordVerifiedOfflineIdentity(verified.data.user);
+          return { session, mode: "online" };
+        }
+        if (!verificationError) verificationError = Object.assign(new Error("Authenticated user did not match cached session"), { code: "AUTH_IDENTITY_MISMATCH" });
+      } catch (error2) {
+        verificationError = error2;
       }
-      return !!(data && data.is_platform_admin);
-    } catch (e) {
-      console.error("[VHC_CLOUD] isPlatformAdmin failed:", e);
-      return false;
+    }
+    const error = verificationError || authError;
+    const offlineIdentity = await readOfflineIdentity();
+    let bootstrapError = error;
+    if (!session && !bootstrapError && offlineIdentity && offlineIdentity.projectHost === projectHost()) {
+      try {
+        await probeCloudTransport();
+      } catch (probeError) {
+        bootstrapError = probeError;
+      }
+    }
+    const policy = window.VHC_RUNTIME_POLICY;
+    const decision = policy ? policy.decideAuthBootstrap({ session: null, authError: bootstrapError, offlineIdentity, projectHost: projectHost() }) : { mode: "signin" };
+    if (decision.mode === "offline") {
+      currentSession = null;
+      setOfflineAuthMode(true, decision.identity, true);
+      return { session: null, mode: "offline", offlineIdentity: decision.identity };
+    }
+    currentSession = null;
+    setOfflineAuthMode(false);
+    if (bootstrapError && !isTransportFailure(bootstrapError) && bootstrapError.status && [401, 403].includes(Number(bootstrapError.status))) {
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch (e) {
+      }
+      try {
+        await window.electronAPI?.clearOfflineAuthIdentity?.();
+      } catch (e) {
+      }
+    }
+    return {
+      session: null,
+      mode: "signin",
+      error: bootstrapError ? { code: bootstrapError.code || null, status: bootstrapError.status || null, message: bootstrapError.message || String(bootstrapError) } : null
+    };
+  }
+  async function checkReachability(options = {}) {
+    const timeoutMs = Math.max(1e3, Number(options.timeoutMs) || 5e3);
+    if (offlineAuthMode && offlineAuthTransportFailure) {
+      const error = new Error("Network request failed during offline auth bootstrap");
+      error.code = "ERR_NETWORK";
+      throw error;
+    }
+    const session = await getSession();
+    if (!session) {
+      const error = new Error("No authenticated Supabase session");
+      error.code = "AUTH_SESSION_MISSING";
+      throw error;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const { error } = await supabase.from("sales").select("id").limit(1).abortSignal(controller.signal);
+      if (error) throw error;
+      setOfflineAuthMode(false);
+      await recordVerifiedOfflineIdentity(session.user);
+      return { ok: true, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        const timeoutError = new Error(`Supabase reachability check timed out after ${timeoutMs}ms`);
+        timeoutError.code = "REACHABILITY_TIMEOUT";
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
+  async function signOut() {
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } finally {
+      currentSession = null;
+      setOfflineAuthMode(false);
+      try {
+        await window.electronAPI?.clearOfflineAuthIdentity?.();
+      } catch (e) {
+      }
+      window.dispatchEvent(new CustomEvent("vhc-cloud-signed-out"));
+    }
+  }
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT") {
+      currentSession = null;
+      setOfflineAuthMode(false);
+      window.dispatchEvent(new CustomEvent("vhc-cloud-signed-out"));
+    } else if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session?.user) {
+      currentSession = session;
+      setOfflineAuthMode(false);
+    }
+  });
+  window.addEventListener("online", () => {
+    offlineAuthTransportFailure = false;
+  });
   var pharmacyLocationId = null;
   var productCodeSupported = false;
   async function ensurePharmacyLocation() {
     if (pharmacyLocationId) return pharmacyLocationId;
     const { data, error } = await supabase.from("locations").select("id").eq("type", "pharmacy_counter").limit(1).maybeSingle();
-    if (error) {
-      console.error("[VHC_CLOUD] ensurePharmacyLocation query failed:", error, "session present:", !!currentSession);
-      throw error;
-    }
-    if (!data) {
-      console.error("[VHC_CLOUD] ensurePharmacyLocation: no matching row. session present:", !!currentSession, "- if this session is signed in, check the RLS policy on 'locations' allows SELECT of type=pharmacy_counter.");
-      throw new Error(`No location of type pharmacy_counter found (expected "${PHARMACY_LOCATION_NAME}")`);
-    }
+    if (error) throw error;
+    if (!data) throw new Error(`No location of type pharmacy_counter found (expected "${PHARMACY_LOCATION_NAME}")`);
     pharmacyLocationId = data.id;
-    console.log("[VHC_CLOUD] pharmacyLocationId resolved:", pharmacyLocationId);
     return pharmacyLocationId;
   }
   async function resolveItemId({ name, category, hsnCode, unitsPerPack, productCode }) {
@@ -20434,6 +20610,7 @@ ${suffix}`;
     return {
       id: row.id,
       itemId: row.item_id,
+      locationId: row.location_id,
       name: row.items?.name || "",
       batch: row.batch_no || "",
       expiry: row.expiry_date || "",
@@ -20448,32 +20625,11 @@ ${suffix}`;
       unitsPerPack: row.items?.units_per_pack || 10
     };
   }
-  // PostgREST caps a plain .select() at 1000 rows by default — silently, with no error and
-  // no indication the result was truncated. Any table that can plausibly exceed 1000 rows
-  // (patients, sales, and eventually inventory) MUST page through with .range() or results
-  // get silently cut off. This bit us for real: a first cut of restorePatientsFromBackup
-  // pre-fetched "existing patients" with a plain .select() and, for a 2367-row patients
-  // table, only ever saw the first 1000 — every patient past row 1000 was wrongly treated
-  // as "new" and duplicate-inserted instead of matched/updated.
-  async function selectAllPaginated(tableName, selectExpr, applyFilters) {
-    const PAGE = 1000;
-    let all = [];
-    let from = 0;
-    for (;;) {
-      let q = supabase.from(tableName).select(selectExpr);
-      if (applyFilters) q = applyFilters(q);
-      const { data, error } = await q.range(from, from + PAGE - 1);
-      if (error) throw error;
-      all = all.concat(data || []);
-      if (!data || data.length < PAGE) break;
-      from += PAGE;
-    }
-    return all;
-  }
   async function fetchInventory() {
     const locId = await ensurePharmacyLocation();
-    const data = await selectAllPaginated("stock_batches", "*, items(name, category, hsn_code, units_per_pack)", (q) => q.eq("location_id", locId));
-    inventoryCache = data.map(rowToInventoryItem);
+    const { data, error } = await supabase.from("stock_batches").select("*, items(name, category, hsn_code, units_per_pack)").eq("location_id", locId);
+    if (error) throw error;
+    inventoryCache = (data || []).map(rowToInventoryItem);
     cacheSet("inventory", inventoryCache);
     return inventoryCache;
   }
@@ -20566,16 +20722,10 @@ ${suffix}`;
   }
   async function restoreInventoryFromBackup(items) {
     if (!Array.isArray(items) || items.length === 0) return { restored: 0, failed: 0, errors: [] };
-    console.log(`[VHC_CLOUD] restoreInventoryFromBackup: starting for ${items.length} item(s)`);
-    try {
-      await fetchInventory();
-    } catch (e) {
-      console.error("[VHC_CLOUD] restoreInventoryFromBackup: fetchInventory() failed before restore could start —", e && e.message || e);
-      return { restored: 0, failed: items.length, errors: [{ error: `Cloud database unreachable: ${e && e.message || e}` }], cloudUnavailable: true };
-    }
+    await fetchInventory();
     let restored = 0;
     const errors = [];
-    await runConcurrentPool(items, 8, async (item) => {
+    for (const item of items) {
       try {
         if (!item || !item.name) throw new Error("Missing item name");
         const existing = inventoryCache.find(
@@ -20595,16 +20745,9 @@ ${suffix}`;
         }
         restored++;
       } catch (e) {
-        console.error(`[VHC_CLOUD] restoreInventoryFromBackup: item "${item && item.name}" failed —`, e && e.message || e);
         errors.push({ name: item && item.name, error: e.message || String(e) });
       }
-    });
-    try {
-      await fetchInventory();
-    } catch (e) {
-      console.error("[VHC_CLOUD] restoreInventoryFromBackup: post-restore verification fetch failed —", e && e.message || e);
     }
-    console.log(`[VHC_CLOUD] restoreInventoryFromBackup: done — restored ${restored}/${items.length}, cloud now has ${inventoryCache.length} item(s) for this location`);
     return { restored, failed: errors.length, errors };
   }
   async function adjustStockBulk(deductions, context) {
@@ -20637,6 +20780,18 @@ ${suffix}`;
     await fetchInventory();
     return results;
   }
+  async function reconcileStockMovement(payload) {
+    assertCloudWritesAllowed("reconcileStockMovement");
+    const { data, error } = await supabase.rpc("reconcile_stock_movement", { payload });
+    if (error) throw error;
+    return data;
+  }
+  async function findStockMovementByKey(movementKey) {
+    if (!movementKey) return null;
+    const { data, error } = await supabase.from("stock_movements").select("id, movement_key, item_id, location_id, batch_no, type, qty, opening, closing, bill_id, reason, created_at").eq("movement_key", movementKey).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  }
   async function deleteInventoryItem(id) {
     const { error } = await supabase.from("stock_batches").delete().eq("id", id);
     if (error) throw error;
@@ -20644,88 +20799,10 @@ ${suffix}`;
     cacheSet("inventory", inventoryCache);
     return { success: true, id };
   }
-  // Clear Inventory / Factory Reset — admin-only destructive actions, scoped to THIS
-  // pharmacy location only. The Supabase project is shared with a Warehouse app (via
-  // other locations' stock_batches/purchase_order_items) and an OPD app (via the global,
-  // location-less `patients` table). Deleting rows from `items` or `patients` outright
-  // would corrupt those other apps' data, so neither is ever touched here — only rows
-  // scoped to this location_id are removed. `purchase_orders`/`transfer_orders` are the
-  // Warehouse app's own domain and are never touched by this app either.
-  async function clearInventoryData() {
-    const locId = await ensurePharmacyLocation();
-    console.log(`[VHC_CLEAR] clearInventoryData: starting for location ${locId}`);
-    const { error: smErr, count: smCount } = await supabase.from("stock_movements").delete({ count: "exact" }).eq("location_id", locId);
-    if (smErr) {
-      console.error("[VHC_CLEAR] clearInventoryData: stock_movements delete failed —", smErr.message || smErr);
-      throw smErr;
-    }
-    const { error: sbErr, count: sbCount } = await supabase.from("stock_batches").delete({ count: "exact" }).eq("location_id", locId);
-    if (sbErr) {
-      console.error("[VHC_CLEAR] clearInventoryData: stock_batches delete failed —", sbErr.message || sbErr);
-      throw sbErr;
-    }
-    inventoryCache = [];
-    cacheSet("inventory", inventoryCache);
-    try {
-      await fetchInventory();
-    } catch (e) {
-      console.error("[VHC_CLEAR] clearInventoryData: post-clear verification fetch failed —", e && e.message || e);
-    }
-    console.log(`[VHC_CLEAR] clearInventoryData: done — removed ${sbCount ?? "?"} stock batch row(s), ${smCount ?? "?"} stock movement row(s); cloud now has ${inventoryCache.length} item(s) for this location`);
-    return { stockBatchesDeleted: sbCount ?? null, stockMovementsDeleted: smCount ?? null };
-  }
-  async function factoryReset() {
-    const locId = await ensurePharmacyLocation();
-    console.log(`[VHC_CLEAR] factoryReset: starting for location ${locId}`);
-    const saleRows = await selectAllPaginated("sales", "id", (q) => q.eq("location_id", locId));
-    const saleIds = saleRows.map((r) => r.id);
-    console.log(`[VHC_CLEAR] factoryReset: found ${saleIds.length} sale(s) to remove`);
-    let saleItemsDeleted = 0;
-    const CHUNK = 200;
-    for (let i = 0; i < saleIds.length; i += CHUNK) {
-      const chunk = saleIds.slice(i, i + CHUNK);
-      const { error, count } = await supabase.from("sale_items").delete({ count: "exact" }).in("sale_id", chunk);
-      if (error) {
-        console.error("[VHC_CLEAR] factoryReset: sale_items delete failed —", error.message || error);
-        throw error;
-      }
-      saleItemsDeleted += count ?? chunk.length;
-    }
-    const { error: salesErr, count: salesCount } = await supabase.from("sales").delete({ count: "exact" }).eq("location_id", locId);
-    if (salesErr) {
-      console.error("[VHC_CLEAR] factoryReset: sales delete failed —", salesErr.message || salesErr);
-      throw salesErr;
-    }
-    const { error: smErr, count: smCount } = await supabase.from("stock_movements").delete({ count: "exact" }).eq("location_id", locId);
-    if (smErr) {
-      console.error("[VHC_CLEAR] factoryReset: stock_movements delete failed —", smErr.message || smErr);
-      throw smErr;
-    }
-    const { error: sbErr, count: sbCount } = await supabase.from("stock_batches").delete({ count: "exact" }).eq("location_id", locId);
-    if (sbErr) {
-      console.error("[VHC_CLEAR] factoryReset: stock_batches delete failed —", sbErr.message || sbErr);
-      throw sbErr;
-    }
-    inventoryCache = [];
-    salesCache = [];
-    cacheSet("inventory", inventoryCache);
-    cacheSet("salesHistory", salesCache);
-    try {
-      await Promise.all([fetchInventory(), fetchSalesHistory()]);
-    } catch (e) {
-      console.error("[VHC_CLEAR] factoryReset: post-reset verification fetch failed —", e && e.message || e);
-    }
-    console.log(`[VHC_CLEAR] factoryReset: done — removed ${saleIds.length} sale(s), ${saleItemsDeleted} sale item row(s), ${smCount ?? "?"} stock movement row(s), ${sbCount ?? "?"} stock batch row(s). Patients and the shared product catalog were left intact (shared with OPD/Warehouse).`);
-    return { salesDeleted: saleIds.length, saleItemsDeleted, stockMovementsDeleted: smCount ?? null, stockBatchesDeleted: sbCount ?? null };
-  }
   var patientsCache = [];
   function identityFilter(p) {
     const contact = (p.contact || p.mobile || p.phone || "").replace(/\D/g, "");
     return { contact, name: (p.name || "").trim().toLowerCase(), age: p.age || null, sex: p.sex || p.gender || null };
-  }
-  function safeAge(age) {
-    const n = parseInt(age, 10);
-    return Number.isFinite(n) && n > 0 && n < 150 ? n : null;
   }
   async function findExistingPatient(p, legacyId) {
     if (legacyId) {
@@ -20734,12 +20811,8 @@ ${suffix}`;
     }
     const { contact, name } = identityFilter(p);
     if (contact) {
-      // Cast the column to text at query time: on schemas where 'contact' is a 32-bit
-      // integer, an .eq() with a 10-digit phone number overflows int4 range and throws
-      // "value out of range for type integer" — the ::text cast sidesteps that entirely.
-      const { data, error } = await supabase.from("patients").select("*").filter("contact::text", "eq", contact).limit(1).maybeSingle();
-      if (error) console.error("[VHC_CLOUD] findExistingPatient: contact lookup failed —", error.message || error);
-      else if (data) return data;
+      const { data } = await supabase.from("patients").select("*").eq("contact", contact).limit(1).maybeSingle();
+      if (data) return data;
     }
     if (name) {
       const { data } = await supabase.from("patients").select("*").ilike("name", name).limit(1).maybeSingle();
@@ -20752,8 +20825,8 @@ ${suffix}`;
     const existing = await findExistingPatient(p, legacyId);
     const payload = {
       name: p.name,
-      contact: identityFilter(p).contact || null,
-      age: safeAge(p.age),
+      contact: p.contact || p.mobile || p.phone || null,
+      age: p.age || null,
       sex: p.sex || p.gender || null,
       address: p.address || null,
       source: "opd"
@@ -20768,110 +20841,19 @@ ${suffix}`;
     if (error) throw error;
     return data;
   }
-  async function runConcurrentPool(items, concurrency, worker) {
-    let idx = 0;
-    async function next() {
-      while (idx < items.length) {
-        const i = idx++;
-        await worker(items[i]);
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, next));
-  }
   async function restorePatientsFromBackup(patients) {
     if (!Array.isArray(patients) || patients.length === 0) return { restored: 0, failed: 0, errors: [] };
-    console.log(`[VHC_CLOUD] restorePatientsFromBackup: starting for ${patients.length} patient(s)`);
-    // Historically this ran up to 3 lookup queries + 1 write PER patient, fully sequential —
-    // for a real backup with thousands of patients that's thousands of sequential round trips
-    // (tens of minutes, looks hung). Pre-fetch all existing patients ONCE and match locally
-    // instead, then write in bulk/parallel batches.
-    let existingPatients;
-    try {
-      // Exclude already-merged/hidden duplicates so matching always lands on the canonical
-      // (visible) row for a person, never a row that's been merged away.
-      existingPatients = await selectAllPaginated("patients", "id, legacy_patient_id, contact, name", (q) => q.is("merged_into_patient_id", null));
-    } catch (e) {
-      console.error("[VHC_CLOUD] restorePatientsFromBackup: pre-fetch of existing patients failed —", e && e.message || e);
-      return { restored: 0, failed: patients.length, errors: [{ error: `Cloud database unreachable: ${e && e.message || e}` }], cloudUnavailable: true };
-    }
-    const byLegacyId = new Map(), byContact = new Map(), byName = new Map();
-    for (const row of existingPatients) {
-      if (row.legacy_patient_id) byLegacyId.set(String(row.legacy_patient_id), row);
-      if (row.contact) byContact.set(String(row.contact).replace(/\D/g, ""), row);
-      if (row.name) {
-        const key = row.name.trim().toLowerCase();
-        if (!byName.has(key)) byName.set(key, row);
-      }
-    }
     let restored = 0;
     const errors = [];
-    const toInsert = [];
-    const toUpdate = [];
     for (const p of patients) {
-      if (!p || !p.name) {
-        errors.push({ name: p && p.name, patientId: p && p.patientId, error: "Missing patient name" });
-        continue;
-      }
-      const legacyId = p.patientId || null;
-      const { contact, name } = identityFilter(p);
-      const existing = (legacyId && byLegacyId.get(String(legacyId))) || (contact && byContact.get(contact)) || (name && byName.get(name)) || null;
-      const payload = {
-        name: p.name,
-        contact: contact || null,
-        age: safeAge(p.age),
-        sex: p.sex || p.gender || null,
-        address: p.address || null,
-        source: p.source || "restore"
-      };
-      if (legacyId) payload.legacy_patient_id = legacyId;
-      if (existing) toUpdate.push({ id: existing.id, payload, name: p.name });
-      else toInsert.push({ payload, name: p.name });
-    }
-    console.log(`[VHC_CLOUD] restorePatientsFromBackup: matched ${toUpdate.length} existing (update), ${toInsert.length} new (insert) against ${existingPatients.length} existing patient row(s)`);
-    const restoreStartedAt = Date.now();
-    let updateProgress = 0;
-    await runConcurrentPool(toUpdate, 16, async (u) => {
       try {
-        const { error } = await supabase.from("patients").update(u.payload).eq("id", u.id);
-        if (error) throw error;
+        if (!p || !p.name) throw new Error("Missing patient name");
+        await upsertPatientFromOPD({ ...p, source: p.source || "restore" });
         restored++;
       } catch (e) {
-        console.error(`[VHC_CLOUD] restorePatientsFromBackup: update for "${u.name}" failed —`, e && e.message || e);
-        errors.push({ name: u.name, error: e.message || String(e) });
-      }
-      updateProgress++;
-      if (updateProgress % 100 === 0 || updateProgress === toUpdate.length) {
-        const elapsedSec = ((Date.now() - restoreStartedAt) / 1000).toFixed(1);
-        console.log(`[VHC_CLOUD] restorePatientsFromBackup: progress ${updateProgress}/${toUpdate.length} updates (${elapsedSec}s elapsed)`);
-      }
-    });
-    const INSERT_CHUNK = 200;
-    for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
-      const chunk = toInsert.slice(i, i + INSERT_CHUNK);
-      try {
-        const { error } = await supabase.from("patients").insert(chunk.map((c) => c.payload));
-        if (error) throw error;
-        restored += chunk.length;
-      } catch (e) {
-        console.error(`[VHC_CLOUD] restorePatientsFromBackup: bulk insert of ${chunk.length} new patient(s) failed — retrying individually to isolate bad rows —`, e && e.message || e);
-        for (const c of chunk) {
-          try {
-            const { error: e2 } = await supabase.from("patients").insert(c.payload);
-            if (e2) throw e2;
-            restored++;
-          } catch (e3) {
-            console.error(`[VHC_CLOUD] restorePatientsFromBackup: insert for "${c.name}" failed —`, e3 && e3.message || e3);
-            errors.push({ name: c.name, error: e3.message || String(e3) });
-          }
-        }
+        errors.push({ name: p && p.name, patientId: p && p.patientId, error: e.message || String(e) });
       }
     }
-    try {
-      await fetchPatients();
-    } catch (e) {
-      console.error("[VHC_CLOUD] restorePatientsFromBackup: post-restore verification fetch failed —", e && e.message || e);
-    }
-    console.log(`[VHC_CLOUD] restorePatientsFromBackup: done — restored ${restored}/${patients.length} in ${((Date.now() - restoreStartedAt) / 1000).toFixed(1)}s, cloud now has ${patientsCache.length} patient(s)`);
     return { restored, failed: errors.length, errors };
   }
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20896,8 +20878,9 @@ ${suffix}`;
     if (error) throw error;
   }
   async function fetchPatients() {
-    const data = await selectAllPaginated("patients", "*", (q) => q.order("created_at", { ascending: false }));
-    patientsCache = data;
+    const { data, error } = await supabase.from("patients").select("*").order("created_at", { ascending: false });
+    if (error) throw error;
+    patientsCache = data || [];
     cacheSet("patients", patientsCache);
     return patientsCache;
   }
@@ -20912,8 +20895,9 @@ ${suffix}`;
   }
   var salesCache = [];
   async function fetchSalesHistory() {
-    const data = await selectAllPaginated("sales", "*, sale_items(*)", (q) => q.order("sale_date", { ascending: false }));
-    salesCache = data;
+    const { data, error } = await supabase.from("sales").select("*, sale_items(*)").order("sale_date", { ascending: false });
+    if (error) throw error;
+    salesCache = data || [];
     cacheSet("salesHistory", salesCache);
     return salesCache;
   }
@@ -20975,6 +20959,7 @@ ${suffix}`;
       bill_id: payload.billId,
       patient_id: patientId,
       patient_name: payload.patientName || null,
+      patient_snapshot: payload.patientSnapshot || null,
       doctor_name: payload.doctorName || null,
       payment_mode: payload.paymentMode || null,
       subtotal: payload.subtotal,
@@ -20999,6 +20984,12 @@ ${suffix}`;
     if (error) throw error;
     await Promise.all([fetchSalesHistory(), fetchInventory()]);
     return data;
+  }
+  async function findSaleByBillId(billId) {
+    if (!billId) return null;
+    const { data, error } = await supabase.from("sales").select("*, sale_items(*)").eq("bill_id", billId).maybeSingle();
+    if (error) throw error;
+    return data || null;
   }
   async function deleteSale(saleId) {
     const { error } = await supabase.rpc("delete_sale_and_restore", { p_sale_id: saleId });
@@ -21071,23 +21062,6 @@ ${suffix}`;
     const { error } = await supabase.from("alerts_config").update(dbPatch).eq("location_id", locId);
     if (error) throw error;
   }
-  // ============================================================
-  // Warehouse -> Pharmacy stock transfers ("Pending Stock Requests")
-  //
-  // Shares the exact transfer_orders / transfer_order_items tables, the same
-  // Pending -> Completed / Rejected status vocabulary, and the same accept
-  // semantics as the VHC Mobile app's WarehouseContext.jsx
-  // (createPharmacyTransferRequest / approvePharmacyTransfer /
-  // cancelPharmacyTransfer) — no separate transfer system, no separate stock
-  // logic, no new tables. The Warehouse side creates the Pending row (this app
-  // never does); it changes NO stock. Only Accept moves stock, and it does so
-  // exactly once no matter which app calls it, because the very first write is
-  // an atomic `UPDATE transfer_orders ... WHERE status='Pending'` — if Mobile
-  // (or another Desktop session) already claimed the row, this update affects
-  // zero rows and Accept fails with a clean "already processed" error instead
-  // of moving stock a second time. batchEq mirrors WarehouseContext.jsx's own
-  // helper: a null/blank batch must match a NULL batch_no, not the string "".
-  // ============================================================
   var mainWarehouseLocationId = null;
   var locationNameCache = /* @__PURE__ */ new Map();
   var pendingTransfersCache = [];
@@ -21147,7 +21121,7 @@ ${suffix}`;
     const mainId = await ensureMainWarehouseLocation();
     const { data: t, error: readErr } = await supabase.from("transfer_orders").select("*, transfer_order_items(*)").eq("id", transferId).maybeSingle();
     if (readErr) throw readErr;
-    if (!t) throw new Error("Request not found — refresh and try again.");
+    if (!t) throw new Error("Request not found \u2014 refresh and try again.");
     if (t.status !== "Pending") throw new Error(`This request is already "${t.status}".`);
     const lines = (t.transfer_order_items || []).filter((l) => (l.qty || 0) > 0);
     if (lines.length === 0) throw new Error("This request has no items to transfer.");
@@ -21159,7 +21133,7 @@ ${suffix}`;
       ).maybeSingle();
       if (srcErr) throw srcErr;
       if (!src || (src.qty || 0) < line.qty) {
-        throw new Error(`Warehouse stock for "${line.name}" changed — only ${src && src.qty || 0} available (need ${line.qty}). Refresh and try again.`);
+        throw new Error(`Warehouse stock for "${line.name}" changed \u2014 only ${src && src.qty || 0} available (need ${line.qty}). Refresh and try again.`);
       }
       plan.push({ line, src });
     }
@@ -21174,7 +21148,7 @@ ${suffix}`;
         const qty = line.qty;
         const { data: srcUpd, error: srcUpdErr } = await supabase.from("stock_batches").update({ qty: Math.max(0, (src.qty || 0) - qty) }).eq("id", src.id).eq("qty", src.qty).select("id");
         if (srcUpdErr) throw srcUpdErr;
-        if (!srcUpd || srcUpd.length === 0) throw new Error("Warehouse stock changed during accept — this line needs manual review.");
+        if (!srcUpd || srcUpd.length === 0) throw new Error("Warehouse stock changed during accept \u2014 this line needs manual review.");
         await supabase.from("stock_movements").insert({
           item_id: line.item_id,
           location_id: mainId,
@@ -21193,7 +21167,7 @@ ${suffix}`;
           const before = destRow.qty || 0;
           const { data: bumped, error: bumpErr } = await supabase.from("stock_batches").update({ qty: before + qty }).eq("id", destRow.id).eq("qty", before).select("id");
           if (bumpErr) throw bumpErr;
-          if (!bumped || bumped.length === 0) throw new Error("Pharmacy stock changed during accept — this line needs manual review.");
+          if (!bumped || bumped.length === 0) throw new Error("Pharmacy stock changed during accept \u2014 this line needs manual review.");
           await supabase.from("stock_movements").insert({
             item_id: line.item_id,
             location_id: pharmId,
@@ -21254,153 +21228,34 @@ ${problems.join("\n")}`);
       try {
         await supabase.from("transfer_orders").update({ notes: appended }).eq("id", transferId);
       } catch (e) {
-        console.error("[VHC_CLOUD] rejectPharmacyTransfer: appending reason to notes failed (reject itself already succeeded):", e && e.message || e);
+        console.error("[VHC_CLOUD] rejectPharmacyTransfer: appending reason to notes failed (reject itself already succeeded):", e?.message || e);
       }
     }
     return { ok: true };
   }
   var realtimeChannel = null;
-  // A bulk write (e.g. restoring thousands of patient rows) fires one postgres_changes
-  // event PER ROW. Naively awaiting a full re-fetch on every single event floods Supabase
-  // with thousands of concurrent redundant requests and, with no error handling, turns any
-  // failure into an unhandled promise rejection. Debounce so a burst collapses into one
-  // refetch after things settle, with a max wait so a long continuous burst still refreshes
-  // periodically instead of starving entirely.
-  function makeDebouncedRefetch(fn, delayMs, maxWaitMs, onSettled, label) {
-    let timer = null;
-    let firstEventAt = 0;
-    let triggerCount = 0;
-    return () => {
-      triggerCount++;
-      const now = Date.now();
-      if (!timer) firstEventAt = now;
-      if (timer) clearTimeout(timer);
-      const wait = now - firstEventAt >= maxWaitMs ? 0 : delayMs;
-      console.log(`[VHC_REALTIME] [${label}] event received (trigger #${triggerCount}) — refetch scheduled in ${wait}ms`);
-      timer = setTimeout(async () => {
-        const pendingSinceLastArm = triggerCount;
-        timer = null;
-        console.log(`[VHC_REALTIME] [${label}] refetch firing now (covering ${pendingSinceLastArm} trigger(s) since armed)`);
-        try {
-          await fn();
-          console.log(`[VHC_REALTIME] [${label}] refetch SUCCEEDED`);
-          if (onSettled) {
-            try {
-              onSettled();
-              console.log(`[VHC_REALTIME] [${label}] UI-update event emitted`);
-            } catch (e2) {
-              console.error(`[VHC_REALTIME] [${label}] onSettled/emit threw —`, e2 && e2.message || e2);
-            }
-          }
-        } catch (e) {
-          console.error(`[VHC_REALTIME] [${label}] refetch FAILED —`, e && e.message || e);
-        }
-      }, wait);
-    };
-  }
-  var realtimeRetryTimer = null;
-  var realtimeRetryDelay = 3000;
-  var realtimeHealthCheckTimer = null;
   async function startRealtime() {
-    if (realtimeChannel) {
-      console.log("[VHC_REALTIME] startRealtime() called but a channel already exists (state:", realtimeChannel.state, ") — skipping.");
-      return;
-    }
-    console.log("[VHC_REALTIME] startRealtime() called — resolving pharmacy location...");
+    if (realtimeChannel) return;
     const locId = await ensurePharmacyLocation();
-    console.log(`[VHC_REALTIME] Location resolved: ${locId}. Building channel "pharmacy-sync" with filters:`);
-    console.log(`[VHC_REALTIME]   stock_batches  filter=location_id=eq.${locId}`);
-    console.log(`[VHC_REALTIME]   sales          filter=(none — all locations)`);
-    console.log(`[VHC_REALTIME]   sale_items     filter=(none)`);
-    console.log(`[VHC_REALTIME]   patients       filter=(none — global table)`);
-    console.log(`[VHC_REALTIME]   alerts_config  filter=location_id=eq.${locId}`);
-    console.log(`[VHC_REALTIME]   transfer_orders filter=(none — matches WarehouseContext.jsx's own unfiltered subscription; Pending Stock Requests are filtered server-side in fetchPendingPharmacyTransfers instead)`);
-    const safeEmit = (table, type, row) => {
-      console.log(`[VHC_REALTIME] emit() dispatching vhc-cloud-change for table="${table}" type="${type}"`);
-      try {
-        emit(table, type, row);
-      } catch (e) {
-        console.error(`[VHC_REALTIME] emit() threw for table="${table}" —`, e && e.message || e);
-      }
-    };
-    // IMPORTANT: the emit itself must be debounced together with the refetch, not fired
-    // immediately per row. The renderer listens for this event and independently triggers
-    // its OWN full refetch (e.g. Hr's loadPatients()) every time it fires. A bulk write of
-    // thousands of rows previously fired this event thousands of times undebounced, so even
-    // though the INTERNAL cache refresh above was debounced, the RENDERER's separate fetch
-    // was not — flooding Supabase with enough concurrent requests to exhaust the connection
-    // pool ("Timed out acquiring connection from connection pool"), and since fetchPatients
-    // is wrapped by withErrorReport (which swallows the error instead of throwing), a late,
-    // failed, or stale trailing fetch could silently overwrite correct post-reload state
-    // with stale data — exactly the "nothing appears until app restart" symptom.
-    const debouncedFetchInventory = makeDebouncedRefetch(fetchInventory, 800, 5000, () => safeEmit("stock_batches", "change", null), "stock_batches");
-    const debouncedFetchSales = makeDebouncedRefetch(fetchSalesHistory, 800, 5000, () => safeEmit("sales", "change", null), "sales");
-    const debouncedFetchPatients = makeDebouncedRefetch(fetchPatients, 800, 5000, () => safeEmit("patients", "change", null), "patients");
-    const debouncedEmitSaleItems = makeDebouncedRefetch(async () => {}, 800, 5000, () => safeEmit("sale_items", "change", null), "sale_items");
-    const debouncedFetchTransfers = makeDebouncedRefetch(fetchPendingPharmacyTransfers, 800, 5000, () => safeEmit("transfer_orders", "change", null), "transfer_orders");
-    const channel = supabase.channel("pharmacy-sync").on("postgres_changes", { event: "*", schema: "public", table: "stock_batches", filter: `location_id=eq.${locId}` }, (payload) => {
-      console.log(`[VHC_REALTIME] EVENT RECEIVED: table=stock_batches type=${payload.eventType} row_id=${(payload.new || payload.old || {}).id}`);
-      debouncedFetchInventory();
-    }).on("postgres_changes", { event: "*", schema: "public", table: "sales" }, (payload) => {
-      console.log(`[VHC_REALTIME] EVENT RECEIVED: table=sales type=${payload.eventType} row_id=${(payload.new || payload.old || {}).id}`);
-      debouncedFetchSales();
-    }).on("postgres_changes", { event: "*", schema: "public", table: "sale_items" }, (payload) => {
-      console.log(`[VHC_REALTIME] EVENT RECEIVED: table=sale_items type=${payload.eventType} row_id=${(payload.new || payload.old || {}).id}`);
-      debouncedEmitSaleItems();
-    }).on("postgres_changes", { event: "*", schema: "public", table: "patients" }, (payload) => {
-      console.log(`[VHC_REALTIME] EVENT RECEIVED: table=patients type=${payload.eventType} row_id=${(payload.new || payload.old || {}).id}`);
-      debouncedFetchPatients();
+    realtimeChannel = supabase.channel("pharmacy-sync").on("postgres_changes", { event: "*", schema: "public", table: "stock_batches", filter: `location_id=eq.${locId}` }, async (payload) => {
+      await fetchInventory();
+      emit("stock_batches", payload.eventType, payload.new || payload.old);
+    }).on("postgres_changes", { event: "*", schema: "public", table: "sales" }, async (payload) => {
+      await fetchSalesHistory();
+      emit("sales", payload.eventType, payload.new || payload.old);
+    }).on("postgres_changes", { event: "*", schema: "public", table: "sale_items" }, async (payload) => {
+      emit("sale_items", payload.eventType, payload.new || payload.old);
+    }).on("postgres_changes", { event: "*", schema: "public", table: "patients" }, async (payload) => {
+      await fetchPatients();
+      emit("patients", payload.eventType, payload.new || payload.old);
     }).on("postgres_changes", { event: "*", schema: "public", table: "alerts_config", filter: `location_id=eq.${locId}` }, (payload) => {
-      console.log(`[VHC_REALTIME] EVENT RECEIVED: table=alerts_config type=${payload.eventType} row_id=${(payload.new || payload.old || {}).id}`);
-      safeEmit("alerts_config", payload.eventType, payload.new || payload.old);
-    }).on("postgres_changes", { event: "*", schema: "public", table: "transfer_orders" }, (payload) => {
-      console.log(`[VHC_REALTIME] EVENT RECEIVED: table=transfer_orders type=${payload.eventType} row_id=${(payload.new || payload.old || {}).id}`);
-      debouncedFetchTransfers();
+      emit("alerts_config", payload.eventType, payload.new || payload.old);
+    }).on("postgres_changes", { event: "*", schema: "public", table: "transfer_orders" }, async (payload) => {
+      await fetchPendingPharmacyTransfers();
+      emit("transfer_orders", payload.eventType, payload.new || payload.old);
     }).subscribe((status, err) => {
-      // Previously this only recorded the status — it never checked whether the
-      // subscription actually SUCCEEDED, and realtimeChannel got set regardless of outcome.
-      // That meant the `if (realtimeChannel) return;` guard above permanently blocked any
-      // retry for the rest of the session if the one-shot connection attempt failed (e.g. a
-      // transient network drop during the WebSocket handshake at startup) — the only way to
-      // recover was a full page reload. Now a failed/dropped subscription clears the channel
-      // and schedules a retry with backoff instead of silently giving up forever.
-      console.log(`[VHC_REALTIME] subscribe() status callback: status="${status}"${err ? ` err="${err.message || err}"` : ``} (channel internal state: ${channel.state})`);
-      window.__vhcRealtimeStatus = { status, err: err?.message, at: new Date().toISOString() };
-      if (status === "SUBSCRIBED") {
-        console.log("[VHC_REALTIME] ✅ SUBSCRIBED — channel is live and should now receive postgres_changes events.");
-        realtimeRetryDelay = 3000;
-        if (realtimeRetryTimer) {
-          clearTimeout(realtimeRetryTimer);
-          realtimeRetryTimer = null;
-        }
-        if (!realtimeHealthCheckTimer) {
-          realtimeHealthCheckTimer = setInterval(() => {
-            if (realtimeChannel && realtimeChannel.state !== "joined" && realtimeChannel.state !== "joining") {
-              console.error("[VHC_CLOUD] Realtime channel health check found state:", realtimeChannel.state, "— reconnecting.");
-              try {
-                supabase.removeChannel(realtimeChannel);
-              } catch (e) {}
-              realtimeChannel = null;
-              startRealtime().catch((e) => console.error("[VHC_CLOUD] Realtime reconnect failed:", e.message));
-            }
-          }, 5 * 60 * 1000);
-        }
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-        console.error("[VHC_CLOUD] Realtime subscription failed:", status, err && err.message);
-        try {
-          supabase.removeChannel(channel);
-        } catch (e) {}
-        if (realtimeChannel === channel) realtimeChannel = null;
-        if (!realtimeRetryTimer) {
-          realtimeRetryTimer = setTimeout(() => {
-            realtimeRetryTimer = null;
-            startRealtime().catch((e) => console.error("[VHC_CLOUD] Realtime retry failed:", e.message));
-          }, realtimeRetryDelay);
-          realtimeRetryDelay = Math.min(realtimeRetryDelay * 2, 60000);
-        }
-      }
+      window.__vhcRealtimeStatus = { status, err: err?.message };
     });
-    realtimeChannel = channel;
   }
   function getRealtimeState() {
     return { channelState: realtimeChannel?.state, lastStatus: window.__vhcRealtimeStatus };
@@ -21413,6 +21268,7 @@ ${problems.join("\n")}`);
         const raw = localStorage.getItem("pos_inventory");
         const local = raw ? JSON.parse(raw) : [];
         if (Array.isArray(local) && local.length > 0) {
+          assertCloudWritesAllowed("autoRecoverLocalInventoryIfNeeded");
           const result = await restoreInventoryFromBackup(local);
           if (result.failed > 0) {
             console.error("[VHC_CLOUD] auto-recovery had failures, will retry next launch:", result.errors);
@@ -21426,36 +21282,37 @@ ${problems.join("\n")}`);
     }
   }
   async function init() {
-    console.log("[VHC_REALTIME] init() starting — checking Supabase Auth session...");
+    installEnvironmentIndicator();
     await getSession();
-    if (!currentSession) {
-      console.error("[VHC_REALTIME] init() ABORTED: no Supabase Auth session (currentSession is null). startRealtime() will NOT be called — this alone would fully explain 'no realtime sync' with no other symptom, since every other feature (fetch/write) works fine on the anon key regardless of session state.");
-      return;
-    }
-    console.log(`[VHC_REALTIME] Session OK (user: ${currentSession.user && currentSession.user.email || currentSession.user && currentSession.user.id || "unknown"}). Resolving location + initial fetch...`);
+    if (!currentSession) return;
     await ensurePharmacyLocation();
-    await Promise.all([fetchInventory(), fetchPatients(), fetchSalesHistory(), fetchPendingPharmacyTransfers().catch((e) => console.error("[VHC_CLOUD] initial fetchPendingPharmacyTransfers failed:", e && e.message || e))]);
+    await Promise.all([
+      fetchInventory(),
+      fetchPatients(),
+      fetchSalesHistory(),
+      fetchPendingPharmacyTransfers().catch((e) => console.error("[VHC_CLOUD] initial fetchPendingPharmacyTransfers failed:", e?.message || e))
+    ]);
     await autoRecoverLocalInventoryIfNeeded();
-    console.log("[VHC_REALTIME] Initial fetch complete — calling startRealtime()...");
     await startRealtime();
-    console.log("[VHC_REALTIME] init() finished. Post-init realtime state:", JSON.stringify(getRealtimeState()));
-    // Belt-and-suspenders alongside the transfer_orders realtime subscription above: a
-    // Warehouse -> Pharmacy request must never depend solely on realtime actually being
-    // configured (the table only joined the Supabase realtime publication via a migration
-    // dated the same day this feature shipped — see supabase/migrations/20260909000100_
-    // transfer_orders_realtime.sql). If that migration is ever rolled back or hasn't reached
-    // this environment yet, this 45s poll still satisfies "no manual refresh required."
     if (!window.__vhcTransferPollTimer) {
       window.__vhcTransferPollTimer = setInterval(() => {
-        fetchPendingPharmacyTransfers().then(() => emit("transfer_orders", "change", null)).catch((e) => console.error("[VHC_CLOUD] poll fetchPendingPharmacyTransfers failed:", e && e.message || e));
-      }, 45000);
+        fetchPendingPharmacyTransfers().then(() => emit("transfer_orders", "change", null)).catch((e) => console.error("[VHC_CLOUD] poll fetchPendingPharmacyTransfers failed:", e?.message || e));
+      }, 45e3);
     }
   }
   window.VHC_CLOUD = {
+    getEnvironmentConfig: () => ({
+      environmentName: CLOUD_CONFIG.environmentName,
+      supabaseUrl: CLOUD_CONFIG.supabaseUrl,
+      isProductionUrl: CLOUD_CONFIG.isProductionUrl,
+      cloudWritesAllowed: CLOUD_CONFIG.cloudWritesAllowed,
+      disabledReason: CLOUD_CONFIG.disabledReason
+    }),
     signIn: withErrorReport(signIn),
     getSession,
+    getAuthBootstrap,
+    checkReachability,
     signOut: withErrorReport(signOut),
-    isPlatformAdmin,
     init: withErrorReport(init),
     getInventory,
     fetchInventory: withErrorReport(fetchInventory),
@@ -21464,9 +21321,11 @@ ${problems.join("\n")}`);
     restoreInventoryFromBackup: withErrorReport(restoreInventoryFromBackup),
     updateInventoryItem: withErrorReport(updateInventoryItem),
     adjustStockBulk: withErrorReport(adjustStockBulk),
+    reconcileStockMovement: withErrorReport(reconcileStockMovement),
+    reconcileStockMovementStrict: reconcileStockMovement,
+    findStockMovementByKey: withErrorReport(findStockMovementByKey),
+    findStockMovementByKeyStrict: findStockMovementByKey,
     deleteInventoryItem: withErrorReport(deleteInventoryItem),
-    clearInventoryData: withErrorReport(clearInventoryData),
-    factoryReset: withErrorReport(factoryReset),
     getAllPatients,
     findPatientsByName,
     fetchPatients: withErrorReport(fetchPatients),
@@ -21477,6 +21336,10 @@ ${problems.join("\n")}`);
     getSalesHistory,
     fetchSalesHistory: withErrorReport(fetchSalesHistory),
     createSale: withErrorReport(createSale),
+    findSaleByBillId: withErrorReport(findSaleByBillId),
+    createSaleStrict: createSale,
+    findSaleByBillIdStrict: findSaleByBillId,
+    describeCloudError,
     deleteSale: withErrorReport(deleteSale),
     deleteSaleByBillId: withErrorReport(deleteSaleByBillId),
     restoreSaleHistory: withErrorReport(restoreSaleHistory),

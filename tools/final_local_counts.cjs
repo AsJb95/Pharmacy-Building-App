@@ -1,0 +1,11 @@
+const Database = require('better-sqlite3');
+const db = new Database(process.env.VHC_VALIDATION_DB || '.validation/profile/vhc_pharmacy.db', { readonly: true });
+const billPattern = process.env.VHC_VALIDATION_BILL_ID || 'TEST-VHC-%';
+const sales = db.prepare('select count(*) c from sales where bill_id like ?').get(billPattern).c;
+const items = db.prepare('select count(*) c from sale_items where sale_id in (select id from sales where bill_id like ?)').get(billPattern).c;
+const billMovements = db.prepare("select count(*) c from stock_movements where bill_id like ? and type='BILL'").get(billPattern).c;
+const duplicateBills = db.prepare('select bill_id,count(*) c from sales where bill_id like ? group by bill_id having count(*)>1').all(billPattern);
+const syncStatuses = db.prepare('select sync_status,count(*) c from financial_sync_operations where bill_id like ? group by sync_status').all(billPattern);
+const stock = db.prepare('select sb.qty, i.name, sb.batch_no from stock_batches sb join items i on i.id=sb.item_id where sb.id in (select stock_batch_id from sale_items where sale_id in (select id from sales where bill_id like ?))').all(billPattern);
+console.log(JSON.stringify({ sales, items, billMovements, duplicateBills, syncStatuses, stock }, null, 2));
+db.close();
