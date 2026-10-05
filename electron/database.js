@@ -925,6 +925,119 @@ export function cancelLocalSale(billId) {
   }
 }
 
+/** Atomically records a full or partial return and restores the original batch once. */
+export function createLocalSaleReturn({ id, billId, items }) {
+  if (!db) return { success: false, error: 'Local database is not initialized' };
+  if (!id || !billId || !Array.isArray(items) || items.length === 0) {
+    return { success: false, rejected: true, error: 'Return id, bill id, and items are required' };
+  }
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sale_returns (
+        id TEXT PRIMARY KEY, sale_id TEXT NOT NULL REFERENCES sales(id), bill_id TEXT NOT NULL,
+        created_at TEXT NOT NULL, return_amount REAL NOT NULL CHECK (return_amount >= 0),
+        status TEXT NOT NULL DEFAULT 'COMPLETED'
+      );
+      CREATE TABLE IF NOT EXISTS sale_return_items (
+        id TEXT PRIMARY KEY, return_id TEXT NOT NULL REFERENCES sale_returns(id) ON DELETE CASCADE,
+        sale_item_id TEXT NOT NULL REFERENCES sale_items(id), item_id TEXT REFERENCES items(id),
+        stock_batch_id TEXT REFERENCES stock_batches(id), quantity REAL NOT NULL CHECK (quantity > 0),
+        amount REAL NOT NULL CHECK (amount >= 0), disposition TEXT NOT NULL DEFAULT 'SALEABLE',
+        restoration_movement_id TEXT REFERENCES stock_movements(id), UNIQUE (return_id, sale_item_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sale_returns_sale_id ON sale_returns(sale_id);
+      CREATE INDEX IF NOT EXISTS idx_sale_returns_bill_id ON sale_returns(bill_id);
+      CREATE INDEX IF NOT EXISTS idx_sale_return_items_sale_item_id ON sale_return_items(sale_item_id);
+      CREATE TABLE IF NOT EXISTS sale_refunds (
+        id TEXT PRIMARY KEY, return_id TEXT NOT NULL UNIQUE REFERENCES sale_returns(id) ON DELETE CASCADE,
+        amount REAL NOT NULL CHECK (amount > 0), method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'COMPLETED',
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS sale_return_credits (
+        id TEXT PRIMARY KEY, return_id TEXT NOT NULL UNIQUE REFERENCES sale_returns(id) ON DELETE CASCADE,
+        amount REAL NOT NULL CHECK (amount > 0), applied_amount REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+      );
+    `);
+    return db.transaction(() => {
+      const existing = db.prepare('SELECT * FROM sale_returns WHERE id = ?').get(id);
+      if (existing) return { success: true, duplicate: true, return: existing };
+      const sale = db.prepare("SELECT * FROM sales WHERE bill_id = ? AND status = 'active'").get(billId);
+      if (!sale) return { success: false, rejected: true, error: 'Completed local sale not found' };
+      const now = new Date().toISOString();
+      const requested = new Map();
+      for (const line of items) {
+        const quantity = Number(line.quantity);
+        if (!line.saleItemId || !Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error('Each return line requires a positive quantity');
+        }
+        requested.set(line.saleItemId, (requested.get(line.saleItemId) || 0) + quantity);
+      }
+      const saleItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ? AND affects_stock = 1').all(sale.id);
+      const byId = new Map(saleItems.map((line) => [line.id, line]));
+      const returned = db.prepare(
+        `SELECT sri.sale_item_id, COALESCE(SUM(sri.quantity), 0) AS quantity
+         FROM sale_return_items sri JOIN sale_returns sr ON sr.id = sri.return_id
+         WHERE sr.sale_id = ? AND sr.status = 'COMPLETED'
+         GROUP BY sri.sale_item_id`
+      ).all(sale.id);
+      const returnedByItem = new Map(returned.map((row) => [row.sale_item_id, Number(row.quantity)]));
+      const insertReturn = db.prepare(
+        'INSERT INTO sale_returns (id, sale_id, bill_id, created_at, return_amount) VALUES (?, ?, ?, ?, ?)'
+      );
+      const insertLine = db.prepare(
+        `INSERT INTO sale_return_items
+         (id, return_id, sale_item_id, item_id, stock_batch_id, quantity, amount, disposition, restoration_movement_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'SALEABLE', ?)`
+      );
+      const restore = db.prepare('UPDATE stock_batches SET qty = qty + ?, updated_at = ? WHERE id = ?');
+      const movement = db.prepare(
+        `INSERT INTO stock_movements (id, item_id, batch_no, type, qty, opening, closing, bill_id, patient_id, reason, created_at)
+         VALUES (?, ?, ?, 'RETURN', ?, ?, ?, ?, ?, ?, ?)`
+      );
+      const lines = [];
+      let total = 0;
+      for (const [saleItemId, quantity] of requested) {
+        const line = byId.get(saleItemId);
+        if (!line) throw new Error('Return item does not belong to the selected bill');
+        const already = returnedByItem.get(saleItemId) || 0;
+        if (already + quantity > Number(line.quantity) + 0.000001) throw new Error('Return quantity exceeds sold quantity');
+        if (!line.stock_batch_id) throw new Error('Return item has no original stock batch');
+        const batch = db.prepare('SELECT * FROM stock_batches WHERE id = ?').get(line.stock_batch_id);
+        if (!batch) throw new Error('Original stock batch is unavailable');
+        const amount = Math.round(((Number(line.total || 0) / Number(line.quantity || 1)) * quantity) * 100) / 100;
+        const closing = Number(batch.qty) + quantity;
+        const movementId = generateId();
+        restore.run(quantity, now, batch.id);
+        movement.run(movementId, line.item_id, line.batch_no, quantity, batch.qty, closing, billId, sale.patient_id, 'Sale return stock restoration', now);
+        lines.push({ id: generateId(), saleItemId, itemId: line.item_id, stockBatchId: batch.id, quantity, amount, restorationMovementId: movementId });
+        total += amount;
+      }
+      insertReturn.run(id, sale.id, billId, now, total);
+      for (const line of lines) insertLine.run(line.id, id, line.saleItemId, line.itemId, line.stockBatchId, line.quantity, line.amount, line.restorationMovementId);
+      const paymentMode = String(sale.payment_mode || '').toLowerCase();
+      let creditApplied = 0;
+      let refundAmount = total;
+      if (paymentMode === 'credit') {
+        const settlement = computeCreditSettlementForSale(db, sale.id);
+        creditApplied = Math.min(total, Math.max(0, Number(settlement.outstanding || 0)));
+        refundAmount = Math.max(0, total - creditApplied);
+      }
+      if (creditApplied > 0) {
+        db.prepare('INSERT INTO sale_return_credits (id, return_id, amount, applied_amount, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(generateId(), id, total, creditApplied, now);
+      }
+      if (refundAmount > 0) {
+        const method = paymentMode === 'upi' ? 'UPI' : paymentMode === 'card' ? 'Card' : 'Cash';
+        db.prepare('INSERT INTO sale_refunds (id, return_id, amount, method, status, created_at) VALUES (?, ?, ?, ?, \'COMPLETED\', ?)')
+          .run(generateId(), id, refundAmount, method, now);
+      }
+      return { success: true, duplicate: false, return: { id, billId, amount: total, creditApplied, refundAmount, refundMethod: refundAmount > 0 ? (paymentMode === 'upi' ? 'UPI' : paymentMode === 'card' ? 'Card' : 'Cash') : null, items: lines } };
+    })();
+  } catch (e) {
+    return { success: false, rejected: true, error: e.message };
+  }
+}
+
 // ─── Credit repayments ───
 
 /**
@@ -1058,6 +1171,22 @@ export function getCreditRepaymentsByBillId(billId) {
   const sale = db.prepare('SELECT id FROM sales WHERE bill_id = ?').get(billId);
   if (!sale) return [];
   return db.prepare('SELECT * FROM credit_repayments WHERE sale_id = ? ORDER BY created_at ASC').all(sale.id);
+}
+
+export function getSaleReturnsForReports() {
+  if (!db) return [];
+  try {
+    return db.prepare(`
+      SELECT sr.id, sr.bill_id, sr.created_at, sr.return_amount, s.patient_name,
+             COALESCE((SELECT SUM(amount) FROM sale_refunds WHERE return_id = sr.id), 0) AS refund_amount,
+             COALESCE((SELECT SUM(applied_amount) FROM sale_return_credits WHERE return_id = sr.id), 0) AS credit_amount,
+             GROUP_CONCAT(sri.quantity || ' x ' || COALESCE(si.drug_name, 'Item'), ', ') AS items
+      FROM sale_returns sr JOIN sales s ON s.id = sr.sale_id
+      JOIN sale_return_items sri ON sri.return_id = sr.id
+      JOIN sale_items si ON si.id = sri.sale_item_id
+      GROUP BY sr.id ORDER BY sr.created_at DESC
+    `).all();
+  } catch { return []; }
 }
 
 /**

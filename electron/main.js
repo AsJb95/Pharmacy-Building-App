@@ -899,6 +899,11 @@ ipcMain.handle('database:cancel-local-sale', async (event, billId) => {
   if (!mod) return DB_UNAVAILABLE();
   try { return mod.cancelLocalSale(billId); } catch (e) { return { success: false, error: e.message }; }
 });
+ipcMain.handle('database:create-local-sale-return', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.createLocalSaleReturn(payload || {}); } catch (e) { return { success: false, error: e.message }; }
+});
 ipcMain.handle('database:get-local-sale', async (event, billId) => {
   const mod = await initLocalDatabase();
   if (!mod) return null;
@@ -925,6 +930,11 @@ ipcMain.handle('database:get-credit-settlement', async (event, billId) => {
   const mod = await initLocalDatabase();
   if (!mod) return null;
   try { return mod.getCreditSettlementByBillId(billId); } catch (e) { return null; }
+});
+ipcMain.handle('database:get-sale-returns-for-reports', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getSaleReturnsForReports(); } catch { return []; }
 });
 ipcMain.handle('database:get-sales-history', async () => {
   const mod = await initLocalDatabase();

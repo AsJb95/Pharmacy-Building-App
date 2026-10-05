@@ -1,7 +1,7 @@
 {
   "name": "vhc-pharmacy-pos",
   "private": true,
-  "version": "3.18.2",
+  "version": "3.18.3",
   "description": "VARNIKA HEALTH CARE POS Pharmacy Software",
   "author": "VHC Pharmacy",
   "type": "module",
@@ -65,5 +65,15 @@
       "include": "build/installer.nsh",
       "artifactName": "VHC_Pharmacy_POS_Setup_${version}.exe"
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AsJb95/Pharmacy-Building-App.git"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AsJb95/Pharmacy-Building-App/issues"
+  },
+  "homepage": "https://github.com/AsJb95/Pharmacy-Building-App#readme"
 }

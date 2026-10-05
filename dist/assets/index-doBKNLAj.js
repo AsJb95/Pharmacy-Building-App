@@ -51471,7 +51471,7 @@ function vhcMakeEmptyTab(id) {
     patientName: ``,
     selectedPatient: null,
     doctorName: ``,
-    paymentMode: `Cash`,
+    paymentMode: null,
     injectionItems: [],
     procedureItems: [],
     customCharges: [],
@@ -51587,6 +51587,7 @@ function Nh() {
     // paymentMode, these are bill-specific amounts that must never carry over to the next sale.
     [splitPayment, setSplitPayment] = [activeTab.splitPayment, vhcField(`splitPayment`)],
     [splitPaymentPopupOpen, setSplitPaymentPopupOpen] = (0, _.useState)(!1),
+    [cashReceived, setCashReceived] = (0, _.useState)(``),
     [splitCashInput, setSplitCashInput] = (0, _.useState)(``),
     [splitUpiInput, setSplitUpiInput] = (0, _.useState)(``),
     [tabPendingClose, setTabPendingClose] = (0, _.useState)(null),
@@ -51651,6 +51652,7 @@ function Nh() {
       l(``),
       d(``),
       S(null),
+      p(null),
       setInjectionItems([]),
       setProcedureItems([]),
       setCustomCharges([]),
@@ -51658,6 +51660,7 @@ function Nh() {
       setDiscountPercent(``),
       setDiscountMode(`percent`),
       setSplitPayment(null),
+      setCashReceived(``),
       localStorage.removeItem(`pos_active_cart`),
       localStorage.removeItem(`pos_active_patient`),
       localStorage.removeItem(`pos_active_doctor`),
@@ -52901,6 +52904,15 @@ function Nh() {
                             );
                           }),
                         }),
+                        f === `Cash` &&
+                          (0, J.jsxs)(`div`, {
+                            style: { display: `grid`, gridTemplateColumns: `repeat(3, 1fr)`, gap: `0.45rem`, alignItems: `end`, marginTop: `0.55rem`, padding: `0.55rem 0.65rem`, border: `1px solid var(--panel-border)`, borderRadius: `8px`, background: `var(--surface-raised)` },
+                            children: [
+                              (0, J.jsxs)(`div`, { children: [(0, J.jsx)(`div`, { style: { fontSize: `0.68rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `Bill Total` }), (0, J.jsxs)(`div`, { style: { fontWeight: `800` }, children: [`₹`, trueGrandTotal.toFixed(2)] })] }),
+                              (0, J.jsxs)(`label`, { style: { fontSize: `0.68rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: [`Cash Received`, (0, J.jsx)(`input`, { type: `number`, min: `0`, step: `0.01`, value: cashReceived, onChange: (e) => setCashReceived(e.target.value), placeholder: `0.00`, style: { display: `block`, width: `100%`, boxSizing: `border-box`, marginTop: `0.2rem`, padding: `0.35rem`, border: `1px solid var(--border-strong)`, borderRadius: `6px` } })] }),
+                              (0, J.jsxs)(`div`, { children: [(0, J.jsx)(`div`, { style: { fontSize: `0.68rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `Change to Return` }), (0, J.jsxs)(`div`, { style: { fontWeight: `800`, color: `var(--money-pos)` }, children: [`₹`, Math.max(0, (parseFloat(cashReceived) || 0) - trueGrandTotal).toFixed(2)] })] }),
+                            ],
+                          }),
                     injectionItems.length > 0 &&
                       (0, J.jsxs)(`div`, {
                         style: { marginTop: `1.25rem` },
@@ -53981,7 +53993,7 @@ function Nh() {
                             whiteSpace: `normal`,
                             textAlign: `center`,
                           },
-                          disabled: !hasActiveBillContent || (f === `Split` && !splitPayment),
+                          disabled: !hasActiveBillContent || !f || (f === `Split` && !splitPayment),
                           children: [`F8 - Complete Payment (`, f, `)`],
                         }),
                       ],
@@ -62124,15 +62136,11 @@ function paymentStatusColor(status) {
   if (status === `Partially Paid`) return { bg: `#fffbeb`, fg: `#b45309` };
   return { bg: `#fef2f2`, fg: `#dc2626` };
 }
-function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill, onSettleBill }) {
+function PaymentsReportPanel({ transactions, summary, returnRecords = [], methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill, onSettleBill }) {
   let cards = [
-    { label: `Total Billing`, value: summary.totalBilling, color: `var(--text-primary)` },
-    { label: `Total Collected`, value: summary.totalCollected, color: `var(--money-pos)` },
-    { label: `Outstanding / Balance`, value: summary.outstandingTotal, color: `var(--danger-hover)` },
-    { label: `Cash Collection`, value: summary.cashCollection, color: `var(--accent)` },
-    { label: `UPI Collection`, value: summary.upiCollection, color: `var(--info-strong)` },
-    { label: `Card Collection`, value: summary.cardCollection, color: `var(--purple-strong)` },
-    { label: `Other Collection`, value: summary.otherCollection, color: `var(--text-soft)` },
+    { label: `Billing`, color: `var(--text-primary)`, lines: [[`Total Bills / Patients Billed`, summary.billCount ?? transactions.length], [`Medicines / Units Sold`, summary.unitCount ?? 0], [`Gross Billing`, summary.totalBilling], [`Net Sales`, summary.netSales ?? summary.totalBilling]] },
+    { label: `Collections`, color: `var(--money-pos)`, lines: [[`Net Collected`, summary.totalCollected], [`Cash`, summary.cashCollection], [`UPI`, summary.upiCollection], [`Card`, summary.cardCollection], [`Credit`, summary.outstandingTotal], [`Split / Other`, summary.otherCollection]] },
+    { label: `Returns & Balance`, color: `var(--danger-hover)`, lines: [[`Return Bills Count`, summary.returnBillCount ?? 0], [`Returned Amount`, summary.returnAmount ?? 0], [`Refunded Amount`, summary.refundedAmount ?? 0], [`Pending Amount`, summary.pendingAmount ?? 0], [`Outstanding Amount`, summary.outstandingTotal]] },
   ];
   return (0, J.jsxs)(`div`, {
     style: { padding: `1rem`, display: `flex`, flexDirection: `column`, gap: `1rem` },
@@ -62145,12 +62153,13 @@ function PaymentsReportPanel({ transactions, summary, methodFilter, setMethodFil
             className: `glass-panel`,
             style: { padding: `1rem 1.1rem` },
             children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: card.label }),
-              (0, J.jsxs)(`div`, { style: { fontSize: `1.4rem`, fontWeight: `800`, color: card.color, marginTop: `0.2rem` }, children: [`₹`, card.value.toFixed(2)] }),
+              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `800`, letterSpacing: `0.03em`, textTransform: `uppercase`, marginBottom: `0.55rem` }, children: card.label }),
+              card.lines.map(([label, value], index) => (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, gap: `0.75rem`, padding: `0.24rem 0`, color: index === 0 ? card.color : `var(--text-secondary)` }, children: [(0, J.jsx)(`span`, { style: { fontSize: `0.78rem` }, children: label }), (0, J.jsxs)(`strong`, { style: { fontSize: index === 0 ? `1rem` : `0.82rem`, color: index === 0 ? card.color : `var(--text-primary)` }, children: [label.includes(`Bills`) || label.includes(`Units`) || label.includes(`Count`) ? value : `₹${Number(value || 0).toFixed(2)}`] })] }, `${card.label}-${label}`)),
             ],
           }),
         ),
       }),
+      returnRecords.length > 0 && (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1rem 1.1rem` }, children: [(0, J.jsx)(`div`, { style: { fontWeight: `800`, color: `var(--text-heading)`, marginBottom: `0.5rem` }, children: `Returns & Refunds` }), returnRecords.map((record) => (0, J.jsxs)(`div`, { style: { display: `grid`, gridTemplateColumns: `1fr 1fr 1fr 1fr`, gap: `0.5rem`, padding: `0.35rem 0`, borderTop: `1px solid var(--border)`, fontSize: `0.78rem` }, children: [(0, J.jsxs)(`span`, { children: [record.bill_id, ` · `, record.patient_name || `Walk-in`] }), (0, J.jsx)(`span`, { children: record.items || `—` }), (0, J.jsxs)(`span`, { children: [`Returned ₹`, Number(record.return_amount || 0).toFixed(2), ` · Refunded ₹`, Number(record.refund_amount || 0).toFixed(2)] }), (0, J.jsxs)(`span`, { children: [record.credit_amount > 0 ? `Credit ₹${Number(record.credit_amount).toFixed(2)}` : `Refunded`, ` · `, record.created_at ? new Date(record.created_at).toLocaleString() : `—`] })] }, record.id))] }),
       (0, J.jsxs)(`div`, {
         className: `glass-panel`,
         style: { padding: `1rem 1.1rem`, display: `flex`, flexWrap: `wrap`, gap: `0.75rem`, alignItems: `center` },
@@ -62445,6 +62454,17 @@ function CreditSettlementModal({ bill, recordedByLabel, notify, onClose, onSubmi
     }),
   });
 }
+function SaleReturnModal({ bill, notify, onClose, onSuccess }) {
+  let [sale, setSale] = (0, _.useState)(null), [quantities, setQuantities] = (0, _.useState)({}), [busy, setBusy] = (0, _.useState)(!1);
+  (0, _.useEffect)(() => { let cancelled = !1; (async () => { let local = window.electronAPI && window.electronAPI.getLocalSale ? await window.electronAPI.getLocalSale(bill.billId) : null; if (!cancelled) setSale(local || { sale_items: [] }); })(); return () => { cancelled = !0; }; }, [bill.billId]);
+  if (!bill) return null;
+  let lines = (sale && sale.sale_items || []).filter((line) => line.affects_stock !== 0), selected = Object.entries(quantities).filter(([, qty]) => Number(qty) > 0), amount = selected.reduce((sum, [id, qty]) => { let line = lines.find((item) => item.id === id); return sum + (Number(line && line.total || 0) / Number(line && line.quantity || 1)) * Number(qty); }, 0);
+  let submit = async () => { if (!selected.length || busy) return; setBusy(!0); try { let result = await window.electronAPI.createLocalSaleReturn({ id: `RET-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, billId: bill.billId, items: selected.map(([saleItemId, quantity]) => ({ saleItemId, quantity: Number(quantity) })) }); if (!result || !result.success) { notify((result && result.error) || `Return could not be recorded.`, `error`); return; } notify(`Return recorded for ${bill.billId}.`, `success`); onSuccess(); } finally { setBusy(!1); } };
+  return (0, J.jsx)(`div`, { className: `modal-overlay`, onClick: () => !busy && onClose(), children: (0, J.jsxs)(`div`, { className: `modal-content glass-panel animate-fade-in`, onClick: (evt) => evt.stopPropagation(), style: { maxWidth: `680px`, padding: `1.5rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` }, children: [
+    (0, J.jsxs)(`div`, { className: `flex-between mb-4`, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0 }, children: `Return / Exchange` }), (0, J.jsxs)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)` }, children: [`Bill #`, bill.billId, ` · `, bill.patientName || `Walk-in Patient`] })] }), (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, disabled: busy, children: `✕` })] }),
+    lines.length ? (0, J.jsxs)(`div`, { children: [lines.map((line) => { let already = 0, max = Math.max(0, Number(line.quantity) - already), qty = quantities[line.id] || ``; return (0, J.jsxs)(`div`, { style: { display: `grid`, gridTemplateColumns: `1fr 100px 110px`, gap: `0.75rem`, alignItems: `center`, padding: `0.55rem 0`, borderBottom: `1px solid var(--border)` }, children: [(0, J.jsxs)(`label`, { children: [(0, J.jsx)(`strong`, { children: line.drug_name }), (0, J.jsxs)(`div`, { style: { fontSize: `0.76rem`, color: `var(--text-soft)` }, children: [`Sold: `, line.quantity, ` · Batch: `, line.batch_no || `—`, ` · ₹`, Number(line.total || 0).toFixed(2)] })] }), (0, J.jsx)(`input`, { type: `number`, min: `0`, max, step: `0.001`, className: `input-field`, value: qty, onChange: (e) => setQuantities((prev) => ({ ...prev, [line.id]: Math.min(max, Math.max(0, Number(e.target.value) || 0)) })) }), (0, J.jsx)(`span`, { style: { fontWeight: `800`, textAlign: `right` }, children: `₹${((Number(line.total || 0) / Number(line.quantity || 1)) * Number(qty || 0)).toFixed(2)}` })] }, line.id); }), (0, J.jsxs)(`div`, { className: `flex-between`, style: { marginTop: `1rem` }, children: [(0, J.jsx)(`strong`, { children: `Return value` }), (0, J.jsxs)(`strong`, { children: [`₹`, amount.toFixed(2)] })] }), (0, J.jsx)(`button`, { className: `btn btn-primary`, style: { width: `100%`, marginTop: `1rem` }, disabled: busy || !selected.length, onClick: submit, children: busy ? `Recording…` : `Confirm Return` })] }) : (0, J.jsx)(`div`, { className: `text-center text-secondary py-4`, children: `No locally available sold items were found for this bill.` })
+  ] }) });
+}
 function a_() {
   let { settings: e } = Ir(),
     { inventory: reportsInventory, updateItemsBulk: reportsUpdateItemsBulk, addLog: reportsAddLog } = Vr(),
@@ -62473,6 +62493,8 @@ function a_() {
     [paymentStatusFilter, setPaymentStatusFilter] = (0, _.useState)(`all`),
     [paymentTypeFilter, setPaymentTypeFilter] = (0, _.useState)(`all`),
     [selectedPaymentBill, setSelectedPaymentBill] = (0, _.useState)(null),
+    [returnBill, setReturnBill] = (0, _.useState)(null),
+    [returnRecords, setReturnRecords] = (0, _.useState)([]),
     // Credit Settlement — separate from selectedPaymentBill (the read-only
     // details modal) so "view details" and "record a repayment" stay two
     // distinct, individually reachable actions per the spec.
@@ -62506,6 +62528,7 @@ function a_() {
       () => window.removeEventListener(`vhc-cloud-change`, onCloudChange)
     );
   }, []);
+  (0, _.useEffect)(() => { if (window.electronAPI && window.electronAPI.getSaleReturnsForReports) window.electronAPI.getSaleReturnsForReports().then((rows) => setReturnRecords(Array.isArray(rows) ? rows : [])); }, [n]);
   // Who is signed in right now, resolved once whenever the settlement modal opens —
   // shown in the modal so "Recorded By" is visible before the user even submits.
   // Reads the already-cached local session (no network round trip); the actual
@@ -63794,7 +63817,8 @@ function a_() {
           c === `payments`
             ? (0, J.jsx)(PaymentsReportPanel, {
                 transactions: filteredPaymentTransactions,
-                summary: paymentSummary,
+                summary: { ...paymentSummary, returnBillCount: returnRecords.length, returnAmount: returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0), refundedAmount: returnRecords.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0), pendingAmount: 0, netSales: paymentSummary.totalBilling - returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0) },
+                returnRecords,
                 methodFilter: paymentMethodFilter,
                 setMethodFilter: setPaymentMethodFilter,
                 statusFilter: paymentStatusFilter,
@@ -64508,6 +64532,7 @@ function a_() {
                     onClick: () => setSettleBill(selectedPaymentBill),
                     children: `💳 Record Payment / Settle Credit`,
                   }),
+                (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, style: { width: `100%`, marginTop: `0.55rem` }, onClick: () => setReturnBill(selectedPaymentBill), children: `↩ Return / Exchange` }),
                 (0, J.jsxs)(`div`, {
                   key: `meta`,
                   style: { marginTop: `0.9rem`, paddingTop: `0.75rem`, borderTop: `1px solid var(--border)`, fontSize: `0.78rem`, color: `var(--text-faint)`, display: `flex`, flexDirection: `column`, gap: `0.2rem` },
@@ -64530,6 +64555,7 @@ function a_() {
           onClose: () => setSettleBill(null),
           onSubmit: handleRecordCreditPayment,
         }),
+      returnBill && (0, J.jsx)(SaleReturnModal, { bill: returnBill, notify: t, onClose: () => setReturnBill(null), onSuccess: () => { setReturnBill(null); setSelectedPaymentBill(null); T(); } }),
     ],
   });
 }
