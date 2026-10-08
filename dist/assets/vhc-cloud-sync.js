@@ -21031,6 +21031,19 @@ ${suffix}`;
     await Promise.all([fetchSalesHistory(), fetchInventory()]);
     return data;
   }
+  async function getSaleReturnEligibility(billId) {
+    if (!billId) throw new Error("getSaleReturnEligibility requires billId");
+    const { data, error } = await supabase.rpc("get_sale_return_eligibility", { p_bill_id: billId });
+    if (error) {
+      const code = String(error.code || "");
+      const message = String(error.message || "");
+      if (code === "PGRST202" || /could not find the function|does not exist/i.test(message)) {
+        return { status: "RPC_MISSING", error: message, lines: [] };
+      }
+      throw error;
+    }
+    return data;
+  }
   async function getSaleReturnsForReports() {
     const { data, error } = await supabase.from("sale_returns").select(
       "id,original_bill_id,created_at,return_amount,refund_amount,credit_amount,status,sales!sale_returns_original_sale_id_fkey(patient_name),sale_return_items(quantity,sale_items(drug_name))"
@@ -21388,6 +21401,7 @@ ${problems.join("\n")}`);
     createSaleStrict: createSale,
     findSaleByBillIdStrict: findSaleByBillId,
     createSaleReturn,
+    getSaleReturnEligibility,
     getSaleReturnsForReports,
     describeCloudError,
     deleteSale: withErrorReport(deleteSale),

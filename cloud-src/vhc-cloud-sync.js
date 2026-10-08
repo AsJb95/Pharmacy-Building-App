@@ -994,6 +994,25 @@ async function createSaleReturn({ returnId, billId, items, returnType, refundMet
   return data;
 }
 
+// Read-only, per-line returnability of a cloud bill, computed on the server with exactly the same
+// stock reconstruction create_sale_return uses (original BILL stock movements). The Return screen
+// shows every line of a cloud bill and enables only the ones this marks returnable, so a line is
+// never hidden just because the cloud stored it record-only (affects_stock = false).
+// RPC_MISSING is returned (not thrown) when the migration has not been applied yet.
+async function getSaleReturnEligibility(billId) {
+  if (!billId) throw new Error('getSaleReturnEligibility requires billId');
+  const { data, error } = await supabase.rpc('get_sale_return_eligibility', { p_bill_id: billId });
+  if (error) {
+    const code = String(error.code || '');
+    const message = String(error.message || '');
+    if (code === 'PGRST202' || /could not find the function|does not exist/i.test(message)) {
+      return { status: 'RPC_MISSING', error: message, lines: [] };
+    }
+    throw error;
+  }
+  return data;
+}
+
 // Read-only feed for the Returns & Refunds report. The report merges these rows with the local
 // SQLite ones (deduped by return id), so a cloud-origin return — one taken against a
 // history-only bill, which by definition has no local sale row — is still counted. Only
@@ -1482,6 +1501,8 @@ window.VHC_CLOUD = {
   // swallowed into a generic error report, so the UI can tell a rejection apart from a
   // not-yet-migrated project.
   createSaleReturn,
+  // Strict read: the Return screen must know a lookup failed rather than show an empty bill.
+  getSaleReturnEligibility,
   // Strict read: the Reports screen catches failures itself and falls back to local-only rows,
   // so an offline/odd-cloud state must not be swallowed into a generic error report here.
   getSaleReturnsForReports,

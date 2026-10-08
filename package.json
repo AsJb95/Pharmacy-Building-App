@@ -1,7 +1,7 @@
 {
   "name": "vhc-pharmacy-pos",
   "private": true,
-  "version": "3.18.3",
+  "version": "3.19.0",
   "description": "VARNIKA HEALTH CARE POS Pharmacy Software",
   "author": "VHC Pharmacy",
   "type": "module",

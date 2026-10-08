@@ -174,10 +174,9 @@ check('F3 execution/stock/refund logic was not touched by this change', () => {
   const b = fs.readFileSync(path.join(__dirname, '..', 'dist', 'assets', 'index-doBKNLAj.js'), 'utf8');
   assert.ok(b.includes('window.VHC_CLOUD.createSaleReturn'), 'cloud return execution intact');
   assert.ok(b.includes('createLocalSaleReturn'), 'local return execution intact');
-  // The cloud-return RPC migration is NEXT-VERSION work (next-version/cloud-return-redesign/) and is
-  // deliberately absent from v3.18.3, where cloud returns stay fail-closed (RPC_MISSING). Only check
-  // it when a release actually carries it.
-  const rpc = path.join(__dirname, '..', 'supabase', 'migrations', '20261006000200_v3183_create_sale_return_rpc.sql');
+  // The cloud-return RPC migration ships from v3.19.0 (v3.18.3 shipped without it and stayed
+  // fail-closed). Check it whenever the workspace carries it; otherwise the renderer must fail closed.
+  const rpc = path.join(__dirname, '..', 'supabase', 'migrations', '20261008000100_v3190_cloud_sale_return_rpc.sql');
   if (fs.existsSync(rpc)) {
     assert.ok(/create or replace function public\.create_sale_return\(payload jsonb\)/.test(fs.readFileSync(rpc, 'utf8')), 'RPC unchanged');
   } else {
