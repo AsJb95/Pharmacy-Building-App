@@ -16303,7 +16303,11 @@ var Fr = (0, _.createContext)(),
       apiKey: ``,
       hideRevenue: !0,
       telegramEnabled: !0,
-      telegramToken: `7854129841:AAHvhcpharm_bot_active_token`,
+      // No bot token ships in the renderer. The Remote Reports Bot authenticates through the
+      // server-side relay (Edge Function secret) using the signed-in Supabase session, so it
+      // never needed one here; this field only feeds the legacy invoice-photo hook, which
+      // treats an empty value as "Not configured".
+      telegramToken: ``,
       telegramBotUrl: `https://t.me/Vhcpharm_bot`,
       telegramBotUsername: `@Vhcpharm_bot`,
       posDataSheetUrl: `https://docs.google.com/spreadsheets/d/12zrruzxCkSF_RRclJhIVl13RCZ7uR3CP53EWTfZa9PY/edit`,
@@ -16315,21 +16319,45 @@ var Fr = (0, _.createContext)(),
     });
     return (
       (0, _.useEffect)(() => {
+        // /api/settings is a dev-server route. Under the packaged file:// renderer it resolves
+        // to C:\api\settings and always fails with ERR_FILE_NOT_FOUND, so skip straight to the
+        // localStorage fallback this code already used — same end state, no console noise.
+        // Persisted settings from older builds may still carry the bot token those builds
+        // shipped as a default; it is scrubbed (and the cleaned copy re-saved) before use.
+        let loadCached = () => {
+          let t = localStorage.getItem(`pos_settings`),
+            parsed;
+          if (!t) return;
+          try {
+            parsed = JSON.parse(t);
+          } catch {
+            return;
+          }
+          vhcScrubRetiredSecrets(parsed).then(({ settings: clean, changed }) => {
+            n(clean);
+            if (changed)
+              try {
+                localStorage.setItem(`pos_settings`, JSON.stringify(clean));
+              } catch {}
+          });
+        };
+        if (!vhcHttpProxyAvailable()) {
+          loadCached();
+          return;
+        }
         fetch(`/api/settings`)
           .then((e) => e.json())
           .then((e) => {
             e &&
               typeof e == `object` &&
-              (n((t) => ({ hideRevenue: !0, ...t, ...e })),
-              localStorage.setItem(`pos_settings`, JSON.stringify(e)));
+              vhcScrubRetiredSecrets(e).then(({ settings: clean }) => {
+                n((t) => ({ hideRevenue: !0, ...t, ...clean }));
+                localStorage.setItem(`pos_settings`, JSON.stringify(clean));
+              });
           })
           .catch((e) => {
             console.log(`Using local cached settings`);
-            let t = localStorage.getItem(`pos_settings`);
-            if (t)
-              try {
-                n(JSON.parse(t));
-              } catch {}
+            loadCached();
           });
       }, []),
       (0, J.jsx)(Fr.Provider, {
@@ -16338,13 +16366,17 @@ var Fr = (0, _.createContext)(),
           updateSettings: (e) => {
             (n(e),
               localStorage.setItem(`pos_settings`, JSON.stringify(e)),
-              fetch(`/api/settings`, {
-                method: `POST`,
-                headers: { "Content-Type": `application/json` },
-                body: JSON.stringify(e),
-              }).catch((e) =>
-                console.error(`Failed to sync settings to API:`, e),
-              ));
+              // localStorage above is the real store for the packaged app; this POST only
+              // mirrors to the dev server, so skip it under file:// instead of failing on
+              // every settings save.
+              vhcHttpProxyAvailable() &&
+                fetch(`/api/settings`, {
+                  method: `POST`,
+                  headers: { "Content-Type": `application/json` },
+                  body: JSON.stringify(e),
+                }).catch((e) =>
+                  console.error(`Failed to sync settings to API:`, vhcRedactSecrets(e)),
+                ));
           },
         },
         children: e,
@@ -51695,6 +51727,7 @@ function Nh() {
       let newTab = vhcMakeEmptyTab(vhcGenTabId());
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(newTab.id);
+      setCashReceived(``);
     };
   let F = (0, _.useMemo)(() => {
       if (!C) return [];
@@ -51897,6 +51930,14 @@ function Nh() {
       }
       if (f === `Split` && !splitPayment) {
         i(`Please enter the Split Payment amounts and click Apply first.`, `warning`);
+        return;
+      }
+      if (!f) {
+        i(`Please select a payment mode (Cash, UPI, Card, Credit, or Split) before completing the sale.`, `warning`);
+        return;
+      }
+      if (f === `Cash` && String(cashReceived).trim() !== `` && (parseFloat(cashReceived) || 0) < trueGrandTotal) {
+        i(`Cash received (₹${(parseFloat(cashReceived) || 0).toFixed(2)}) is less than the bill total (₹${trueGrandTotal.toFixed(2)}). Collect the full amount, or use Credit/Split for a partial payment.`, `warning`);
         return;
       }
       if (checkoutInFlight.current) {
@@ -59423,125 +59464,66 @@ function Lh() {
                   gap: `1.25rem`,
                 },
                 children: [
+          // Google Drive backup status. Deliberately NOT a second Drive implementation: it reads
+          // the same gdriveSignedIn / gdriveEmail OAuth state the Backup & Restore Manager uses,
+          // and its button opens that same manager on its Drive tab through the SAME admin gate
+          // (setAuthModalTarget('backup')) as the Backup & Restore tool card — so Connect, Backup
+          // Now, Manage Backups and Disconnect all remain the one existing implementation and the
+          // authorization path is unchanged. The legacy "2. Billing, Inventory & Reports Export
+          // Sheet" card that used to occupy this slot (manual Google Sheet URL + Apps Script
+          // export) is no longer client-facing; its settings values are left untouched.
           (0, J.jsxs)(`div`, {
             className: `glass-panel`,
             style: {
               padding: `1.5rem`,
-              background: `var(--success-light)`,
-              border: `1.5px solid var(--money-pos)`,
+              background: `var(--surface-raised)`,
+              border: `1.5px solid var(--border-strong)`,
               display: `flex`,
               flexDirection: `column`,
-              justifyContent: `space-between`,
+              // Top-aligned rather than space-between: the grid stretches both cards to the
+              // height of the taller one, and space-between pushed this card's single button
+              // to the very bottom, leaving a large empty gap under the short Drive summary.
+              justifyContent: `flex-start`,
             },
             children: [
               (0, J.jsxs)(`div`, {
                 children: [
                   (0, J.jsx)(`h3`, {
                     className: `flex-center gap-2 mb-2`,
-                    style: {
-                      color: `var(--success-strong)`,
-                      justifyContent: `flex-start`,
-                      fontSize: `1.05rem`,
-                    },
-                    children: `📊 2. Billing, Inventory & Reports Export Sheet`,
+                    style: { color: `var(--text-primary)`, justifyContent: `flex-start`, fontSize: `1.05rem` },
+                    children: `☁️ Google Drive Backup`,
                   }),
                   (0, J.jsx)(`p`, {
-                    style: {
-                      fontSize: `0.82rem`,
-                      color: `var(--success-strong)`,
-                      marginBottom: `0.85rem`,
-                    },
-                    children: `Link your export Google Sheet to save sales bills, stock inventory, and financial report logs.`,
+                    style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                    children: `Secure cloud backup and restore. No folder or file setup needed.`,
                   }),
                   (0, J.jsxs)(`div`, {
-                    className: `input-group mb-3`,
+                    style: { fontSize: `0.82rem`, fontWeight: `700`, color: `var(--text-heading)`, marginBottom: `0.3rem` },
                     children: [
-                      (0, J.jsx)(`label`, {
-                        className: `input-label`,
-                        style: {
-                          color: `var(--success-strong)`,
-                          fontWeight: `800`,
-                          fontSize: `0.82rem`,
-                        },
-                        children: `POS Billing & Inventory Export Sheet URL`,
-                      }),
-                      (0, J.jsx)(`input`, {
-                        type: `text`,
-                        name: `posDataSheetUrl`,
-                        className: `input-field`,
-                        style: {
-                          fontSize: `0.85rem`,
-                          border: `1.5px solid var(--money-pos)`,
-                          background: `var(--surface)`,
-                          fontWeight: `600`,
-                        },
-                        value:
-                          e.posDataSheetUrl ||
-                          e.googleSheetUrl ||
-                          `https://docs.google.com/spreadsheets/d/1BiBabgvlLQkv8HITJid87yAo4mcNWHybRZzql-PZLTI/edit`,
-                        onChange: B,
-                        placeholder: `https://docs.google.com/spreadsheets/d/...`,
+                      `Status: `,
+                      (0, J.jsx)(`span`, {
+                        style: { color: gdriveSignedIn ? `var(--success-strong)` : `var(--text-soft)`, fontWeight: `800` },
+                        children: gdriveSignedIn ? `✓ Connected` : `Not connected`,
                       }),
                     ],
                   }),
+                  gdriveSignedIn && gdriveEmail
+                    ? (0, J.jsx)(`div`, {
+                        style: { fontSize: `0.78rem`, color: `var(--text-soft)`, overflowWrap: `anywhere` },
+                        children: `Account: ${gdriveEmail}`,
+                      })
+                    : null,
                 ],
               }),
-              (0, J.jsxs)(`div`, {
-                style: { display: `flex`, gap: `0.6rem` },
-                children: [
-                  (0, J.jsx)(`a`, {
-                    href:
-                      e.posDataSheetUrl ||
-                      e.googleSheetUrl ||
-                      `https://docs.google.com/spreadsheets/d/1BiBabgvlLQkv8HITJid87yAo4mcNWHybRZzql-PZLTI/edit`,
-                    target: `_blank`,
-                    rel: `noopener noreferrer`,
-                    className: `btn`,
-                    style: {
-                      flex: 1,
-                      justifyContent: `center`,
-                      background: `#16a34a`,
-                      color: `#ffffff`,
-                      fontWeight: `700`,
-                      textDecoration: `none`,
-                      fontSize: `0.85rem`,
-                    },
-                    children: `🔗 Open Export Sheet ↗`,
-                  }),
-                  (0, J.jsx)(`button`, {
-                    type: `button`,
-                    className: `btn`,
-                    style: {
-                      flex: 1,
-                      justifyContent: `center`,
-                      background: `#15803d`,
-                      color: `#ffffff`,
-                      fontWeight: `800`,
-                      fontSize: `0.85rem`,
-                    },
-                    onClick: async () => {
-                      t({ ...e, googleSheetUrl: e.posDataSheetUrl });
-                      try {
-                        i(
-                          (
-                            await fetch(`/settings/sync-google-sheet`, {
-                              method: `POST`,
-                            })
-                          ).ok
-                            ? `All POS Data Exported Successfully!`
-                            : `All POS Data Exported Successfully to Google Sheet!`,
-                          `success`,
-                        );
-                      } catch {
-                        i(
-                          `All POS Data Exported Successfully to Google Sheet!`,
-                          `success`,
-                        );
-                      }
-                    },
-                    children: `📤 Export All Data`,
-                  }),
-                ],
+              (0, J.jsx)(`button`, {
+                type: `button`,
+                className: `btn btn-outline`,
+                style: { marginTop: `0.9rem`, alignSelf: `flex-start` },
+                onClick: () => {
+                  setBackupManagerTab(`gdrive`);
+                  setAuthModalTarget(`backup`);
+                },
+                children: gdriveSignedIn ? `Manage Backups` : `Connect Google Drive`,
               }),
             ],
           }),
@@ -59558,93 +59540,37 @@ function Lh() {
             children: [
               (0, J.jsxs)(`div`, {
                 children: [
+                  // Modernised Remote Reports Bot header. The legacy "4. Telegram Bot Integration"
+                  // block that used to sit here (raw bot-token password field + "Enable Telegram Bot
+                  // Auto-Sync" checkbox, for the separate invoice-photo-intake bot) is intentionally no
+                  // longer exposed to the client: those are operator-level secrets, not day-to-day
+                  // pharmacy settings. settings.telegramToken / settings.telegramEnabled are still kept
+                  // in the settings object and still saved and read by the backend exactly as before —
+                  // only their input controls are withdrawn from this screen.
                   (0, J.jsx)(`h3`, {
                     className: `flex-center gap-2 mb-2`,
-                    style: {
-                      color: `var(--info-strong)`,
-                      justifyContent: `flex-start`,
-                      fontSize: `1.05rem`,
-                    },
-                    children: `🤖 4. Telegram Bot Integration (@Vhcpharm_bot)`,
+                    style: { color: `var(--info-strong)`, justifyContent: `flex-start`, fontSize: `1.05rem` },
+                    children: `🤖 Remote Reports Bot`,
+                  }),
+                  (0, J.jsx)(`div`, {
+                    style: { fontSize: `0.8rem`, color: `var(--text-soft)`, fontWeight: `700`, marginBottom: `0.5rem` },
+                    children: `@vhcpharma_bot`,
                   }),
                   (0, J.jsx)(`p`, {
-                    style: {
-                      fontSize: `0.82rem`,
-                      color: `var(--text-secondary)`,
-                      marginBottom: `0.75rem`,
-                    },
-                    children: `Connect your store to Telegram for instant sales notifications, automated stock alerts, and remote reports.`,
+                    style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                    children: `Remote sales, stock and expiry reports on demand in Telegram.`,
                   }),
-                  (0, J.jsxs)(`div`, {
-                    style: {
-                      fontSize: `0.82rem`,
-                      color: `var(--text-heading)`,
-                      marginBottom: `0.75rem`,
-                      fontWeight: `600`,
-                    },
-                    children: [
-                      `Status: `,
-                      (0, J.jsx)(`span`, {
-                        // This section is for the separate invoice-photo-intake bot
-                        // (@Vhcpharm_bot) — a different feature from the Remote Reports Bot
-                        // below. Its own polling (see the app's connectionStatus hook) talks
-                        // to a proxy path that isn't reachable from the packaged app, so it
-                        // does not actually maintain a live connection right now. This used
-                        // to hardcode "🟢 Polling Active" unconditionally, regardless of
-                        // whether that was true — replaced with an honest label rather than
-                        // asserting a status this section can't actually verify.
-                        style: { color: `var(--text-soft)`, fontWeight: `800` },
-                        children: `⚪ Configured (see the @Vhcpharm_bot chat for delivery status)`,
-                      }),
-                    ],
-                  }),
-                  (0, J.jsxs)(`div`, {
-                    className: `input-group mb-3`,
-                    children: [
-                      (0, J.jsx)(`label`, {
-                        className: `input-label`,
-                        style: { fontSize: `0.8rem`, fontWeight: `700` },
-                        children: `Telegram Bot Token`,
-                      }),
-                      (0, J.jsx)(`input`, {
-                        type: `password`,
-                        name: `telegramToken`,
-                        className: `input-field`,
-                        value: e.telegramToken || ``,
-                        onChange: B,
-                        autoComplete: `new-password`,
-                        placeholder: `Saved token is hidden`,
-                        style: { fontSize: `0.8rem` },
-                      }),
-                    ],
-                  }),
-                  (0, J.jsxs)(`label`, {
-                    className: `flex-center gap-2 mb-3`,
-                    style: {
-                      cursor: `pointer`,
-                      fontSize: `0.85rem`,
-                      fontWeight: `600`,
-                    },
-                    children: [
-                      (0, J.jsx)(`input`, {
-                        type: `checkbox`,
-                        name: `telegramEnabled`,
-                        checked: e.telegramEnabled !== !1,
-                        onChange: B,
-                        style: {
-                          width: `16px`,
-                          height: `16px`,
-                          accentColor: `#0284c7`,
-                        },
-                      }),
-                      `Enable Telegram Bot Auto-Sync`,
-                    ],
-                  }),
+                  !telegramBotAvailable &&
+                    (0, J.jsxs)(`div`, {
+                      style: { fontSize: `0.82rem`, color: `var(--text-heading)`, fontWeight: `600` },
+                      children: [`Service: `, (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `800` }, children: `Not running on this device` })],
+                    }),
                   telegramBotAvailable &&
                     (0, J.jsxs)(`div`, {
                       style: { marginTop: `0.9rem`, paddingTop: `0.9rem`, borderTop: `1px solid var(--info-border)` },
                       children: [
-                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, fontSize: `0.85rem`, color: `var(--info-strong)` }, children: `📊 Remote Reports Bot (@vhcpharma_bot)` }),
+                        // The card header above already names this integration and shows its
+                        // handle, so repeating it here duplicated the title inside its own card.
                         (() => {
                           if (!telegramLiveStatus) return null;
                           let liveMeta = {
@@ -61990,6 +61916,14 @@ function vhcBusinessDate(value, billId) {
     .reduce((acc, p) => (p.type !== `literal` && (acc[p.type] = p.value), acc), {});
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
+// Today's date on the user's own calendar (YYYY-MM-DD), from the machine's local clock.
+// The Reports date filter used to default to new Date().toISOString().slice(0, 10) — a UTC date —
+// so between local midnight and the UTC rollover (00:00–05:30 in India) Reports opened on
+// YESTERDAY and today's bills looked missing. No timezone is hardcoded here.
+function vhcLocalDateString(d = new Date()) {
+  let pad = (n) => String(n).padStart(2, `0`);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 // Credit-repayment settlement math — pure, no hooks/DOM (mirrored in
 // test/payments-report.test.cjs, keep in sync if this changes). NEVER mutates
 // `bill` and NEVER overwrites the ORIGINAL paymentBreakdown / amountReceived /
@@ -62136,29 +62070,33 @@ function paymentStatusColor(status) {
   if (status === `Partially Paid`) return { bg: `#fffbeb`, fg: `#b45309` };
   return { bg: `#fef2f2`, fg: `#dc2626` };
 }
-function PaymentsReportPanel({ transactions, summary, returnRecords = [], methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill, onSettleBill }) {
+// The permanent Reports summary (BILLING / COLLECTIONS / RETURNS & BALANCE). Shown at the top of
+// Reports & Financials on every tab; previously rendered only inside the Payments tab.
+function ReportsSummaryCards({ summary, transactions = [] }) {
   let cards = [
     { label: `Billing`, color: `var(--text-primary)`, lines: [[`Total Bills / Patients Billed`, summary.billCount ?? transactions.length], [`Medicines / Units Sold`, summary.unitCount ?? 0], [`Gross Billing`, summary.totalBilling], [`Net Sales`, summary.netSales ?? summary.totalBilling]] },
     { label: `Collections`, color: `var(--money-pos)`, lines: [[`Net Collected`, summary.totalCollected], [`Cash`, summary.cashCollection], [`UPI`, summary.upiCollection], [`Card`, summary.cardCollection], [`Credit`, summary.outstandingTotal], [`Split / Other`, summary.otherCollection]] },
     { label: `Returns & Balance`, color: `var(--danger-hover)`, lines: [[`Return Bills Count`, summary.returnBillCount ?? 0], [`Returned Amount`, summary.returnAmount ?? 0], [`Refunded Amount`, summary.refundedAmount ?? 0], [`Pending Amount`, summary.pendingAmount ?? 0], [`Outstanding Amount`, summary.outstandingTotal]] },
   ];
+  return (0, J.jsx)(`div`, {
+      className: `dashboard-grid mb-4 vhc-reports-summary`,
+      children: cards.map((card) =>
+        (0, J.jsxs)(`div`, {
+          key: card.label,
+          className: `glass-panel`,
+          style: { padding: `1rem 1.1rem` },
+          children: [
+            (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `800`, letterSpacing: `0.03em`, textTransform: `uppercase`, marginBottom: `0.55rem` }, children: card.label }),
+            card.lines.map(([label, value], index) => (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, gap: `0.75rem`, padding: `0.24rem 0`, color: index === 0 ? card.color : `var(--text-secondary)` }, children: [(0, J.jsx)(`span`, { style: { fontSize: `0.78rem` }, children: label }), (0, J.jsxs)(`strong`, { style: { fontSize: index === 0 ? `1rem` : `0.82rem`, color: index === 0 ? card.color : `var(--text-primary)` }, children: [label.includes(`Bills`) || label.includes(`Units`) || label.includes(`Count`) ? value : `₹${Number(value || 0).toFixed(2)}`] })] }, `${card.label}-${label}`)),
+          ],
+        }),
+      ),
+    });
+}
+function PaymentsReportPanel({ transactions, returnRecords = [], methodFilter, setMethodFilter, statusFilter, setStatusFilter, typeFilter, setTypeFilter, onSelectBill, onSettleBill }) {
   return (0, J.jsxs)(`div`, {
     style: { padding: `1rem`, display: `flex`, flexDirection: `column`, gap: `1rem` },
     children: [
-      (0, J.jsx)(`div`, {
-        className: `dashboard-grid`,
-        children: cards.map((card) =>
-          (0, J.jsxs)(`div`, {
-            key: card.label,
-            className: `glass-panel`,
-            style: { padding: `1rem 1.1rem` },
-            children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `800`, letterSpacing: `0.03em`, textTransform: `uppercase`, marginBottom: `0.55rem` }, children: card.label }),
-              card.lines.map(([label, value], index) => (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, gap: `0.75rem`, padding: `0.24rem 0`, color: index === 0 ? card.color : `var(--text-secondary)` }, children: [(0, J.jsx)(`span`, { style: { fontSize: `0.78rem` }, children: label }), (0, J.jsxs)(`strong`, { style: { fontSize: index === 0 ? `1rem` : `0.82rem`, color: index === 0 ? card.color : `var(--text-primary)` }, children: [label.includes(`Bills`) || label.includes(`Units`) || label.includes(`Count`) ? value : `₹${Number(value || 0).toFixed(2)}`] })] }, `${card.label}-${label}`)),
-            ],
-          }),
-        ),
-      }),
       returnRecords.length > 0 && (0, J.jsxs)(`div`, { className: `glass-panel`, style: { padding: `1rem 1.1rem` }, children: [(0, J.jsx)(`div`, { style: { fontWeight: `800`, color: `var(--text-heading)`, marginBottom: `0.5rem` }, children: `Returns & Refunds` }), returnRecords.map((record) => (0, J.jsxs)(`div`, { style: { display: `grid`, gridTemplateColumns: `1fr 1fr 1fr 1fr auto`, gap: `0.5rem`, padding: `0.35rem 0`, borderTop: `1px solid var(--border)`, fontSize: `0.78rem`, alignItems: `center` }, children: [(0, J.jsxs)(`span`, { children: [record.bill_id, ` · `, record.patient_name || `Walk-in`] }), (0, J.jsx)(`span`, { children: record.items || `—` }), (0, J.jsxs)(`span`, { children: [`Returned ₹`, Number(record.return_amount || 0).toFixed(2), ` · Refunded ₹`, Number(record.refund_amount || 0).toFixed(2)] }), (0, J.jsxs)(`span`, { children: [record.credit_amount > 0 ? `Credit ₹${Number(record.credit_amount).toFixed(2)}` : `Refunded`, ` · `, record.created_at ? new Date(record.created_at).toLocaleString() : `—`] }), (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, onClick: () => setSelectedPaymentBill(n.find((bill) => bill.billId === record.bill_id) || null), children: `Refund / Credit` })] }, record.id))] }),
       (0, J.jsxs)(`div`, {
         className: `glass-panel`,
@@ -62455,11 +62393,11 @@ function CreditSettlementModal({ bill, recordedByLabel, notify, onClose, onSubmi
   });
 }
 function SaleReturnModal({ bill, notify, onClose, onSuccess }) {
-  let [sale, setSale] = (0, _.useState)(null), [quantities, setQuantities] = (0, _.useState)({}), [busy, setBusy] = (0, _.useState)(!1);
-  (0, _.useEffect)(() => { let cancelled = !1; (async () => { let local = window.electronAPI && window.electronAPI.getLocalSale ? await window.electronAPI.getLocalSale(bill.billId) : null; if (!cancelled) setSale(local || { sale_items: [] }); })(); return () => { cancelled = !0; }; }, [bill.billId]);
+  let [sale, setSale] = (0, _.useState)(null), [quantities, setQuantities] = (0, _.useState)({}), [busy, setBusy] = (0, _.useState)(!1), [origin, setOrigin] = (0, _.useState)(null), cloudAttemptRef = (0, _.useRef)(null);
+    (0, _.useEffect)(() => { let cancelled = !1, billKey = String(bill.billId || bill.bill_id || bill.id || ``); (async () => { let local = window.electronAPI && window.electronAPI.getLocalSale ? await window.electronAPI.getLocalSale(billKey) : null; if (local && Array.isArray(local.sale_items) && local.sale_items.length) { if (!cancelled) { setOrigin(`local`); setSale(local); } return; } const matchesBill = (row) => row && String(row.bill_id || row.billId || row.id || row.server_id || ``) === billKey; let cloudRows = window.VHC_CLOUD && window.VHC_CLOUD.getSalesHistory ? window.VHC_CLOUD.getSalesHistory() || [] : [], cloud = cloudRows.find(matchesBill) || null; if (!cloud && window.VHC_CLOUD && window.VHC_CLOUD.fetchSalesHistory) { try { await window.VHC_CLOUD.fetchSalesHistory(); } catch {} cloudRows = window.VHC_CLOUD.getSalesHistory ? window.VHC_CLOUD.getSalesHistory() || [] : []; cloud = cloudRows.find(matchesBill) || null; } let fallback = Array.isArray(bill.particulars) ? bill.particulars.map((line, index) => ({ ...line, id: line.id || `${billKey}-item-${index}`, drug_name: line.drug_name || line.drugName || line.name, batch_no: line.batch_no || line.batchNo, quantity: line.quantity, total: line.total, affects_stock: line.affects_stock ?? 1 })) : []; if (!cancelled) { let resolvedCloud = cloud && Array.isArray(cloud.sale_items) && cloud.sale_items.length ? { ...cloud, sale_items: cloud.sale_items } : null, resolvedLocal = local && Array.isArray(local.sale_items) && local.sale_items.length ? local : null; setOrigin(resolvedCloud ? `cloud` : resolvedLocal ? `local` : `unresolved`); setSale(resolvedCloud || resolvedLocal || { sale_items: fallback }); } })(); return () => { cancelled = !0; }; }, [bill.billId, bill.bill_id, bill.id]);
   if (!bill) return null;
-  let lines = (sale && sale.sale_items || []).filter((line) => line.affects_stock !== 0), selected = Object.entries(quantities).filter(([, qty]) => Number(qty) > 0), amount = selected.reduce((sum, [id, qty]) => { let line = lines.find((item) => item.id === id); return sum + (Number(line && line.total || 0) / Number(line && line.quantity || 1)) * Number(qty); }, 0);
-  let submit = async () => { if (!selected.length || busy) return; setBusy(!0); try { let result = await window.electronAPI.createLocalSaleReturn({ id: `RET-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, billId: bill.billId, items: selected.map(([saleItemId, quantity]) => ({ saleItemId, quantity: Number(quantity) })) }); if (!result || !result.success) { notify((result && result.error) || `Return could not be recorded.`, `error`); return; } notify(`Return recorded for ${bill.billId}.`, `success`); onSuccess(); } finally { setBusy(!1); } };
+  let rawLines = sale && Array.isArray(sale.sale_items) ? sale.sale_items : [], lines = rawLines.map((line) => ({ ...line, id: line.id || line.sale_item_id || line.server_id, drug_name: line.drug_name || line.name || line.item_name || `Item`, quantity: Number(line.quantity ?? line.qty ?? 0), total: Number(line.total ?? line.amount ?? line.line_total ?? 0), affects_stock: line.affects_stock === false || line.affects_stock === 0 ? 0 : 1 })).filter((line) => line.affects_stock !== 0 && line.quantity > 0), selected = Object.entries(quantities).filter(([, qty]) => Number(qty) > 0), amount = selected.reduce((sum, [id, qty]) => { let line = lines.find((item) => item.id === id); return sum + (Number(line && line.total || 0) / Number(line && line.quantity || 1)) * Number(qty); }, 0);
+  let submit = async () => { if (!selected.length || busy) return; let lines = selected.map(([saleItemId, quantity]) => ({ saleItemId, quantity: Number(quantity) })); if (origin !== `local` && origin !== `cloud`) { notify(`This bill's sold items could not be resolved against the local database or Cloud Sync, so a return cannot be recorded against it. Nothing was changed.`, `error`); return; } setBusy(!0); try { if (origin === `cloud`) { let cloudBillId = String(bill.billId || bill.bill_id || bill.id || ``); if (!window.VHC_CLOUD || !window.VHC_CLOUD.createSaleReturn) { notify(`Cloud Sync is unavailable, so this historical bill's return cannot be recorded right now. Nothing was changed.`, `error`); return; } let sig = JSON.stringify(lines); if (!cloudAttemptRef.current || cloudAttemptRef.current.sig !== sig) cloudAttemptRef.current = { sig, id: globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID() : `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, `0`).slice(-12)}` }; let res; try { res = await window.VHC_CLOUD.createSaleReturn({ returnId: cloudAttemptRef.current.id, billId: cloudBillId, items: lines, reason: `Sale return stock restoration` }); } catch (err) { notify(`Return was not recorded: ${(err && err.message) || err}. Nothing was changed — you can retry safely.`, `error`); return; } if (!res || res.status === `RPC_MISSING`) { notify(`Returns for historical/cloud bills are not enabled on this database yet (create_sale_return is not installed). Nothing was changed.`, `error`); return; } cloudAttemptRef.current = null; notify(res.status === `ALREADY_APPLIED` ? `This return was already recorded for ${cloudBillId}; nothing was duplicated.` : `Return recorded for ${cloudBillId}. Refund ₹${Number(res.refund_amount || 0).toFixed(2)}${Number(res.credit_amount || 0) > 0 ? `, credit adjusted ₹${Number(res.credit_amount).toFixed(2)}` : ``}.`, `success`); onSuccess(); return; } let result = await window.electronAPI.createLocalSaleReturn({ id: `RET-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, billId: bill.billId, items: lines }); if (!result || !result.success) { notify((result && result.error) || `Return could not be recorded.`, `error`); return; } notify(`Return recorded for ${bill.billId}.`, `success`); onSuccess(); } finally { setBusy(!1); } };
   return (0, J.jsx)(`div`, { className: `modal-overlay`, onClick: () => !busy && onClose(), children: (0, J.jsxs)(`div`, { className: `modal-content glass-panel animate-fade-in`, onClick: (evt) => evt.stopPropagation(), style: { maxWidth: `680px`, padding: `1.5rem`, background: `var(--surface)`, color: `var(--text-primary)`, borderRadius: `16px` }, children: [
     (0, J.jsxs)(`div`, { className: `flex-between mb-4`, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h3`, { style: { margin: 0 }, children: `Return / Exchange` }), (0, J.jsxs)(`div`, { style: { fontSize: `0.8rem`, color: `var(--text-soft)` }, children: [`Bill #`, bill.billId, ` · `, bill.patientName || `Walk-in Patient`] })] }), (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, disabled: busy, children: `✕` })] }),
     lines.length ? (0, J.jsxs)(`div`, { children: [lines.map((line) => { let already = 0, max = Math.max(0, Number(line.quantity) - already), qty = quantities[line.id] || ``; return (0, J.jsxs)(`div`, { style: { display: `grid`, gridTemplateColumns: `1fr 100px 110px`, gap: `0.75rem`, alignItems: `center`, padding: `0.55rem 0`, borderBottom: `1px solid var(--border)` }, children: [(0, J.jsxs)(`label`, { children: [(0, J.jsx)(`strong`, { children: line.drug_name }), (0, J.jsxs)(`div`, { style: { fontSize: `0.76rem`, color: `var(--text-soft)` }, children: [`Sold: `, line.quantity, ` · Batch: `, line.batch_no || `—`, ` · ₹`, Number(line.total || 0).toFixed(2)] })] }), (0, J.jsx)(`input`, { type: `number`, min: `0`, max, step: `0.001`, className: `input-field`, value: qty, onChange: (e) => setQuantities((prev) => ({ ...prev, [line.id]: Math.min(max, Math.max(0, Number(e.target.value) || 0)) })) }), (0, J.jsx)(`span`, { style: { fontWeight: `800`, textAlign: `right` }, children: `₹${((Number(line.total || 0) / Number(line.quantity || 1)) * Number(qty || 0)).toFixed(2)}` })] }, line.id); }), (0, J.jsxs)(`div`, { className: `flex-between`, style: { marginTop: `1rem` }, children: [(0, J.jsx)(`strong`, { children: `Return value` }), (0, J.jsxs)(`strong`, { children: [`₹`, amount.toFixed(2)] })] }), (0, J.jsx)(`button`, { className: `btn btn-primary`, style: { width: `100%`, marginTop: `1rem` }, disabled: busy || !selected.length, onClick: submit, children: busy ? `Recording…` : `Confirm Return` })] }) : (0, J.jsx)(`div`, { className: `text-center text-secondary py-4`, children: `No locally available sold items were found for this bill.` })
@@ -62479,8 +62417,10 @@ function a_() {
     // empty-state banner (below, right above the stats grid) instead of a bare all-zero
     // stats screen that was mistaken for a data-loss bug — see that banner's own comment.
     [f, p] = (0, _.useState)(`date`),
-    [m, h] = (0, _.useState)(new Date().toISOString().slice(0, 10)),
-    [g, v] = (0, _.useState)(new Date().toISOString().slice(0, 7)),
+    // Local calendar day/month (was UTC — opened on yesterday between local midnight and the
+    // UTC rollover). See vhcLocalDateString.
+    [m, h] = (0, _.useState)(vhcLocalDateString()),
+    [g, v] = (0, _.useState)(vhcLocalDateString().slice(0, 7)),
     [y, b] = (0, _.useState)(new Date().getFullYear().toString()),
     [x, S] = (0, _.useState)(``),
     [C, w] = (0, _.useState)(``),
@@ -62528,7 +62468,30 @@ function a_() {
       () => window.removeEventListener(`vhc-cloud-change`, onCloudChange)
     );
   }, []);
-  (0, _.useEffect)(() => { if (window.electronAPI && window.electronAPI.getSaleReturnsForReports) window.electronAPI.getSaleReturnsForReports().then((rows) => setReturnRecords(Array.isArray(rows) ? rows : [])); }, [n]);
+  // Returns & Refunds feed. Local SQLite holds returns taken against bills billed on THIS
+  // device; cloud public.sale_returns additionally holds returns taken against history-only
+  // (cloud) bills, which have no local sale row at all. Reporting only the local side made
+  // every cloud-origin return invisible in the Returns & Balance card and the list, so both
+  // sources are loaded and merged here. Each source is wrapped separately: offline (or a cloud
+  // read failure) must still show local returns exactly as before.
+  // Dedupe is by RETURN IDENTITY (the return row id), never by bill — several legitimate
+  // partial returns against one bill are distinct rows and must all be counted once each.
+  (0, _.useEffect)(() => {
+    let cancelled = !1;
+    (async () => {
+      let normalizeLocal = (row) => ({ id: String(row.id ?? ``), bill_id: row.bill_id, created_at: row.created_at, return_amount: Number(row.return_amount || 0), refund_amount: Number(row.refund_amount || 0), credit_amount: Number(row.credit_amount || 0), patient_name: row.patient_name || ``, items: row.items || ``, source: `local` }),
+        normalizeCloud = (row) => ({ id: String(row.id ?? ``), bill_id: row.original_bill_id || row.bill_id, created_at: row.created_at, return_amount: Number(row.return_amount || 0), refund_amount: Number(row.refund_amount || 0), credit_amount: Number(row.credit_amount || 0), patient_name: (row.sales && row.sales.patient_name) || ``, items: Array.isArray(row.sale_return_items) ? row.sale_return_items.map((line) => `${Number(line.quantity || 0)} x ${(line.sale_items && line.sale_items.drug_name) || `Item`}`).join(`, `) : ``, source: `cloud` }),
+        local = [], cloud = [];
+      try { if (window.electronAPI && window.electronAPI.getSaleReturnsForReports) { let rows = await window.electronAPI.getSaleReturnsForReports(); Array.isArray(rows) && (local = rows.map(normalizeLocal)); } } catch {}
+      try { if (window.VHC_CLOUD && window.VHC_CLOUD.getSaleReturnsForReports) { let rows = await window.VHC_CLOUD.getSaleReturnsForReports(); Array.isArray(rows) && (cloud = rows.map(normalizeCloud)); } } catch {}
+      let byId = new Map();
+      for (let row of local) { let key = row.id.trim().toLowerCase(); key && byId.set(key, row); }
+      for (let row of cloud) { let key = row.id.trim().toLowerCase(); key && !byId.has(key) && byId.set(key, row); }
+      let merged = [...byId.values()].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      cancelled || setReturnRecords(merged);
+    })();
+    return () => { cancelled = !0; };
+  }, [n]);
   // Who is signed in right now, resolved once whenever the settlement modal opens —
   // shown in the modal so "Recorded By" is visible before the user even submits.
   // Reads the already-cached local session (no network round trip); the actual
@@ -62970,6 +62933,12 @@ function a_() {
       () => computePaymentSummary(filteredPaymentTransactions),
       [filteredPaymentTransactions],
     ),
+    // Single source for the top-of-page summary cards — identical to the object previously built
+    // inline for the Payments panel: payment summary + local/cloud return totals.
+    reportsSummary = _.useMemo(
+      () => ({ ...paymentSummary, returnBillCount: returnRecords.length, returnAmount: returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0), refundedAmount: returnRecords.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0), pendingAmount: 0, netSales: paymentSummary.totalBilling - returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0) }),
+      [paymentSummary, returnRecords],
+    ),
     O = _.useMemo(() => {
       let e = {};
       return (
@@ -63376,6 +63345,12 @@ function a_() {
           }),
         ],
       }),
+      // BILLING / COLLECTIONS / RETURNS & BALANCE — the permanent Reports summary. Rendered here,
+      // directly under the page heading/actions and above the report tabs, so it stays visible
+      // on EVERY tab (it used to render only inside the Payments tab, below the old Patients /
+      // Medicines / Revenue cards that this replaces). Values come from reportsSummary — the same
+      // calculation the Payments panel used before, unchanged.
+      (0, J.jsx)(ReportsSummaryCards, { summary: reportsSummary, transactions: filteredPaymentTransactions }),
       // Shown only when a narrowing filter (Today/Month/Year/Custom) produces zero results —
       // never when there's genuinely no data anywhere (n.length===0, e.g. a brand-new
       // install). Without this, an all-zero stats grid on a slow-starting day was
@@ -63400,68 +63375,6 @@ function a_() {
             }),
           ],
         }),
-      (0, J.jsxs)(`div`, {
-        className: `dashboard-grid mb-4`,
-        children: [
-          (0, J.jsxs)(`div`, {
-            className: `glass-panel`,
-            style: { padding: `1.25rem` },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.875rem`, color: `var(--text-secondary)` },
-                children: `Total Patients Billed`,
-              }),
-              (0, J.jsx)(`div`, {
-                style: {
-                  fontSize: `1.75rem`,
-                  fontWeight: `bold`,
-                  marginTop: `0.25rem`,
-                  color: `var(--accent)`,
-                },
-                children: O.length,
-              }),
-            ],
-          }),
-          (0, J.jsxs)(`div`, {
-            className: `glass-panel`,
-            style: { padding: `1.25rem` },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.875rem`, color: `var(--text-secondary)` },
-                children: `Total Medicines Sold`,
-              }),
-              (0, J.jsxs)(`div`, {
-                style: {
-                  fontSize: `1.75rem`,
-                  fontWeight: `bold`,
-                  marginTop: `0.25rem`,
-                  color: `#10b981`,
-                },
-                children: [A, ` units`],
-              }),
-            ],
-          }),
-          (0, J.jsxs)(`div`, {
-            className: `glass-panel`,
-            style: { padding: `1.25rem` },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.875rem`, color: `var(--text-secondary)` },
-                children: `Total Revenue`,
-              }),
-              (0, J.jsxs)(`div`, {
-                style: {
-                  fontSize: `1.75rem`,
-                  fontWeight: `bold`,
-                  marginTop: `0.25rem`,
-                  color: `var(--purple-strong)`,
-                },
-                children: [`₹`, k.toFixed(2)],
-              }),
-            ],
-          }),
-        ],
-      }),
       (0, J.jsxs)(`div`, {
         className: `glass-panel`,
         children: [
@@ -63817,7 +63730,6 @@ function a_() {
           c === `payments`
             ? (0, J.jsx)(PaymentsReportPanel, {
                 transactions: filteredPaymentTransactions,
-                summary: { ...paymentSummary, returnBillCount: returnRecords.length, returnAmount: returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0), refundedAmount: returnRecords.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0), pendingAmount: 0, netSales: paymentSummary.totalBilling - returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0) },
                 returnRecords,
                 methodFilter: paymentMethodFilter,
                 setMethodFilter: setPaymentMethodFilter,
@@ -64564,10 +64476,51 @@ var o_ = `/telegram-api`;
 var o_ = `/telegram-api`;
 var o_ = `/telegram-api`;
 var o_ = `/telegram-api`;
-var o_ = `/telegram-api`;
+// Root-relative endpoints (/telegram-api/..., /api/settings) only exist when the renderer is
+// served over http(s) by the dev server that proxies them. In the packaged app the renderer runs
+// from file://, where a root-relative path resolves to C:\... on disk — the request can never
+// succeed, and Chromium itself prints the failed URL (which embeds the Telegram bot token) to the
+// console. Callers use this to skip those requests entirely under file:// while leaving the
+// dev/proxy path untouched.
+function vhcHttpProxyAvailable() {
+  try {
+    return typeof location !== `undefined` && /^https?:$/.test(location.protocol);
+  } catch (e) {
+    return !1;
+  }
+}
+// Strips Telegram bot tokens (and the proxy paths that carry them) out of anything we log.
+function vhcRedactSecrets(value) {
+  let text;
+  try {
+    text = typeof value === `string` ? value : (value && value.message) || String(value);
+  } catch (e) {
+    return `[unprintable error]`;
+  }
+  return String(text)
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, `bot<redacted>`)
+    .replace(/\/telegram-api\/[^\s)'"]*/g, `/telegram-api/<redacted>`);
+}
+// Older builds shipped a Telegram bot token as a hardcoded settings default, so existing
+// installs may still have it persisted in localStorage `pos_settings` — and therefore inside
+// any pos_settings backup. Only the SHA-256 of that retired value is kept here (this file never
+// contains the token); a stored value matching it is cleared. A token an operator configured
+// themselves never matches, and any failure leaves the settings exactly as they were.
+async function vhcScrubRetiredSecrets(settings) {
+  if (!settings || typeof settings !== `object` || !settings.telegramToken) return { settings, changed: !1 };
+  try {
+    let digest = await crypto.subtle.digest(`SHA-256`, new TextEncoder().encode(String(settings.telegramToken))),
+      hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, `0`)).join(``);
+    if (hex !== `89466676fff9dd4e243cff7938abac3f398ced4310a4c9f9a0d0c77f3bcd8718`) return { settings, changed: !1 };
+    return { settings: { ...settings, telegramToken: `` }, changed: !0 };
+  } catch (e) {
+    return { settings, changed: !1 };
+  }
+}
 function s_() {
   let { settings: e } = Ir(),
-    t = e.telegramToken || `7854129841:AAHvhcpharm_bot_active_token`,
+    // No hardcoded fallback: without a configured token this legacy hook simply stays idle.
+    t = e.telegramToken || ``,
     n = e.telegramEnabled !== !1,
     [r, i] = (0, _.useState)([]),
     [a, o] = (0, _.useState)(`Polling Active`),
@@ -64578,6 +64531,17 @@ function s_() {
   (0, _.useEffect)(() => {
     if (!n) {
       o(`Disabled`);
+      return;
+    }
+    if (!t) {
+      o(`Not configured`);
+      return;
+    }
+    // The packaged app has no /telegram-api proxy, so this loop could only fail forever —
+    // each attempt emitting ERR_FILE_NOT_FOUND plus a console error containing the bot token.
+    // Don't start it at all there; the dev/proxy path below is unchanged.
+    if (!vhcHttpProxyAvailable()) {
+      o(`Unavailable (no proxy in packaged app)`);
       return;
     }
     let e = !0,
@@ -64629,7 +64593,7 @@ Please send me a clear *image of the invoice* to add items to the inventory.`,
         } catch (e) {
           e.message.includes(`Timeout`)
             ? o(`Polling Active`)
-            : (console.error(`Telegram Polling Error:`, e),
+            : (console.error(`Telegram Polling Error:`, vhcRedactSecrets(e)),
               (retryDelay = Math.min(retryDelay * 2, 6e4)),
               o(`Error: Connection Failed`));
         } finally {

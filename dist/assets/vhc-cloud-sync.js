@@ -20567,6 +20567,15 @@ ${suffix}`;
       window.dispatchEvent(new CustomEvent("vhc-cloud-signed-out"));
     }
   }
+  async function isPlatformAdmin() {
+    try {
+      const { data, error } = await supabase.rpc("is_platform_admin");
+      if (error) return false;
+      return data === true;
+    } catch (e) {
+      return false;
+    }
+  }
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT") {
       currentSession = null;
@@ -20991,6 +21000,44 @@ ${suffix}`;
     if (error) throw error;
     return data || null;
   }
+  async function createSaleReturn({ returnId, billId, items, returnType, refundMethod, outstandingAmount, reason, source }) {
+    assertCloudWritesAllowed("createSaleReturn");
+    if (!returnId || !billId || !Array.isArray(items) || items.length === 0) {
+      throw new Error("createSaleReturn requires returnId, billId and at least one item");
+    }
+    const payload = {
+      return_id: returnId,
+      bill_id: billId,
+      return_type: returnType || "RETURN",
+      items: items.map((line) => ({
+        sale_item_id: line.saleItemId || line.sale_item_id,
+        quantity: Number(line.quantity),
+        disposition: line.disposition || "SALEABLE"
+      }))
+    };
+    if (refundMethod) payload.refund_method = refundMethod;
+    if (Number.isFinite(Number(outstandingAmount))) payload.outstanding_amount = Number(outstandingAmount);
+    if (reason) payload.reason = reason;
+    payload.source = source || "vhc-pos-cloud-return";
+    const { data, error } = await supabase.rpc("create_sale_return", { payload });
+    if (error) {
+      const code = String(error.code || "");
+      const message = String(error.message || "");
+      if (code === "PGRST202" || /could not find the function|does not exist/i.test(message)) {
+        return { status: "RPC_MISSING", error: message };
+      }
+      throw error;
+    }
+    await Promise.all([fetchSalesHistory(), fetchInventory()]);
+    return data;
+  }
+  async function getSaleReturnsForReports() {
+    const { data, error } = await supabase.from("sale_returns").select(
+      "id,original_bill_id,created_at,return_amount,refund_amount,credit_amount,status,sales!sale_returns_original_sale_id_fkey(patient_name),sale_return_items(quantity,sale_items(drug_name))"
+    ).eq("status", "COMPLETED").order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  }
   async function deleteSale(saleId) {
     const { error } = await supabase.rpc("delete_sale_and_restore", { p_sale_id: saleId });
     if (error) throw error;
@@ -21309,6 +21356,7 @@ ${problems.join("\n")}`);
       disabledReason: CLOUD_CONFIG.disabledReason
     }),
     signIn: withErrorReport(signIn),
+    isPlatformAdmin,
     getSession,
     getAuthBootstrap,
     checkReachability,
@@ -21339,6 +21387,8 @@ ${problems.join("\n")}`);
     findSaleByBillId: withErrorReport(findSaleByBillId),
     createSaleStrict: createSale,
     findSaleByBillIdStrict: findSaleByBillId,
+    createSaleReturn,
+    getSaleReturnsForReports,
     describeCloudError,
     deleteSale: withErrorReport(deleteSale),
     deleteSaleByBillId: withErrorReport(deleteSaleByBillId),

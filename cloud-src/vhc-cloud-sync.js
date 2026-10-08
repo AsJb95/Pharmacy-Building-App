@@ -359,6 +359,28 @@ async function signOut() {
   }
 }
 
+// Is the signed-in user a platform admin? Gates the admin-only Settings sections (Backup &
+// Restore / Stock Audit cards, Admin Security, Cloud Integrations). The Settings screen already
+// calls this; it was never implemented here, so the call silently short-circuited and every
+// account was treated as non-admin, hiding those sections from everyone.
+//
+// This delegates to the EXISTING server-side function rather than reading profiles directly:
+//   public.is_platform_admin()  -- SQL, STABLE, SECURITY DEFINER, search_path=public
+//     select coalesce((select is_platform_admin from public.profiles where id = auth.uid()), false)
+// so the answer is derived server-side from the caller's own auth.uid() under the database's own
+// rules. No admin identity is hardcoded here, no profile row is read by the client, and the
+// client cannot widen its own privileges. Fails CLOSED: any error, missing function or
+// non-true value yields false.
+async function isPlatformAdmin() {
+  try {
+    const { data, error } = await supabase.rpc('is_platform_admin');
+    if (error) return false;
+    return data === true;
+  } catch (e) {
+    return false;
+  }
+}
+
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_OUT') {
     currentSession = null;
@@ -923,6 +945,75 @@ async function findSaleByBillId(billId) {
   return data || null;
 }
 
+// Executes a return/refund for a CLOUD-origin (history-only) bill through the
+// create_sale_return(jsonb) RPC — the only atomic, idempotent entry point for this.
+// Everything that matters (authorization, remaining-quantity limits, stock-exactly-once,
+// refund/credit audit) is enforced inside that one transaction on the server; this wrapper
+// deliberately adds no client-side arithmetic that could disagree with it.
+//
+// returnId MUST be stable across retries of the same user action: the RPC treats it as the
+// idempotency key, so a retry after a timeout replays as ALREADY_APPLIED instead of
+// returning the stock a second time.
+//
+// RPC_MISSING is returned (not thrown) when the migration has not been applied to the target
+// project yet, so the caller can fall back to a clean refusal instead of surfacing a raw
+// PostgREST error.
+async function createSaleReturn({ returnId, billId, items, returnType, refundMethod, outstandingAmount, reason, source }) {
+  assertCloudWritesAllowed('createSaleReturn');
+  if (!returnId || !billId || !Array.isArray(items) || items.length === 0) {
+    throw new Error('createSaleReturn requires returnId, billId and at least one item');
+  }
+  const payload = {
+    return_id: returnId,
+    bill_id: billId,
+    return_type: returnType || 'RETURN',
+    items: items.map((line) => ({
+      sale_item_id: line.saleItemId || line.sale_item_id,
+      quantity: Number(line.quantity),
+      disposition: line.disposition || 'SALEABLE',
+    })),
+  };
+  if (refundMethod) payload.refund_method = refundMethod;
+  if (Number.isFinite(Number(outstandingAmount))) payload.outstanding_amount = Number(outstandingAmount);
+  if (reason) payload.reason = reason;
+  payload.source = source || 'vhc-pos-cloud-return';
+
+  const { data, error } = await supabase.rpc('create_sale_return', { payload });
+  if (error) {
+    // PostgREST reports an absent function as PGRST202 / "Could not find the function".
+    const code = String(error.code || '');
+    const message = String(error.message || '');
+    if (code === 'PGRST202' || /could not find the function|does not exist/i.test(message)) {
+      return { status: 'RPC_MISSING', error: message };
+    }
+    throw error;
+  }
+  // The original sale is untouched, but stock and history both moved — refresh the caches the
+  // Returns UI and inventory read from, exactly as createSale/deleteSale do.
+  await Promise.all([fetchSalesHistory(), fetchInventory()]);
+  return data;
+}
+
+// Read-only feed for the Returns & Refunds report. The report merges these rows with the local
+// SQLite ones (deduped by return id), so a cloud-origin return — one taken against a
+// history-only bill, which by definition has no local sale row — is still counted. Only
+// COMPLETED returns are reported: DRAFT/VOIDED must never move financial totals.
+// The sales embed is disambiguated explicitly because sale_returns has two FKs to sales
+// (original_sale_id and exchange_sale_id) and PostgREST refuses the ambiguous form.
+async function getSaleReturnsForReports() {
+  const { data, error } = await supabase
+    .from('sale_returns')
+    .select(
+      'id,original_bill_id,created_at,return_amount,refund_amount,credit_amount,status,' +
+      'sales!sale_returns_original_sale_id_fkey(patient_name),' +
+      'sale_return_items(quantity,sale_items(drug_name))'
+    )
+    .eq('status', 'COMPLETED')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
 async function deleteSale(saleId) {
   const { error } = await supabase.rpc('delete_sale_and_restore', { p_sale_id: saleId });
   if (error) throw error;
@@ -1351,6 +1442,9 @@ window.VHC_CLOUD = {
     disabledReason: CLOUD_CONFIG.disabledReason,
   }),
   signIn: withErrorReport(signIn),
+  // Strict: it already fails closed internally, and the Settings screen treats a rejection as
+  // "not an admin" — wrapping it in an error report would add noise without changing the gate.
+  isPlatformAdmin,
   getSession,
   getAuthBootstrap,
   checkReachability,
@@ -1384,6 +1478,13 @@ window.VHC_CLOUD = {
   findSaleByBillId: withErrorReport(findSaleByBillId),
   createSaleStrict: createSale,
   findSaleByBillIdStrict: findSaleByBillId,
+  // Strict variant only: a return must surface its own failure to the caller, never be
+  // swallowed into a generic error report, so the UI can tell a rejection apart from a
+  // not-yet-migrated project.
+  createSaleReturn,
+  // Strict read: the Reports screen catches failures itself and falls back to local-only rows,
+  // so an offline/odd-cloud state must not be swallowed into a generic error report here.
+  getSaleReturnsForReports,
   describeCloudError,
   deleteSale: withErrorReport(deleteSale),
   deleteSaleByBillId: withErrorReport(deleteSaleByBillId),
