@@ -58692,6 +58692,7 @@ function Lh() {
           isChangelogExpanded && (0, J.jsxs)(`ul`, {
             className: `vhc-settings-changelog-content`,
             children: [
+              (0, J.jsx)(`li`, { children: `Reports: Total Bills now counts each bill once — a Split Payment bill (Cash + UPI) is no longer counted twice` }),
               (0, J.jsx)(`li`, { children: `Payment mode is never pre-selected: every new bill and tab starts with no payment mode, and Complete Payment stays disabled until one is chosen` }),
               (0, J.jsx)(`li`, { children: `Cash Received / Change to Return shown only for Cash payments, and cleared when switching away` }),
               (0, J.jsx)(`li`, { children: `Custom Charge drafts are kept per billing tab` }),
@@ -62065,6 +62066,17 @@ function filterPaymentTransactions(transactions, filters) {
 // spec) plus Total Billing, computed from the DISTINCT bills actually present
 // in `transactions` so a two-row split bill's total is counted once, not once
 // per row.
+// Number of DISTINCT bills behind a set of payment rows. A Split bill expands into one row per
+// method (and a credit bill can add repayment rows), so the row count is NOT the bill count; the
+// canonical identity is the bill's stable billId (= sales.bill_id in the cloud).
+function vhcDistinctBillCount(transactions) {
+  let ids = /* @__PURE__ */ new Set();
+  (transactions || []).forEach((t) => {
+    let id = t && t.billId != null ? String(t.billId).trim() : ``;
+    id && ids.add(id);
+  });
+  return ids.size;
+}
 function computePaymentSummary(transactions) {
   let sums = { Cash: 0, UPI: 0, Card: 0, Credit: 0, Other: 0 },
     seenBills = /* @__PURE__ */ new Map();
@@ -62075,6 +62087,7 @@ function computePaymentSummary(transactions) {
   let totalBilling = Array.from(seenBills.values()).reduce((s, v) => s + (v || 0), 0),
     totalCollected = sums.Cash + sums.UPI + sums.Card + sums.Other;
   return {
+    billCount: vhcDistinctBillCount(transactions),
     totalBilling,
     totalCollected,
     outstandingTotal: sums.Credit,
@@ -62098,7 +62111,7 @@ function paymentStatusColor(status) {
 // Reports & Financials on every tab; previously rendered only inside the Payments tab.
 function ReportsSummaryCards({ summary, transactions = [] }) {
   let cards = [
-    { label: `Billing`, color: `var(--text-primary)`, lines: [[`Total Bills / Patients Billed`, summary.billCount ?? transactions.length], [`Medicines / Units Sold`, summary.unitCount ?? 0], [`Gross Billing`, summary.totalBilling], [`Net Sales`, summary.netSales ?? summary.totalBilling]] },
+    { label: `Billing`, color: `var(--text-primary)`, lines: [[`Total Bills / Patients Billed`, summary.billCount ?? vhcDistinctBillCount(transactions)], [`Medicines / Units Sold`, summary.unitCount ?? 0], [`Gross Billing`, summary.totalBilling], [`Net Sales`, summary.netSales ?? summary.totalBilling]] },
     { label: `Collections`, color: `var(--money-pos)`, lines: [[`Net Collected`, summary.totalCollected], [`Cash`, summary.cashCollection], [`UPI`, summary.upiCollection], [`Card`, summary.cardCollection], [`Credit`, summary.outstandingTotal], [`Split / Other`, summary.otherCollection]] },
     { label: `Returns & Balance`, color: `var(--danger-hover)`, lines: [[`Return Bills Count`, summary.returnBillCount ?? 0], [`Returned Amount`, summary.returnAmount ?? 0], [`Refunded Amount`, summary.refundedAmount ?? 0], [`Pending Amount`, summary.pendingAmount ?? 0], [`Outstanding Amount`, summary.outstandingTotal]] },
   ];

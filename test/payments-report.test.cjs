@@ -152,6 +152,7 @@ function computePaymentSummary(transactions) {
   const totalBilling = Array.from(seenBills.values()).reduce((s, v) => s + (v || 0), 0);
   const totalCollected = sums.Cash + sums.UPI + sums.Card + sums.Other;
   return {
+    billCount: new Set((transactions || []).map((t) => (t && t.billId != null ? String(t.billId).trim() : '')).filter(Boolean)).size,
     totalBilling, totalCollected, outstandingTotal: sums.Credit,
     cashCollection: sums.Cash, upiCollection: sums.UPI, cardCollection: sums.Card, otherCollection: sums.Other,
   };
