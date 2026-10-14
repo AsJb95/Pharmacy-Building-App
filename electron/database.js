@@ -612,8 +612,9 @@ export function createLocalSale(payload) {
     const result = db.transaction(() => {
       const now = new Date().toISOString();
 
-      if (db.prepare('SELECT 1 FROM sales WHERE bill_id = ?').get(payload.billId)) {
-        return { success: false, rejected: true, duplicate: true, error: `Bill ${payload.billId} already exists` };
+      const existingSale = db.prepare('SELECT id, bill_id FROM sales WHERE bill_id = ? LIMIT 1').get(payload.billId);
+      if (existingSale) {
+        return { success: true, duplicate: true, saleId: existingSale.id, billId: existingSale.bill_id, lineCount: 0 };
       }
 
       // Resolve/validate every medicine line BEFORE deducting anything; any throw rolls back
@@ -760,11 +761,11 @@ export function createLocalSale(payload) {
         ) VALUES (?, ?, 'UPLOAD_SALE', 'PENDING_CLOUD', ?, ?, 0, 2)
         ON CONFLICT(bill_id, operation_type) DO UPDATE SET
           sync_status = CASE
-            WHEN financial_sync_operations.sync_status = 'CLOUD_CONFIRMED' THEN financial_sync_operations.sync_status
+            WHEN financial_sync_operations.sync_status IN (${SALE_CONFIRMED_SQL_LIST}) THEN financial_sync_operations.sync_status
             ELSE 'PENDING_CLOUD'
           END,
           contract_version = CASE
-            WHEN financial_sync_operations.sync_status = 'CLOUD_CONFIRMED' THEN financial_sync_operations.contract_version
+            WHEN financial_sync_operations.sync_status IN (${SALE_CONFIRMED_SQL_LIST}) THEN financial_sync_operations.contract_version
             ELSE 2
           END,
           updated_at = excluded.updated_at`
@@ -777,6 +778,17 @@ export function createLocalSale(payload) {
     return { success: false, rejected: e.rejected === true, error: e.message };
   }
 }
+
+// UPLOAD_SALE status model (sync_status is free TEXT — no schema change):
+//   PENDING_CLOUD / SYNCING / SYNC_FAILED   cloud sale not yet verified; full upload retried
+//   SALE_CONFIRMED_STOCK_PENDING            cloud sale verified + cloud_sale_id saved; stock step pending (stock-only retry)
+//   STOCK_CONFLICT                          cloud sale confirmed; stock reconciliation refused (review, no auto-retry)
+//   SALE_MISMATCH                           a cloud sale with this bill_id exists but differs (review, no auto-retry)
+//   CLOUD_CONFIRMED                         sale + stock fully confirmed
+//   CANCELLED                               bill deleted locally before cloud confirmation (never uploaded, not pending)
+const SALE_CONFIRMED_STATUSES = ['CLOUD_CONFIRMED', 'SALE_CONFIRMED_STOCK_PENDING', 'STOCK_CONFLICT'];
+const REVIEW_REQUIRED_STATUSES = ['STOCK_CONFLICT', 'SALE_MISMATCH'];
+const SALE_CONFIRMED_SQL_LIST = SALE_CONFIRMED_STATUSES.map((s) => `'${s}'`).join(', ');
 
 export function getFinancialSyncOperations(statuses = null) {
   if (!db) return [];
@@ -802,8 +814,10 @@ export function getFinancialIntegritySnapshot() {
   }
 }
 
+// Retried automatically by the financial sync worker. SALE_CONFIRMED_STOCK_PENDING retries the
+// stock step ONLY — the sale itself is already verified in the cloud and is never re-uploaded.
 export function getUnsyncedFinancialSyncOperations() {
-  return getFinancialSyncOperations(['PENDING_CLOUD', 'SYNCING', 'SYNC_FAILED']);
+  return getFinancialSyncOperations(['PENDING_CLOUD', 'SYNCING', 'SYNC_FAILED', 'SALE_CONFIRMED_STOCK_PENDING']);
 }
 
 export function markFinancialSyncAttempt(billId, error = null) {
@@ -811,6 +825,23 @@ export function markFinancialSyncAttempt(billId, error = null) {
   const now = new Date().toISOString();
   const existing = db.prepare("SELECT * FROM financial_sync_operations WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'").get(billId);
   if (!existing) return { success: false, error: `No sync operation for ${billId}` };
+  // Once the cloud sale is confirmed the operation must never fall back to a generic upload
+  // state: that is what made a later stock-step failure re-run the whole upload forever.
+  if (SALE_CONFIRMED_STATUSES.includes(existing.sync_status)) {
+    if (error) {
+      db.prepare(
+        `UPDATE financial_sync_operations
+         SET last_attempt_at = ?, retry_count = retry_count + 1, last_error = ?, updated_at = ?
+         WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+      ).run(now, error, now, billId);
+    } else {
+      db.prepare(
+        `UPDATE financial_sync_operations SET last_attempt_at = ?, updated_at = ?
+         WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+      ).run(now, now, billId);
+    }
+    return { success: true, billId, status: existing.sync_status, preserved: true };
+  }
   if (error) {
     db.prepare(
       `UPDATE financial_sync_operations
@@ -827,15 +858,74 @@ export function markFinancialSyncAttempt(billId, error = null) {
   return { success: true, billId, status: error ? 'SYNC_FAILED' : 'SYNCING' };
 }
 
-export function markFinancialSyncConfirmed(billId, cloudSaleId = null) {
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Shared guard for every status that records a cloud sale id: the id must be a real Supabase
+// UUID, and an operation that already holds a DIFFERENT cloud id is never silently re-pointed.
+function setSaleConfirmedStatus(billId, cloudSaleId, status, { lastError = null, fullyConfirmed = false } = {}) {
   if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  const existing = db.prepare("SELECT * FROM financial_sync_operations WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'").get(billId);
+  if (!existing) return { success: false, error: `No sync operation for ${billId}` };
+  const id = cloudSaleId == null ? null : String(cloudSaleId).trim();
+  if (!id || !UUID_PATTERN.test(id)) {
+    return { success: false, error: `Invalid cloud sale id for ${billId}` };
+  }
+  if (existing.cloud_sale_id && existing.cloud_sale_id !== id) {
+    return { success: false, error: `Cloud sale id mismatch for ${billId}: stored ${existing.cloud_sale_id}, got ${id}` };
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE financial_sync_operations
+     SET sync_status = ?, cloud_sale_id = ?, last_error = ?, updated_at = ?,
+         cloud_confirmed_at = CASE WHEN ? THEN ? ELSE cloud_confirmed_at END
+     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+  ).run(status, id, lastError, now, fullyConfirmed ? 1 : 0, now, billId);
+  return { success: true, billId, status, cloudSaleId: id };
+}
+
+// Step 1 checkpoint: the cloud sale (bill, payment, items) is verified by bill_id and its real
+// cloud id is persisted BEFORE stock reconciliation runs, so a stock failure can no longer
+// undo the upload's confirmation.
+export function markFinancialSyncSaleConfirmed(billId, cloudSaleId) {
+  return setSaleConfirmedStatus(billId, cloudSaleId, 'SALE_CONFIRMED_STOCK_PENDING');
+}
+
+// Transient stock-step failure (network/server): stays SALE_CONFIRMED_STOCK_PENDING, stock-only retry.
+export function markFinancialSyncStockPending(billId, error) {
+  if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  const existing = db.prepare("SELECT * FROM financial_sync_operations WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'").get(billId);
+  if (!existing) return { success: false, error: `No sync operation for ${billId}` };
+  if (!existing.cloud_sale_id) return { success: false, error: `Cloud sale is not confirmed for ${billId}` };
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE financial_sync_operations
+     SET sync_status = 'SALE_CONFIRMED_STOCK_PENDING', last_attempt_at = ?, retry_count = retry_count + 1, last_error = ?, updated_at = ?
+     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+  ).run(now, String(error || 'Stock reconciliation pending'), now, billId);
+  return { success: true, billId, status: 'SALE_CONFIRMED_STOCK_PENDING' };
+}
+
+// Terminal states that need human review and are NOT retried automatically (retrying cannot
+// change the outcome): STOCK_CONFLICT keeps the confirmed sale + the exact conflict detail;
+// SALE_MISMATCH records an existing cloud sale whose content differs from the local bill.
+export function markFinancialSyncReviewRequired(billId, status, detail, cloudSaleId = null) {
+  if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  if (!REVIEW_REQUIRED_STATUSES.includes(status)) return { success: false, error: `Unsupported review status ${status}` };
+  if (status === 'STOCK_CONFLICT') {
+    const existing = db.prepare("SELECT cloud_sale_id FROM financial_sync_operations WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'").get(billId);
+    return setSaleConfirmedStatus(billId, cloudSaleId || (existing && existing.cloud_sale_id), status, { lastError: String(detail || status) });
+  }
   const now = new Date().toISOString();
   const info = db.prepare(
     `UPDATE financial_sync_operations
-     SET sync_status = 'CLOUD_CONFIRMED', cloud_confirmed_at = ?, cloud_sale_id = ?, last_error = NULL, updated_at = ?
-     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
-  ).run(now, cloudSaleId || null, now, billId);
-  return { success: info.changes > 0, billId, status: 'CLOUD_CONFIRMED' };
+     SET sync_status = ?, last_attempt_at = ?, retry_count = retry_count + 1, last_error = ?, updated_at = ?
+     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE' AND sync_status NOT IN (${SALE_CONFIRMED_SQL_LIST})`
+  ).run(status, now, String(detail || status), now, billId);
+  return { success: info.changes > 0, billId, status };
+}
+
+export function markFinancialSyncConfirmed(billId, cloudSaleId = null) {
+  return setSaleConfirmedStatus(billId, cloudSaleId, 'CLOUD_CONFIRMED', { fullyConfirmed: true });
 }
 
 /** Read-only lookup used by tests/verification — never exposed to the renderer as a generic query. */
@@ -851,16 +941,22 @@ export function getLocalSaleByBillId(billId) {
      LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
      WHERE si.sale_id = ?`
   ).all(sale.id);
+  // Exactly ONE batch row per movement (never a fan-out join): the batch this sale's own line
+  // used is preferred, so a second local row with the same item + batch number (e.g. another
+  // location) can neither duplicate the movement nor point it at the wrong cloud batch.
   const stockMovements = db.prepare(
     `SELECT sm.*, i.server_id AS server_item_id,
             sb.server_id AS server_stock_batch_id, sb.location_id AS cloud_location_id
      FROM stock_movements sm
      LEFT JOIN items i ON i.id = sm.item_id
-     LEFT JOIN stock_batches sb
-       ON sb.item_id = sm.item_id AND IFNULL(sb.batch_no, '') = IFNULL(sm.batch_no, '')
+     LEFT JOIN stock_batches sb ON sb.id = (
+       SELECT sb2.id FROM stock_batches sb2
+       WHERE sb2.item_id = sm.item_id AND IFNULL(sb2.batch_no, '') = IFNULL(sm.batch_no, '')
+       ORDER BY (sb2.id IN (SELECT si2.stock_batch_id FROM sale_items si2 WHERE si2.sale_id = ?)) DESC, sb2.created_at, sb2.id
+       LIMIT 1)
      WHERE sm.bill_id = ? AND sm.type = 'BILL'
      ORDER BY sm.created_at, sm.id`
-  ).all(billId);
+  ).all(sale.id, billId);
   return { ...sale, sale_items: items, stock_movements: stockMovements };
 }
 
@@ -873,11 +969,14 @@ export function getPendingStockOverlays() {
      FROM financial_sync_operations fso
      JOIN stock_movements sm ON sm.bill_id = fso.bill_id AND sm.type = 'BILL'
      LEFT JOIN items i ON i.id = sm.item_id
-     LEFT JOIN stock_batches sb
-       ON sb.item_id = sm.item_id AND IFNULL(sb.batch_no, '') = IFNULL(sm.batch_no, '')
+     LEFT JOIN stock_batches sb ON sb.id = (
+       SELECT sb2.id FROM stock_batches sb2
+       WHERE sb2.item_id = sm.item_id AND IFNULL(sb2.batch_no, '') = IFNULL(sm.batch_no, '')
+       ORDER BY (sb2.id IN (SELECT si2.stock_batch_id FROM sale_items si2 JOIN sales s2 ON s2.id = si2.sale_id WHERE s2.bill_id = sm.bill_id)) DESC, sb2.created_at, sb2.id
+       LIMIT 1)
      WHERE fso.operation_type = 'UPLOAD_SALE'
        AND fso.contract_version >= 2
-       AND fso.sync_status <> 'CLOUD_CONFIRMED'
+       AND fso.sync_status NOT IN ('CLOUD_CONFIRMED', 'CANCELLED')
      ORDER BY sm.created_at, sm.id`
   ).all();
 }
@@ -916,8 +1015,16 @@ export function cancelLocalSale(billId) {
         );
       }
       db.prepare("UPDATE sales SET status = 'deleted', updated_at = ? WHERE id = ?").run(now, sale.id);
+      // A bill deleted BEFORE its cloud sale was confirmed must never be uploaded afterwards (that
+      // would create the cloud ghost itself) and is no longer pending. A cloud-confirmed operation
+      // is left as-is: its cloud copy is removed by the existing cloud delete path.
+      const cancelledOps = db.prepare(
+        `UPDATE financial_sync_operations
+         SET sync_status = 'CANCELLED', last_error = 'Bill deleted locally before cloud confirmation', updated_at = ?
+         WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE' AND sync_status NOT IN (${SALE_CONFIRMED_SQL_LIST})`
+      ).run(now, billId).changes;
 
-      return { success: true, saleId: sale.id, restoredLines: items.length };
+      return { success: true, saleId: sale.id, restoredLines: items.length, cancelledSyncOperations: cancelledOps };
     })();
     return result;
   } catch (e) {

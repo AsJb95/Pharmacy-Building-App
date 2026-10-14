@@ -85,12 +85,21 @@ test('concurrent cloud change returns conflict without overwrite', () => {
   assert.strictEqual(rpc.movements.size, 0);
 });
 
-test('worker reconciles stock before CLOUD_CONFIRMED and preserves conflict as failure', () => {
+// v3.19.2: the cloud SALE is confirmed (real cloud id persisted) before stock reconciliation;
+// CLOUD_CONFIRMED still requires the stock step, and a conflict becomes the visible STOCK_CONFLICT
+// review state instead of a generic upload failure. Behaviour is covered end-to-end by
+// test/financial-sync-order.test.cjs; this pins the ordering in the shipped source.
+test('worker confirms the cloud sale before stock, and stock before CLOUD_CONFIRMED; conflict is a review state', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'dist', 'assets', 'vhc-audit-engine.js'), 'utf8');
-  const reconcileAt = source.indexOf('await _reconcileStockForOperation(op, localSale)');
+  const saleConfirmedAt = source.indexOf('await window.electronAPI.markFinancialSyncSaleConfirmed(billId, cloudSaleId)');
+  const stepCallAt = source.indexOf('return await _runStockStep(op, localSale, billId, cloudSaleId)', saleConfirmedAt);
+  assert.ok(saleConfirmedAt > 0 && stepCallAt > saleConfirmedAt, 'sale confirmed before the stock step');
+  const stepStart = source.indexOf('async function _runStockStep(');
+  const reconcileAt = source.indexOf('await _reconcileStockForOperation(op, localSale)', stepStart);
   const confirmedAt = source.indexOf('await window.electronAPI.markFinancialSyncConfirmed', reconcileAt);
-  assert.ok(reconcileAt > 0 && confirmedAt > reconcileAt);
+  assert.ok(stepStart > 0 && reconcileAt > stepStart && confirmedAt > reconcileAt, 'stock reconciled before CLOUD_CONFIRMED');
   assert.match(source, /STOCK_RECONCILIATION_CONFLICT/);
+  assert.match(source, /'STOCK_CONFLICT'/);
   assert.match(source, /findStockMovementByKeyStrict/);
 });
 

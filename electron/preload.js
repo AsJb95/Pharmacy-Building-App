@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getUnsyncedFinancialSyncOperations: () => ipcRenderer.invoke('database:get-unsynced-financial-sync-operations'),
   markFinancialSyncAttempt: (billId, error) => ipcRenderer.invoke('database:mark-financial-sync-attempt', { billId, error }),
   markFinancialSyncConfirmed: (billId, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-confirmed', { billId, cloudSaleId }),
+  markFinancialSyncSaleConfirmed: (billId, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-sale-confirmed', { billId, cloudSaleId }),
+  markFinancialSyncStockPending: (billId, error) => ipcRenderer.invoke('database:mark-financial-sync-stock-pending', { billId, error }),
+  markFinancialSyncReviewRequired: (billId, status, detail, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-review-required', { billId, status, detail, cloudSaleId }),
   // Administrative clears used by Clear Sales History / Reset / Factory Reset / Restore.
   adminClearLocalSalesHistory: () => ipcRenderer.invoke('database:admin-clear-sales-history'),
   adminClearLocalSalesAndLedger: () => ipcRenderer.invoke('database:admin-clear-sales-and-ledger'),

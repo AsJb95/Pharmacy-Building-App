@@ -905,6 +905,7 @@ async function createSale(payload) {
   const recordOnly = !!payload.recordOnly;
   const rpcPayload = {
     bill_id: payload.billId,
+    client_request_id: payload.billId,
     patient_id: patientId,
     patient_name: payload.patientName || null,
     patient_snapshot: payload.patientSnapshot || null,

@@ -10,7 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import assert from 'assert';
 import Database from 'better-sqlite3';
-import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, getPendingStockOverlays, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary, clearSalesHistoryData, clearSalesAndInventoryLedgerData, clearInventoryLedgerData, getFinancialSyncOperations, getFinancialIntegritySnapshot, getUnsyncedFinancialSyncOperations, markFinancialSyncAttempt, markFinancialSyncConfirmed, getOfflineAuthIdentity, recordOfflineAuthIdentity, clearOfflineAuthIdentity } from './database.js';
+import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, getPendingStockOverlays, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary, clearSalesHistoryData, clearSalesAndInventoryLedgerData, clearInventoryLedgerData, getFinancialSyncOperations, getFinancialIntegritySnapshot, getUnsyncedFinancialSyncOperations, markFinancialSyncAttempt, markFinancialSyncConfirmed, markFinancialSyncSaleConfirmed, markFinancialSyncStockPending, markFinancialSyncReviewRequired, getOfflineAuthIdentity, recordOfflineAuthIdentity, clearOfflineAuthIdentity } from './database.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vhc-db-selftest-'));
 const dbPath = path.join(tmpDir, 'selftest.db');
@@ -397,7 +397,7 @@ check('K. patient association: an existing patient (matched by contact) is reuse
   assert.strictEqual(sale1.patient_id, sale2.patient_id);
 });
 
-check('L. duplicate bill_id protection: a second sale with the same bill_id is rejected, not silently overwritten', () => {
+check('L. duplicate bill_id protection: a second sale with the same bill_id replays the existing sale', () => {
   const billId = 'BILL-TEST-L-' + Date.now();
   const first = createLocalSale({
     billId, paymentMode: 'Cash', totalAmount: 10,
@@ -410,15 +410,15 @@ check('L. duplicate bill_id protection: a second sale with the same bill_id is r
     paymentDetails: { amountReceived: 10, outstandingAmount: 0, status: 'Paid' },
     items: [sampleCartItem({ qty: 1 })], extraParticulars: [],
   });
-  assert.strictEqual(second.success, false);
+  assert.strictEqual(second.success, true);
   assert.strictEqual(second.duplicate, true);
-  assert.ok(/already exists/i.test(second.error), second.error);
+  assert.strictEqual(second.saleId, first.saleId);
   const raw = new Database(dbPath, { readonly: true });
   const n = raw.prepare('SELECT COUNT(*) AS c FROM sales WHERE bill_id = ?').get(billId).c;
   const moves = raw.prepare("SELECT COUNT(*) AS c FROM stock_movements WHERE bill_id = ? AND type = 'BILL'").get(billId).c;
   raw.close();
   assert.strictEqual(n, 1, 'exactly one sale row');
-  assert.strictEqual(moves, 1, 'the rejected duplicate must not deduct stock a second time');
+  assert.strictEqual(moves, 1, 'the duplicate replay must not deduct stock a second time');
 });
 
 check('M/N. persistence: the sale survives close + reopen of the database', () => {
@@ -834,8 +834,18 @@ check('V7b. business rejections are flagged rejected:true; infrastructure failur
   assert.strictEqual(invalidQty.rejected, true);
   const dupBill = 'BILL-VHC-FLAGDUP-' + Date.now();
   const mk = () => createLocalSale({ billId: dupBill, paymentMode: 'Cash', totalAmount: 1, paymentDetails: { amountReceived: 1, outstandingAmount: 0, status: 'Paid' }, items: [sampleCartItem({ name: 'Flag Drug', batch: 'FL-1', qty: 1, stock: 5 })], extraParticulars: [] });
-  assert.strictEqual(mk().success, true);
-  assert.strictEqual(mk().rejected, true, 'duplicate bill is a business rejection');
+  const first = mk();
+  assert.strictEqual(first.success, true);
+  const retry = mk();
+  assert.strictEqual(retry.success, true, 'duplicate bill replay must reference the existing sale');
+  assert.strictEqual(retry.duplicate, true);
+  assert.strictEqual(retry.saleId, first.saleId);
+  assert.strictEqual(batchQty('FL-1'), 4, 'duplicate replay must not deduct stock twice');
+  const rapidBill = 'BILL-VHC-RAPID-' + Date.now();
+  const rapid = Array.from({ length: 10 }, () => createLocalSale({ billId: rapidBill, paymentMode: 'Cash', totalAmount: 1, paymentDetails: { amountReceived: 1, outstandingAmount: 0, status: 'Paid' }, items: [sampleCartItem({ name: 'Flag Drug', batch: 'FL-1', qty: 1, stock: 4 })], extraParticulars: [] }));
+  assert.strictEqual(rapid.filter((r) => r.success && !r.duplicate).length, 1, 'ten rapid replays must create one sale');
+  assert.strictEqual(rapid.filter((r) => r.duplicate).length, 9, 'ten rapid replays must reference one sale');
+  assert.strictEqual(batchQty('FL-1'), 3, 'ten rapid replays must deduct stock once');
   // Infrastructure failure: close the module's connection so any DB call throws/errs.
   closeDatabase();
   const noDb = sellOne('Flag Drug', 'FL-1', 1, 5);
@@ -1096,7 +1106,7 @@ check('Y2. one confirmed bill does not clear other pending/failed bills', () => 
     });
     assert.strictEqual(res.success, true, JSON.stringify(res));
   });
-  assert.strictEqual(markFinancialSyncConfirmed(ids[0], 'cloud-sale-a').success, true);
+  assert.strictEqual(markFinancialSyncConfirmed(ids[0], 'aaaaaaaa-0000-4000-8000-00000000000a').success, true);
   assert.strictEqual(markFinancialSyncAttempt(ids[1], 'simulated network failure').success, true);
   const byId = Object.fromEntries(getFinancialSyncOperations().filter((x) => ids.includes(x.bill_id)).map((x) => [x.bill_id, x]));
   assert.strictEqual(byId[ids[0]].sync_status, 'CLOUD_CONFIRMED');
@@ -1161,7 +1171,7 @@ check('Y5. unresolved contract-v2 stock overlays survive restart and disappear o
   initDatabase(dbPath);
   overlays = getPendingStockOverlays().filter((row) => row.bill_id === pending.bill_id);
   assert.strictEqual(overlays.length, 1, 'overlay must survive restart');
-  markFinancialSyncConfirmed(pending.bill_id, 'cloud-stock-confirmed');
+  assert.strictEqual(markFinancialSyncConfirmed(pending.bill_id, 'bbbbbbbb-0000-4000-8000-00000000000b').success, true);
   overlays = getPendingStockOverlays().filter((row) => row.bill_id === pending.bill_id);
   assert.strictEqual(overlays.length, 0, 'confirmed operation must no longer overlay cloud inventory');
 });
@@ -1174,6 +1184,118 @@ check('Y6. historical contract-v1 confirmed operations are never selected for st
     VALUES (?,?,?,?,?,?,0,1)`).run('legacy-op-' + Date.now(), 'LEGACY-CONFIRMED-' + Date.now(), 'UPLOAD_SALE', 'CLOUD_CONFIRMED', now, now);
   raw.close();
   assert.ok(getPendingStockOverlays().every((row) => !String(row.bill_id).startsWith('LEGACY-CONFIRMED-')));
+});
+
+// v3.19.2 sync root cause: the cloud sale is confirmed (and its id saved) BEFORE stock
+// reconciliation, and a stock failure can never put the operation back into upload retry.
+function syncSale(prefix, idx = 0) {
+  const billId = `${prefix}-${Date.now()}-${idx}`;
+  const res = createLocalSale({
+    billId, patientSnapshot: { name: 'Sync Order' }, paymentMode: 'Cash', totalAmount: 10,
+    paymentDetails: { breakdown: { Cash: 10 }, amountReceived: 10, outstandingAmount: 0, status: 'Paid' },
+    items: [sampleCartItem({ batch: `${prefix}-B${idx}`, qty: 1, stock: 20, mrp: 10 })],
+    extraParticulars: [],
+  });
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  return billId;
+}
+const opOf = (billId) => getFinancialSyncOperations().find((x) => x.bill_id === billId);
+const CLOUD_A = 'cccccccc-0000-4000-8000-00000000000c';
+const CLOUD_B = 'dddddddd-0000-4000-8000-00000000000d';
+
+check('Y8. sale confirmation persists the real cloud id before stock; a stock-step failure keeps it', () => {
+  const billId = syncSale('ORDER');
+  assert.strictEqual(markFinancialSyncAttempt(billId, null).success, true);
+  const saved = markFinancialSyncSaleConfirmed(billId, CLOUD_A);
+  assert.strictEqual(saved.success, true, JSON.stringify(saved));
+  assert.strictEqual(opOf(billId).sync_status, 'SALE_CONFIRMED_STOCK_PENDING');
+  assert.strictEqual(opOf(billId).cloud_sale_id, CLOUD_A);
+  // a later generic failure (e.g. the stock step threw) must NOT downgrade it to SYNC_FAILED
+  assert.strictEqual(markFinancialSyncAttempt(billId, 'network blip during stock step').preserved, true);
+  assert.strictEqual(opOf(billId).sync_status, 'SALE_CONFIRMED_STOCK_PENDING');
+  assert.strictEqual(opOf(billId).cloud_sale_id, CLOUD_A);
+  // a new attempt start must not reset it to SYNCING either
+  markFinancialSyncAttempt(billId, null);
+  assert.strictEqual(opOf(billId).sync_status, 'SALE_CONFIRMED_STOCK_PENDING');
+  // stock-only retry stays in the retry set until confirmed
+  assert.ok(getUnsyncedFinancialSyncOperations().some((x) => x.bill_id === billId));
+  assert.strictEqual(markFinancialSyncStockPending(billId, 'timeout').success, true);
+  assert.strictEqual(markFinancialSyncConfirmed(billId, CLOUD_A).success, true);
+  assert.strictEqual(opOf(billId).sync_status, 'CLOUD_CONFIRMED');
+  assert.ok(opOf(billId).cloud_confirmed_at);
+  assert.ok(!getUnsyncedFinancialSyncOperations().some((x) => x.bill_id === billId));
+});
+
+check('Y9. stock conflict is a visible terminal state: auditable, not retried, never SYNC_FAILED', () => {
+  const billId = syncSale('CONFLICT');
+  assert.strictEqual(markFinancialSyncSaleConfirmed(billId, CLOUD_A).success, true);
+  const res = markFinancialSyncReviewRequired(billId, 'STOCK_CONFLICT', 'STOCK_RECONCILIATION_CONFLICT: k expected=20 actual=18');
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  const op = opOf(billId);
+  assert.strictEqual(op.sync_status, 'STOCK_CONFLICT');
+  assert.strictEqual(op.cloud_sale_id, CLOUD_A);
+  assert.match(op.last_error, /expected=20 actual=18/);
+  assert.ok(!getUnsyncedFinancialSyncOperations().some((x) => x.bill_id === billId), 'conflict must not be auto-retried');
+  markFinancialSyncAttempt(billId, 'anything');
+  assert.strictEqual(opOf(billId).sync_status, 'STOCK_CONFLICT', 'never downgraded to SYNC_FAILED');
+  // still overlays local stock (the cloud deduction was not applied)
+  assert.ok(getPendingStockOverlays().some((x) => x.bill_id === billId));
+});
+
+check('Y10. wrong/invalid cloud ids are refused and never overwrite a confirmed id', () => {
+  const billId = syncSale('CLOUDID');
+  assert.strictEqual(markFinancialSyncSaleConfirmed(billId, 'not-a-uuid').success, false);
+  assert.strictEqual(markFinancialSyncSaleConfirmed(billId, null).success, false);
+  assert.strictEqual(markFinancialSyncConfirmed(billId, '').success, false);
+  assert.strictEqual(opOf(billId).sync_status, 'PENDING_CLOUD');
+  assert.strictEqual(markFinancialSyncSaleConfirmed(billId, CLOUD_A).success, true);
+  const clash = markFinancialSyncConfirmed(billId, CLOUD_B);
+  assert.strictEqual(clash.success, false);
+  assert.match(clash.error, /mismatch/);
+  assert.strictEqual(opOf(billId).cloud_sale_id, CLOUD_A);
+  assert.strictEqual(opOf(billId).sync_status, 'SALE_CONFIRMED_STOCK_PENDING');
+});
+
+check('Y11. existing cloud sale with different content is recorded once as SALE_MISMATCH and not retried', () => {
+  const billId = syncSale('MISMATCH');
+  const res = markFinancialSyncReviewRequired(billId, 'SALE_MISMATCH', 'SALE_CONTENT_MISMATCH: amount mismatch');
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  assert.strictEqual(opOf(billId).sync_status, 'SALE_MISMATCH');
+  assert.ok(!getUnsyncedFinancialSyncOperations().some((x) => x.bill_id === billId));
+  assert.strictEqual(markFinancialSyncReviewRequired(billId, 'SYNC_FAILED', 'x').success, false, 'only review statuses accepted');
+});
+
+check('Y12. a stock movement maps to exactly ONE local batch row (no fan-out on duplicate item+batch rows)', () => {
+  const billId = syncSale('FANOUT');
+  const sale = getLocalSaleByBillId(billId);
+  assert.strictEqual(sale.stock_movements.length, 1);
+  const raw = new Database(dbPath);
+  const sb = raw.prepare('SELECT * FROM stock_batches WHERE id = ?').get(sale.sale_items[0].stock_batch_id);
+  const now = new Date().toISOString();
+  raw.prepare(`INSERT INTO stock_batches (id, server_id, item_id, location_id, batch_no, qty, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 5, ?, ?)`).run('dup-batch-' + Date.now(), 'eeeeeeee-0000-4000-8000-00000000000e', sb.item_id,
+    'ffffffff-0000-4000-8000-00000000000f', sb.batch_no, '2000-01-01T00:00:00.000Z', now);
+  raw.close();
+  const after = getLocalSaleByBillId(billId);
+  assert.strictEqual(after.stock_movements.length, 1, 'duplicate item+batch row must not duplicate the movement');
+  assert.strictEqual(after.stock_movements[0].server_stock_batch_id, sale.stock_movements[0].server_stock_batch_id, 'must keep the sale line\'s own batch');
+  assert.strictEqual(getPendingStockOverlays().filter((x) => x.bill_id === billId).length, 1);
+});
+
+check('Y13. deleting a never-synced bill cancels its upload; deleting a cloud-confirmed bill keeps its record', () => {
+  const pendingBill = syncSale('CANCEL-PENDING');
+  assert.strictEqual(markFinancialSyncAttempt(pendingBill, 'offline').success, true);
+  const res = cancelLocalSale(pendingBill);
+  assert.strictEqual(res.success, true, JSON.stringify(res));
+  assert.strictEqual(res.cancelledSyncOperations, 1);
+  assert.strictEqual(opOf(pendingBill).sync_status, 'CANCELLED');
+  assert.ok(!getUnsyncedFinancialSyncOperations().some((x) => x.bill_id === pendingBill), 'never uploaded after delete');
+  assert.ok(!getPendingStockOverlays().some((x) => x.bill_id === pendingBill), 'a deleted bill must not keep painting its stock deduction');
+  const confirmedBill = syncSale('CANCEL-CONFIRMED');
+  assert.strictEqual(markFinancialSyncConfirmed(confirmedBill, CLOUD_B).success, true);
+  assert.strictEqual(cancelLocalSale(confirmedBill).cancelledSyncOperations, 0);
+  assert.strictEqual(opOf(confirmedBill).sync_status, 'CLOUD_CONFIRMED');
+  assert.strictEqual(opOf(confirmedBill).cloud_sale_id, CLOUD_B);
 });
 
 check('Y7. offline auth marker stores only verified identity metadata and explicit logout clears it', () => {

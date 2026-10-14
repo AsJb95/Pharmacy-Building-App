@@ -15422,7 +15422,12 @@ function AutoSyncBadgeComponent() {
       if (!navigator.onLine) reachability = "offline";
       const operations = await window.electronAPI.getFinancialSyncOperations();
       if (!active) return;
-      const pending = (Array.isArray(operations) ? operations : []).filter((op) => op.sync_status !== "CLOUD_CONFIRMED");
+      // STOCK_CONFLICT / SALE_MISMATCH are NOT retried automatically (the cloud sale is confirmed
+      // or differs); they are shown as "review needed" instead of an endless "Syncing…".
+      // CANCELLED = bill deleted locally before it ever synced: nothing pending, nothing to review.
+      const notConfirmed = (Array.isArray(operations) ? operations : []).filter((op) => op.sync_status !== "CLOUD_CONFIRMED" && op.sync_status !== "CANCELLED");
+      const review = notConfirmed.filter((op) => op.sync_status === "STOCK_CONFLICT" || op.sync_status === "SALE_MISMATCH");
+      const pending = notConfirmed.filter((op) => op.sync_status !== "STOCK_CONFLICT" && op.sync_status !== "SALE_MISMATCH");
       const failed = pending.some((op) => op.sync_status === "SYNC_FAILED");
       const syncing = pending.some((op) => op.sync_status === "SYNCING");
       const status = reachability === "offline"
@@ -15432,10 +15437,11 @@ function AutoSyncBadgeComponent() {
           : reachability === "failed" || detail.status === "failed" || failed
             ? "failed"
             : reachability === "online"
-              ? pending.length ? "syncing" : "synced"
+              ? pending.length ? "syncing" : review.length ? "review" : "synced"
               : "checking";
       setSyncState({
         pending: pending.length,
+        review: review.length,
         reachability,
         status
       });
@@ -15504,6 +15510,16 @@ function AutoSyncBadgeComponent() {
           bg: "#fef2f2",
           border: "#fecaca",
           text: "#991b1b"
+        };
+      case "review":
+        return {
+          icon: "📋",
+          dotColor: "#f59e0b",
+          label: `Online • ${Number(syncState.review || 0)} Need Review`,
+          sub: "Sales saved in cloud; stock needs review",
+          bg: "#fffbeb",
+          border: "#fde68a",
+          text: "#b45309"
         };
       case "offline":
         return {
@@ -16635,9 +16651,39 @@ function mapDbSaleToLocalBill(dbSale) {
 // terminal). Local always wins on a billId that exists in both, so richer local-only fields
 // (patientSnapshot, etc.) that existing delete/restore/audit code depends on are never lost
 // for a bill that originated on THIS machine.
+// Bill ids explicitly deleted/cancelled on THIS machine (local SQLite status != 'active'),
+// refreshed by loadLocalSalesHistoryForUI before every merge. A cloud row with one of these ids
+// is a ghost of a bill the user removed here (e.g. the cloud delete has not reached the server
+// yet), so it must not reappear in Reports. Only explicit local tombstones suppress a cloud row:
+// a cloud-only bill this machine never deleted (another terminal's sale) stays visible.
+let vhcLocalDeletedBillIds = new Set();
+function vhcDeletedBillIdsFromSnapshot(snapshot) {
+  let ids = new Set();
+  (snapshot && Array.isArray(snapshot.sales) ? snapshot.sales : []).forEach((row) => {
+    let id = row && row.bill_id != null ? String(row.bill_id).trim() : ``;
+    let status = String((row && row.status) || ``).trim().toLowerCase();
+    id && status && status !== `active` && ids.add(id);
+  });
+  (snapshot && Array.isArray(snapshot.sales) ? snapshot.sales : []).forEach((row) => {
+    // A bill id that is ALSO active locally (re-created after a delete) is not a tombstone.
+    row && String((row.status || ``)).toLowerCase() === `active` && ids.delete(String(row.bill_id).trim());
+  });
+  return ids;
+}
+function vhcSuppressDeletedCloudRows(cloudRows, deletedIds, localBills) {
+  let localIds = new Set((localBills || []).map((b) => b && b.billId && String(b.billId).trim()).filter(Boolean));
+  return (cloudRows || []).filter((row) => {
+    let id = row && row.bill_id != null ? String(row.bill_id).trim() : ``;
+    return !id || localIds.has(id) || !(deletedIds && deletedIds.has(id));
+  });
+}
 function mergeCloudSalesIntoLocal(localBills) {
   try {
-    const cloudRaw = (window.VHC_CLOUD && window.VHC_CLOUD.getSalesHistory && window.VHC_CLOUD.getSalesHistory()) || [];
+    const cloudRaw = vhcSuppressDeletedCloudRows(
+      (window.VHC_CLOUD && window.VHC_CLOUD.getSalesHistory && window.VHC_CLOUD.getSalesHistory()) || [],
+      vhcLocalDeletedBillIds,
+      localBills,
+    );
     const byId = new Map();
     cloudRaw.forEach((row) => {
       if (row && row.bill_id) byId.set(row.bill_id, mapDbSaleToLocalBill(row));
@@ -16678,6 +16724,17 @@ async function loadLocalSalesHistoryForUI() {
       Array.isArray(result) && (sqliteBills = result);
     } catch (e) {
       console.error(`[SQLite] getSalesHistory failed, falling back to localStorage-only —`, e);
+    }
+  }
+
+  // Refresh the local tombstones used by mergeCloudSalesIntoLocal. On failure the previous set
+  // is kept (never cleared), so a transient read error cannot resurrect deleted bills.
+  if (window.electronAPI && window.electronAPI.getFinancialIntegritySnapshot) {
+    try {
+      let snapshot = await window.electronAPI.getFinancialIntegritySnapshot();
+      snapshot && snapshot.success !== !1 && (vhcLocalDeletedBillIds = vhcDeletedBillIdsFromSnapshot(snapshot));
+    } catch (e) {
+      console.error(`[SQLite] deleted-bill lookup failed; keeping previous tombstones —`, e);
     }
   }
 
@@ -50856,8 +50913,12 @@ function Dh({
   onCommit: receiptOnCommit,
   printableId: printableIdProp = `thermal-receipt-printable`,
   hiddenRender: hiddenRender = !1,
+  billDate: receiptBillDate = null,
 }) {
   let isCompositionReceipt = receiptGstMode === `composition`;
+  // The original bill timestamp when the caller has one (Reports); "now" only for a bill still
+  // being made at the counter, or when no valid stored date exists.
+  let receiptDate = vhcReceiptDate(receiptBillDate);
   let [u, d] = (0, _.useState)(!1),
     [committedThisOpen, setCommittedThisOpen] = (0, _.useState)(!1),
     f = Th();
@@ -51130,9 +51191,9 @@ function Dh({
                 s || `PB-1025`,
                 (0, J.jsx)(`br`, {}),
                 `Date: `,
-                new Date().toLocaleDateString(`en-IN`),
+                receiptDate.toLocaleDateString(`en-IN`),
                 ` `,
-                new Date().toLocaleTimeString(`en-IN`, {
+                receiptDate.toLocaleTimeString(`en-IN`, {
                   hour: `2-digit`,
                   minute: `2-digit`,
                 }),
@@ -51522,6 +51583,8 @@ function vhcMakeEmptyTab(id) {
     discountPercent: ``,
     discountMode: `percent`,
     lastBillId: null,
+    checkoutAttemptId: null,
+    completedSaleId: null,
     lastBillSnapshot: { cart: [], total: 0, subtotal: 0, totalTax: 0, billId: `` },
   };
 }
@@ -52034,6 +52097,14 @@ function Nh() {
         return null;
       }
       checkoutInFlight.current = true;
+      let m = activeTab.checkoutAttemptId || `BILL-${Date.now()}`;
+      if (!activeTab.checkoutAttemptId) {
+        let attemptTabsState = { ...tabsState, tabs: tabsState.tabs.map((tab) => tab.id === activeTabId ? { ...tab, checkoutAttemptId: m } : tab) };
+        setTabsState(attemptTabsState);
+        try {
+          localStorage.setItem(`pos_billing_tabs`, JSON.stringify(attemptTabsState));
+        } catch {}
+      }
       // Who was signed in to Cloud Sync at the moment this sale completed — the Payments
       // report's "Recorded By" column reads this. getSession() reads the already-cached
       // local session (no network round trip); resolves to null pre-cloud-sync-login or if
@@ -52242,8 +52313,7 @@ function Nh() {
       } catch (e) {
         console.error(e);
       } }
-      let m = `BILL-${Date.now()}`,
-        billSnapshot2 = {
+      let billSnapshot2 = {
           cart: r,
           injectionItems: injSnapshot,
           procedureItems: procSnapshot,
@@ -52370,7 +52440,7 @@ function Nh() {
         }
       }
       if (window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.run) {
-        setTimeout(() => window.VHC_FINANCIAL_SYNC.run({ source: `checkout:${m}` }), 500);
+        setTimeout(() => Promise.resolve(window.VHC_FINANCIAL_SYNC.run({ source: `checkout:${m}` })).catch(() => i(`Bill saved. Cloud sync pending.`, `warning`, 8e3)), 500);
       }
       checkoutInFlight.current = false;
       return (
@@ -52951,7 +53021,7 @@ function Nh() {
                                               justifyContent: `center`,
                                             },
                                             children: [
-                                              1, 2, 3, 5, 7, 9, 10,
+                                              1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
                                             ].map((e) =>
                                               (0, J.jsx)(
                                                 `button`,
@@ -58699,6 +58769,8 @@ function Lh() {
               (0, J.jsx)(`li`, { children: `Split Payment entered inline (Cash + UPI must equal the Net Total) — no popup` }),
               (0, J.jsx)(`li`, { children: `One Bill Details view from All Bills, Patient Name and Payments, with the same Return / Exchange option` }),
               (0, J.jsx)(`li`, { children: `Return / Exchange for historical bills when the original stock batch can be traced exactly; unsafe lines are refused` }),
+              (0, J.jsx)(`li`, { children: `Checkout retries are now replay-safe: repeated clicks, keyboard shortcuts and post-save failures cannot create duplicate bills` }),
+              (0, J.jsx)(`li`, { children: `Receipt particulars are restored, and medicine quantity shortcuts 1–10 are available in Billing` }),
             ],
           }),
         ],
@@ -62066,6 +62138,54 @@ function filterPaymentTransactions(transactions, filters) {
 // spec) plus Total Billing, computed from the DISTINCT bills actually present
 // in `transactions` so a two-row split bill's total is counted once, not once
 // per row.
+// v3.19.2: bill-line categories arrive in mixed case — local bills save `Medicine`/`Injection`,
+// cloud sale_items store lowercase `medicine` — so every Reports classification goes through this
+// one normalizer instead of exact-case comparisons (which silently dropped every cloud medicine
+// line from receipts, Product Sales and the units count). Rendering/classification only; stored
+// data is never rewritten. A line with no category is a legacy medicine line, as before.
+function vhcNormalizeCategory(category) {
+  return String(category ?? ``).trim().toLowerCase();
+}
+// Bill lines that are services are rendered in their own receipt sections; every OTHER line is a
+// stock/medicine product line. Inventory categories are free text (default `medicine`, but also
+// e.g. tablet, syrup, general stock), so products are identified by exclusion — an allow-list
+// would silently drop any product whose category is not on it.
+const VHC_SERVICE_LINE_CATEGORIES = [`injection`, `procedure`, `custom`];
+function vhcIsMedicineCategory(category) {
+  return !VHC_SERVICE_LINE_CATEGORIES.includes(vhcNormalizeCategory(category));
+}
+function vhcIsCategory(category, name) {
+  return vhcNormalizeCategory(category) === vhcNormalizeCategory(name);
+}
+// Receipt timestamp: the stored bill date when valid, otherwise now (live/unsaved bill only).
+function vhcReceiptDate(value) {
+  let d = value ? new Date(value) : null;
+  return d && !isNaN(d.getTime()) ? d : new Date();
+}
+// Medicine units across bills (Medicines / Units Sold). Quantities may arrive as cloud numeric
+// strings ("1.000"), so they are parsed as numbers, not truncated integers.
+function vhcCountMedicineUnits(bills) {
+  let units = 0;
+  (bills || []).forEach((bill) => {
+    Array.isArray(bill && bill.particulars) &&
+      bill.particulars.forEach((p) => {
+        if (!p || !vhcIsMedicineCategory(p.category)) return;
+        let q = parseFloat(p.quantity ?? p.qty);
+        units += Number.isFinite(q) && q > 0 ? q : 1;
+      });
+  });
+  return Math.round(units * 1000) / 1000;
+}
+// Medicines / Units Sold for the summary cards: units on exactly the bills behind the (already
+// date- and payment-filtered) rows the other cards use, so a filter never makes them disagree.
+function vhcReportUnitCount(bills, transactions) {
+  let ids = /* @__PURE__ */ new Set();
+  (transactions || []).forEach((t) => {
+    let id = t && t.billId != null ? String(t.billId).trim() : ``;
+    id && ids.add(id);
+  });
+  return vhcCountMedicineUnits((bills || []).filter((b) => b && ids.has(String(b.billId ?? ``).trim())));
+}
 // Number of DISTINCT bills behind a set of payment rows. A Split bill expands into one row per
 // method (and a credit bill can add repayment rows), so the row count is NOT the bill count; the
 // canonical identity is the bill's stable billId (= sales.bill_id in the cloud).
@@ -63075,13 +63195,13 @@ function a_() {
 
       (billRecord.particulars || []).forEach((p) => {
         if (!p) return;
-        if (p.category === "Injection") {
+        if (vhcIsCategory(p.category, "Injection")) {
           let qty = parseInt(p.medicineQty, 10) || 0;
           if (p.medicineId != null && qty > 0) addRestore(p.medicineId, qty);
           else if (qty > 0) unmatched.push(p.medicineName || p.drugName);
           return;
         }
-        if (p.category === "Procedure") {
+        if (vhcIsCategory(p.category, "Procedure")) {
           (p.materials || []).forEach((mat) => {
             if (!mat) return;
             let qty = parseInt(mat.qty, 10) || 0;
@@ -63090,7 +63210,7 @@ function a_() {
           });
           return;
         }
-        if (p.category === "Custom") return;
+        if (vhcIsCategory(p.category, "Custom")) return;
 
         // Medicine line (or a legacy particular saved before category tracking existed).
         let pName = String(p.drugName || p.name || "").trim().toLowerCase();
@@ -63236,7 +63356,7 @@ function a_() {
           Array.isArray(t.particulars) &&
             t.particulars.forEach((t) => {
               if (!t) return;
-              if (t.category && t.category !== `Medicine`) return;
+              if (!vhcIsMedicineCategory(t.category)) return;
               let n = String(t.drugName || t.name || ``).trim();
               n && e.add(n);
             });
@@ -63282,8 +63402,8 @@ function a_() {
     // Single source for the top-of-page summary cards — identical to the object previously built
     // inline for the Payments panel: payment summary + local/cloud return totals.
     reportsSummary = _.useMemo(
-      () => ({ ...paymentSummary, returnBillCount: returnRecords.length, returnAmount: returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0), refundedAmount: returnRecords.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0), pendingAmount: 0, netSales: paymentSummary.totalBilling - returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0) }),
-      [paymentSummary, returnRecords],
+      () => ({ ...paymentSummary, unitCount: vhcReportUnitCount(D, filteredPaymentTransactions), returnBillCount: returnRecords.length, returnAmount: returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0), refundedAmount: returnRecords.reduce((sum, row) => sum + Number(row.refund_amount || 0), 0), pendingAmount: 0, netSales: paymentSummary.totalBilling - returnRecords.reduce((sum, row) => sum + Number(row.return_amount || 0), 0) }),
+      [paymentSummary, returnRecords, D, filteredPaymentTransactions],
     ),
     O = _.useMemo(() => {
       let e = {};
@@ -63316,7 +63436,7 @@ function a_() {
           if (bill && Array.isArray(bill.particulars)) {
             bill.particulars.forEach((p) => {
               if (!p) return;
-              if (p.category && p.category !== `Medicine`) return;
+              if (!vhcIsMedicineCategory(p.category)) return;
               let name = String(p.drugName || p.name || `Unknown Product`).trim();
               if (!name) return;
               if (tabletFilter !== `all` && name.toUpperCase() !== tabletFilter.toUpperCase()) return;
@@ -63350,7 +63470,7 @@ function a_() {
       D.forEach((bill) => {
         Array.isArray(bill.particulars) &&
           bill.particulars.forEach((p) => {
-            if (!p || p.category !== `Injection`) return;
+            if (!p || !vhcIsCategory(p.category, `Injection`)) return;
             let key = p.medicineName || p.drugName || `Unknown`;
             if (!map.has(key)) {
               map.set(key, { medicineName: key, injectionCount: 0, totalQty: 0, totalAmount: 0 });
@@ -63368,7 +63488,7 @@ function a_() {
       D.forEach((bill) => {
         Array.isArray(bill.particulars) &&
           bill.particulars.forEach((p) => {
-            if (!p || p.category !== `Procedure`) return;
+            if (!p || !vhcIsCategory(p.category, `Procedure`)) return;
             let key = p.procedureName || p.drugName || `Unknown`;
             if (!map.has(key)) {
               map.set(key, { procedureName: key, procedureCount: 0, totalAmount: 0 });
@@ -64642,19 +64762,19 @@ function a_() {
           gstMode: u.gstMode || `regular`,
           discount: u.discount || 0,
           discountPercent: u.discountPercent || 0,
-          cart: (u.particulars || [])
-            .filter((e) => !e.category || e.category === `Medicine`)
+          cart: ((u.particulars || []).length ? u.particulars : (u.items || []).length ? u.items : u.sale_items || [])
+            .filter((e) => vhcIsMedicineCategory(e.category))
             .map((e) => ({
-              name: e.drugName || e.name,
-              qty: e.quantity || e.qty || 1,
-              price: (e.rate || 0) * (e.unitsPerPack || 1),
-              customUnitPrice: e.rate,
-              batch: e.batchNo || e.batch,
-              expiry: e.expiryDate || e.expiry,
-              gst: e.gst || 5,
+              name: e.drugName || e.drug_name || e.item_name || e.name || `Medicine Item`,
+              qty: e.quantity ?? e.qty ?? 1,
+              price: (e.rate ?? e.price ?? e.mrp ?? 0) * (e.unitsPerPack || e.units_per_pack || 1),
+              customUnitPrice: e.rate ?? e.unit_price,
+              batch: e.batchNo || e.batch_no || e.batch,
+              expiry: e.expiryDate || e.expiry_date || e.expiry,
+              gst: e.gst ?? 5,
             })),
-          injectionItems: (u.particulars || [])
-            .filter((e) => e.category === `Injection`)
+          injectionItems: ((u.particulars || []).length ? u.particulars : (u.items || []).length ? u.items : u.sale_items || [])
+            .filter((e) => vhcIsCategory(e.category, `Injection`))
             .map((e) => ({
               medicineName: e.medicineName,
               qty: e.medicineQty,
@@ -64664,8 +64784,8 @@ function a_() {
               discount: e.discount,
               total: e.total,
             })),
-          procedureItems: (u.particulars || [])
-            .filter((e) => e.category === `Procedure`)
+          procedureItems: ((u.particulars || []).length ? u.particulars : (u.items || []).length ? u.items : u.sale_items || [])
+            .filter((e) => vhcIsCategory(e.category, `Procedure`))
             .map((e) => ({
               procedureName: e.procedureName,
               procedureCharge: e.procedureCharge,
@@ -64673,13 +64793,16 @@ function a_() {
               materialsCost: e.materialsCost,
               total: e.total,
             })),
-          customCharges: (u.particulars || [])
-            .filter((e) => e.category === `Custom`)
+          customCharges: ((u.particulars || []).length ? u.particulars : (u.items || []).length ? u.items : u.sale_items || [])
+            .filter((e) => vhcIsCategory(e.category, `Custom`))
             .map((e) => ({ label: e.label, amount: e.amount })),
           total: u.totalAmount,
           subtotal: u.subtotal,
           totalTax: u.totalTax,
           billId: u.billId,
+          // Original bill timestamp (local `date`, or the cloud sale's created_at / sale_date), so
+          // the preview, its PDF and its print copy show when the bill was made — not when opened.
+          billDate: u.date || u.sale_date || u.created_at || null,
           patientName: u.patientName,
           doctorName: u.doctorName,
           paymentMode: u.paymentMode,

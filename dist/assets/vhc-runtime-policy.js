@@ -102,7 +102,7 @@
 
     for (const [id, matchingOps] of opsByBill) {
       if (cloudIds.has(id) || deletedLocalIds.has(id)) continue;
-      if (!allLocalIds.has(id) && matchingOps.some((op) => String(op.sync_status).toUpperCase() === 'CLOUD_CONFIRMED')) {
+      if (!allLocalIds.has(id) && matchingOps.some((op) => ['CLOUD_CONFIRMED', 'SALE_CONFIRMED_STOCK_PENDING', 'STOCK_CONFLICT'].includes(String(op.sync_status).toUpperCase()))) {
         localOnly.push(id);
       }
     }

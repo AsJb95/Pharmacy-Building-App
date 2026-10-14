@@ -235,5 +235,13 @@ test('local history mirror is attempted only after SQLite success', () => {
   assert.ok(sqliteCommit > -1 && mirror > sqliteCommit);
 });
 
+test('checkout keeps one stable attempt identity across retries and cloud upload', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'dist', 'assets', 'index-doBKNLAj.js'), 'utf8');
+  const cloud = fs.readFileSync(path.join(__dirname, '..', 'cloud-src', 'vhc-cloud-sync.js'), 'utf8');
+  assert.match(renderer, /activeTab\.checkoutAttemptId \|\| `BILL-\$\{Date\.now\(\)\}`/);
+  assert.match(renderer, /checkoutAttemptId: m/);
+  assert.match(cloud, /client_request_id: payload\.billId/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

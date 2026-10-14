@@ -522,8 +522,25 @@ function _localSaleToCloudPayload(localSale) {
   };
 }
 
+// One comparable signature per bill line: name, quantity and line total. Quantities/totals come
+// back from Postgres as numeric strings ("1.000"), so both sides are normalised numerically.
+function _saleLineSignature(item) {
+  const name = String(item.drug_name || item.drugName || item.name || item.item_name || '').trim().toLowerCase();
+  const qty = Math.round((parseFloat(item.quantity ?? item.qty ?? 0) || 0) * 1000) / 1000;
+  const total = Math.round((parseFloat(item.total_amount ?? item.total ?? 0) || 0) * 100) / 100;
+  return `${name}|${qty}|${total.toFixed(2)}`;
+}
+
+// Exact-content verification of an existing cloud sale against the local bill: same bill_id,
+// same total, payment fields, and the SAME multiset of lines. `missing sale_items` (cloud has
+// fewer lines) is the only repairable state (idempotent create_sale replay); every other
+// difference is reported as a mismatch for review and is never "fixed" by re-uploading.
 function _cloudSaleMatchesLocal(localSale, cloudSale) {
   if (!localSale || !cloudSale) return { ok: false, reason: 'missing sale' };
+  const localBillId = String(localSale.bill_id || localSale.billId || '');
+  if (cloudSale.bill_id != null && String(cloudSale.bill_id) !== localBillId) {
+    return { ok: false, reason: `bill_id mismatch local=${localBillId} cloud=${cloudSale.bill_id}` };
+  }
   const localTotal = Number(localSale.total_amount ?? localSale.totalAmount ?? 0);
   const cloudTotal = Number(cloudSale.total_amount ?? cloudSale.totalAmount ?? 0);
   if (Math.abs(localTotal - cloudTotal) > 0.02) {
@@ -533,6 +550,20 @@ function _cloudSaleMatchesLocal(localSale, cloudSale) {
   const cloudItems = Array.isArray(cloudSale.sale_items) ? cloudSale.sale_items : [];
   if (cloudItems.length < localItems.length) {
     return { ok: false, reason: `missing sale_items local=${localItems.length} cloud=${cloudItems.length}` };
+  }
+  if (cloudItems.length > localItems.length) {
+    return { ok: false, reason: `extra sale_items local=${localItems.length} cloud=${cloudItems.length}` };
+  }
+  const remaining = new Map();
+  for (const line of localItems) {
+    const sig = _saleLineSignature(line);
+    remaining.set(sig, (remaining.get(sig) || 0) + 1);
+  }
+  for (const line of cloudItems) {
+    const sig = _saleLineSignature(line);
+    const n = remaining.get(sig) || 0;
+    if (!n) return { ok: false, reason: `sale_items content mismatch: cloud line ${sig} not in local bill` };
+    remaining.set(sig, n - 1);
   }
   const paymentFields = [
     ['amount_received', 'amountReceived'],
@@ -658,16 +689,97 @@ async function deriveLegacyPendingChangesFlag() {
   return { pending: hasPending, count: hasPending ? pending.length : 0 };
 }
 
+const _UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The cloud sale id to persist: the verified sales row's own `id`, only when that row really is
+// this bill (bill_id equal) and the id is a Supabase UUID. Anything else is not a confirmation.
+function _cloudSaleIdFor(cloudSale, billId) {
+  if (!cloudSale || String(cloudSale.bill_id ?? '') !== String(billId)) return null;
+  const id = cloudSale.id == null ? '' : String(cloudSale.id).trim();
+  return _UUID_PATTERN.test(id) ? id : null;
+}
+
+// Stock-step failures that retrying cannot change (the cloud batch moved since the counter's
+// opening, the batch identity is missing/ambiguous, or the server refused the arithmetic).
+// Network/server/auth errors are NOT in this list: they keep a stock-only retry.
+function _isPermanentStockError(error) {
+  const message = error && error.message ? error.message : String(error || '');
+  return /^STOCK_RECONCILIATION_CONFLICT|^STOCK_BATCH_IDENTITY_MISSING|^STOCK_RECONCILIATION_FAILED|ambiguous|was not found|match not found|identity mismatch|Invalid stock arithmetic|Only BILL stock/i.test(message);
+}
+
+// Stock step, run only AFTER the cloud sale is confirmed and its id persisted. Its outcome can
+// never undo that confirmation or trigger another upload:
+//   applied/already applied -> CLOUD_CONFIRMED
+//   conflict / permanent    -> STOCK_CONFLICT (visible, auditable, not auto-retried)
+//   transient               -> SALE_CONFIRMED_STOCK_PENDING (stock-only retry next run)
+async function _runStockStep(op, localSale, billId, cloudSaleId) {
+  let stockResult;
+  try {
+    stockResult = await _reconcileStockForOperation(op, localSale);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    if (!_isNetworkStyleCloudError(error) && _isPermanentStockError(error)) {
+      const mark = await window.electronAPI.markFinancialSyncReviewRequired(billId, 'STOCK_CONFLICT', message, cloudSaleId);
+      if (!mark || mark.success === false) throw new Error(`STOCK_CONFLICT_NOT_PERSISTED: ${mark && mark.error || 'unknown'} | ${message}`);
+      _cloudReachability = 'online';
+      _emitFinancialSyncState({ status: 'review', reachability: 'online', billId, cloudSaleId, error: message });
+      logFinancial('STOCK_RECONCILIATION_CONFLICT', {
+        billId,
+        source: 'cloud',
+        message: `Cloud sale ${cloudSaleId} is confirmed; stock reconciliation needs review and will not be retried automatically. ${message}`,
+        next: { cloudSaleId, error: message },
+      });
+      return { billId, ok: true, saleConfirmed: true, reviewRequired: 'STOCK_CONFLICT', cloudSaleId, error: message };
+    }
+    const pending = await window.electronAPI.markFinancialSyncStockPending(billId, message);
+    if (!pending || pending.success === false) throw new Error(`STOCK_PENDING_NOT_PERSISTED: ${pending && pending.error || 'unknown'} | ${message}`);
+    const reachability = _isNetworkStyleCloudError(error) ? 'offline' : 'failed';
+    _cloudReachability = reachability;
+    _emitFinancialSyncState({ status: reachability === 'offline' ? 'offline' : 'failed', reachability, billId, cloudSaleId, error: message });
+    logFinancial('STOCK_RECONCILIATION_PENDING', { billId, source: 'cloud', message: `Cloud sale ${cloudSaleId} confirmed; stock step will retry (no re-upload). ${message}` });
+    return { billId, ok: false, saleConfirmed: true, stockPending: true, cloudSaleId, error: message };
+  }
+  const done = await window.electronAPI.markFinancialSyncConfirmed(billId, cloudSaleId);
+  if (!done || done.success === false) throw new Error(`CLOUD_CONFIRMATION_NOT_PERSISTED: ${done && done.error || 'unknown'}`);
+  if (stockResult && !stockResult.skipped && window.VHC_CLOUD.fetchInventory) {
+    await window.VHC_CLOUD.fetchInventory();
+    try { window.dispatchEvent(new CustomEvent('vhc-cloud-change', { detail: { table: 'stock_batches', source: 'stock-reconciliation' } })); } catch (e) {}
+  }
+  _cloudReachability = 'online';
+  _emitFinancialSyncState({ status: 'synced', reachability: 'online', billId, cloudSaleId });
+  logFinancial('SYNC_UPLOAD_BILL_CONFIRMED', {
+    billId,
+    source: 'cloud',
+    message: `Cloud sale, payment, items and required stock movements verified by bill_id.`,
+    next: { cloudSaleId, stockResult },
+  });
+  return { billId, ok: true, cloudSaleId };
+}
+
 async function _syncOneFinancialOperation(op) {
   const billId = op && (op.bill_id || op.billId);
   if (!billId) return { billId: null, ok: false, error: 'Missing bill_id' };
   try {
     if (!(window.electronAPI && window.electronAPI.getLocalSale)) throw new Error('Local sale reader unavailable');
     if (!(window.VHC_CLOUD && window.VHC_CLOUD.findSaleByBillIdStrict && window.VHC_CLOUD.createSaleStrict)) throw new Error('Cloud sync API unavailable');
+    if (!(window.electronAPI.markFinancialSyncSaleConfirmed && window.electronAPI.markFinancialSyncStockPending && window.electronAPI.markFinancialSyncReviewRequired)) {
+      throw new Error('Financial sync status API unavailable');
+    }
     await window.electronAPI.markFinancialSyncAttempt(billId, null);
     _emitFinancialSyncState({ status: 'syncing', billId });
     const localSale = await window.electronAPI.getLocalSale(billId);
     if (!localSale) throw new Error(`Local sale not found for ${billId}`);
+    // A bill deleted on this machine is never uploaded or stock-reconciled (doing so would create
+    // the cloud ghost of a deleted bill). cancelLocalSale already marks such operations CANCELLED;
+    // this guard covers any operation that still reaches the worker.
+    if (localSale.status && String(localSale.status).toLowerCase() !== 'active') {
+      throw new Error(`LOCAL_SALE_NOT_ACTIVE: ${billId} is ${localSale.status}; not uploaded`);
+    }
+    // Stock-only retry: the cloud sale was already verified and its id persisted. Never look it
+    // up again for upload, never re-upload it — only the stock step is still outstanding.
+    if (String(op.sync_status || '') === 'SALE_CONFIRMED_STOCK_PENDING' && op.cloud_sale_id) {
+      return await _runStockStep(op, localSale, billId, String(op.cloud_sale_id));
+    }
     const cloudPayload = _localSaleToCloudPayload(localSale);
     let cloudSale;
     try {
@@ -700,23 +812,31 @@ async function _syncOneFinancialOperation(op) {
       }
     }
     const verified = _cloudSaleMatchesLocal(localSale, cloudSale);
-    if (!verified.ok) throw new Error(verified.reason || 'Cloud verification failed');
-    const stockResult = await _reconcileStockForOperation(op, localSale);
-    const cloudSaleId = cloudSale && (cloudSale.id || cloudSale.sale_id || null);
-    await window.electronAPI.markFinancialSyncConfirmed(billId, cloudSaleId);
-    if (stockResult && !stockResult.skipped && window.VHC_CLOUD.fetchInventory) {
-      await window.VHC_CLOUD.fetchInventory();
-      try { window.dispatchEvent(new CustomEvent('vhc-cloud-change', { detail: { table: 'stock_batches', source: 'stock-reconciliation' } })); } catch (e) {}
+    if (!verified.ok) {
+      // A cloud sale with this bill_id exists but its content differs. Re-uploading cannot fix it
+      // and retrying forever only repeats the failure: record it once for review and stop.
+      const detail = `SALE_CONTENT_MISMATCH: ${verified.reason || 'Cloud verification failed'}`;
+      const mark = await window.electronAPI.markFinancialSyncReviewRequired(billId, 'SALE_MISMATCH', detail, null);
+      if (!mark || mark.success === false) throw new Error(`${detail} (review state not persisted: ${mark && mark.error || 'unknown'})`);
+      _emitFinancialSyncState({ status: 'review', reachability: 'online', billId, error: detail });
+      logFinancial('SYNC_UPLOAD_BILL_MISMATCH', { billId, source: 'cloud', message: detail });
+      return { billId, ok: false, reviewRequired: 'SALE_MISMATCH', error: detail };
     }
-    _cloudReachability = 'online';
-    _emitFinancialSyncState({ status: 'synced', reachability: 'online', billId, cloudSaleId });
-    logFinancial('SYNC_UPLOAD_BILL_CONFIRMED', {
+    // The ONLY accepted confirmation id is the verified sales row's own UUID for this exact
+    // bill_id — never a fallback field such as a sale_items row's sale_id.
+    const cloudSaleId = _cloudSaleIdFor(cloudSale, billId);
+    if (!cloudSaleId) throw new Error(`CLOUD_SALE_ID_INVALID: verified sale for ${billId} has no valid sales.id`);
+    const saleMark = await window.electronAPI.markFinancialSyncSaleConfirmed(billId, cloudSaleId);
+    if (!saleMark || saleMark.success === false) {
+      throw new Error(`SALE_CONFIRMATION_NOT_PERSISTED: ${saleMark && saleMark.error || 'unknown'}`);
+    }
+    logFinancial('SYNC_UPLOAD_SALE_CONFIRMED', {
       billId,
       source: 'cloud',
-      message: `Cloud sale, payment, items and required stock movements verified by bill_id.`,
-      next: { cloudSaleId, stockResult },
+      message: `Cloud sale, payment and items verified by bill_id; cloud sale id saved before stock reconciliation.`,
+      next: { cloudSaleId },
     });
-    return { billId, ok: true, cloudSaleId };
+    return await _runStockStep(op, localSale, billId, cloudSaleId);
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
     try { await window.electronAPI.markFinancialSyncAttempt(billId, message); } catch (markErr) {}
@@ -1669,6 +1789,8 @@ window.VHC_FINANCIAL_SYNC = {
   _localSaleToCloudPayload,
   _reconcileStockForOperation,
   _stockMovementKey,
+  _syncOneFinancialOperation,
+  _cloudSaleMatchesLocal,
 };
 
 // ─────────────────────────────────────────────────────────────

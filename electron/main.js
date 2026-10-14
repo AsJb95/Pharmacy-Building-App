@@ -969,6 +969,21 @@ ipcMain.handle('database:mark-financial-sync-confirmed', async (event, payload) 
   if (!mod) return DB_UNAVAILABLE();
   try { return mod.markFinancialSyncConfirmed(payload && payload.billId, payload && payload.cloudSaleId); } catch (e) { return { success: false, error: e.message }; }
 });
+ipcMain.handle('database:mark-financial-sync-sale-confirmed', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncSaleConfirmed(payload && payload.billId, payload && payload.cloudSaleId); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:mark-financial-sync-stock-pending', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncStockPending(payload && payload.billId, payload && payload.error); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:mark-financial-sync-review-required', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncReviewRequired(payload && payload.billId, payload && payload.status, payload && payload.detail, payload && payload.cloudSaleId); } catch (e) { return { success: false, error: e.message }; }
+});
 
 // Administrative clears. Each is one explicit, transactional database operation (no SQL from the
 // renderer). When the database could not be opened, the reply says whether a database FILE exists
