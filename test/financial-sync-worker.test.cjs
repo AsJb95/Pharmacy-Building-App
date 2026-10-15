@@ -160,7 +160,9 @@ test('financial status UI is sourced from durable operations, not Drive backup s
   assert.match(source, /getFinancialSyncOperations/);
   assert.match(source, /Online \\u2022 Synced/);
   assert.match(source, /Offline \\u2022 \$\{pending\} Pending/);
-  assert.match(source, /Sync Failed \\u2022 \$\{pending\} Pending/);
+  // v3.19.3: a transient failure is shown as "saved locally, waiting for cloud sync", not an alarm
+  assert.match(source, /Saved locally \\u2022 \$\{pending\} waiting for cloud sync/);
+  assert.doesNotMatch(source, /Sync Failed \\u2022 \$\{pending\} Pending/);
   assert.match(source, /Syncing\\u2026/);
 });
 

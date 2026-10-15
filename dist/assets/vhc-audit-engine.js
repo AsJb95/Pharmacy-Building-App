@@ -597,6 +597,8 @@ async function _reconcileStockForOperation(op, localSale) {
   }
   const movements = (Array.isArray(localSale.stock_movements) ? localSale.stock_movements : [])
     .filter((movement) => movement && movement.type === 'BILL');
+  const results = [];
+  let useDeltaRpc = true;
   for (const movement of movements) {
     const movementKey = _stockMovementKey(localSale.bill_id || localSale.billId, movement);
     const payload = {
@@ -615,20 +617,48 @@ async function _reconcileStockForOperation(op, localSale) {
     if (!payload.stock_batch_id && !(payload.item_id && payload.location_id && payload.batch_no)) {
       throw new Error(`STOCK_BATCH_IDENTITY_MISSING: ${movementKey}`);
     }
-    const result = await window.VHC_CLOUD.reconcileStockMovementStrict(payload);
+    // v3.19.3: apply the bill's DELTA to the cloud batch's current quantity, exactly once per
+    // movement_key, atomically on the server (apply_bill_stock_movement). The counter's frozen
+    // opening is informational, so ordinary concurrent stock changes no longer conflict (and no
+    // longer cascade into every following bill). Falls back to the legacy absolute reconcile only
+    // when the new function has not been deployed to this project yet.
+    let result = null;
+    let usedLegacy = false;
+    if (useDeltaRpc && window.VHC_CLOUD.applyBillStockMovementStrict) {
+      result = await window.VHC_CLOUD.applyBillStockMovementStrict(payload);
+      if (String(result && result.status || '').toUpperCase() === 'RPC_MISSING') { useDeltaRpc = false; result = null; }
+    } else {
+      useDeltaRpc = false;
+    }
+    if (!result) {
+      usedLegacy = true;
+      result = await window.VHC_CLOUD.reconcileStockMovementStrict(payload);
+    }
     const status = String(result && result.status || '').toUpperCase();
     if (status === 'CONFLICT') {
       throw new Error(`STOCK_RECONCILIATION_CONFLICT: ${movementKey} expected=${payload.expected_opening} actual=${result.actual_opening}`);
     }
+    if (status.startsWith('CONFLICT_')) {
+      // Genuine data conflict reported by the server (no mutation was made): batch missing/
+      // ambiguous/identity mismatch, insufficient stock, or the key already holds a DIFFERENT
+      // movement. Surfaced once for review; never retried automatically.
+      throw new Error(`STOCK_RECONCILIATION_CONFLICT: ${movementKey} status=${status} ${JSON.stringify(result).slice(0, 300)}`);
+    }
     if (status !== 'APPLIED' && status !== 'ALREADY_APPLIED') {
       throw new Error(`STOCK_RECONCILIATION_FAILED: ${movementKey} status=${status || 'UNKNOWN'}`);
     }
+    // Read the canonical movement back: it must exist for THIS bill with THIS quantity. A missing
+    // read-back is treated as transient (stock-only retry, which the key makes idempotent).
     const verified = await window.VHC_CLOUD.findStockMovementByKeyStrict(movementKey);
     if (!verified || verified.movement_key !== movementKey) {
       throw new Error(`STOCK_RECONCILIATION_READBACK_FAILED: ${movementKey}`);
     }
+    if (String(verified.bill_id || '') !== String(payload.bill_id) || Math.abs(Number(verified.qty) - payload.quantity_delta) > 0.0005) {
+      throw new Error(`STOCK_RECONCILIATION_CONFLICT: ${movementKey} status=READBACK_MISMATCH bill=${verified.bill_id} qty=${verified.qty}`);
+    }
+    results.push({ movementKey, status, legacy: usedLegacy, drift: result.drift ?? null });
   }
-  return { reconciled: movements.length };
+  return { reconciled: movements.length, movements: results };
 }
 
 function _describeFinancialSyncError(error) {
@@ -852,6 +882,20 @@ async function _syncOneFinancialOperation(op) {
   }
 }
 
+// Exponential backoff for automatic retries: 30 s, 60 s, 2 min, 4 min, ... capped at 15 min.
+const _RETRY_BASE_MS = 30 * 1000;
+const _RETRY_MAX_MS = 15 * 60 * 1000;
+function _retryDelayMs(retryCount) {
+  const n = Math.max(0, Number(retryCount) || 0);
+  if (n === 0) return 0;
+  return Math.min(_RETRY_MAX_MS, _RETRY_BASE_MS * Math.pow(2, n - 1));
+}
+function _isDueForRetry(op, nowMs) {
+  const last = Date.parse(op && op.last_attempt_at || '');
+  if (!Number.isFinite(last)) return true;
+  return nowMs - last >= _retryDelayMs(op.retry_count);
+}
+
 async function runFinancialSyncWorker(opts) {
   if (_financialSyncInFlight) return { skipped: true, reason: 'sync already running' };
   _financialSyncInFlight = true;
@@ -874,9 +918,14 @@ async function runFinancialSyncWorker(opts) {
       _setCloudReachability('failed', { source: options.source || 'financial-sync-worker', error: 'No authenticated cloud session' });
       return { skipped: true, reason: 'no authenticated cloud session' };
     }
-    const ops = await window.electronAPI.getUnsyncedFinancialSyncOperations();
-    if (Array.isArray(ops) && ops.length) _emitFinancialSyncState({ status: 'syncing', reachability: 'online' });
-    for (const op of (Array.isArray(ops) ? ops : [])) {
+    const allOps = await window.electronAPI.getUnsyncedFinancialSyncOperations();
+    // Bounded, stage-aware retry: an operation that has already failed waits an exponentially
+    // growing interval before the next automatic attempt (no retry storm). A manual sync click
+    // (or the run right after a checkout, retry_count 0) is never delayed.
+    const ignoreBackoff = options.ignoreBackoff === true || options.source === 'sidebar-manual';
+    const ops = (Array.isArray(allOps) ? allOps : []).filter((op) => ignoreBackoff || _isDueForRetry(op, Date.now()));
+    if (ops.length) _emitFinancialSyncState({ status: 'syncing', reachability: 'online' });
+    for (const op of ops) {
       results.push(await _syncOneFinancialOperation(op));
     }
     await deriveLegacyPendingChangesFlag();
@@ -1791,6 +1840,8 @@ window.VHC_FINANCIAL_SYNC = {
   _stockMovementKey,
   _syncOneFinancialOperation,
   _cloudSaleMatchesLocal,
+  _isDueForRetry,
+  _retryDelayMs,
 };
 
 // ─────────────────────────────────────────────────────────────

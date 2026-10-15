@@ -20795,6 +20795,22 @@ ${suffix}`;
     if (error) throw error;
     return data;
   }
+  // v3.19.3: delta-based, idempotent, atomic BILL stock application (migration
+  // 20261015000100). Returns { status: 'RPC_MISSING' } when the function is not deployed yet so
+  // the worker can fall back to reconcile_stock_movement instead of failing the stock stage.
+  async function applyBillStockMovement(payload) {
+    assertCloudWritesAllowed("applyBillStockMovement");
+    const { data, error } = await supabase.rpc("apply_bill_stock_movement", { payload });
+    if (error) {
+      const code = String(error.code || "");
+      const msg = String(error.message || "");
+      if (code === "PGRST202" || code === "42883" || /could not find the function|function .*apply_bill_stock_movement.* does not exist/i.test(msg)) {
+        return { status: "RPC_MISSING" };
+      }
+      throw error;
+    }
+    return data;
+  }
   async function findStockMovementByKey(movementKey) {
     if (!movementKey) return null;
     const { data, error } = await supabase.from("stock_movements").select("id, movement_key, item_id, location_id, batch_no, type, qty, opening, closing, bill_id, reason, created_at").eq("movement_key", movementKey).maybeSingle();
@@ -21384,6 +21400,7 @@ ${problems.join("\n")}`);
     adjustStockBulk: withErrorReport(adjustStockBulk),
     reconcileStockMovement: withErrorReport(reconcileStockMovement),
     reconcileStockMovementStrict: reconcileStockMovement,
+    applyBillStockMovementStrict: applyBillStockMovement,
     findStockMovementByKey: withErrorReport(findStockMovementByKey),
     findStockMovementByKeyStrict: findStockMovementByKey,
     deleteInventoryItem: withErrorReport(deleteInventoryItem),

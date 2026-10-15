@@ -15504,12 +15504,14 @@ function AutoSyncBadgeComponent() {
       case "failed":
         return {
           icon: "⚠️",
-          dotColor: "#ef4444",
-          label: `Sync Failed \u2022 ${pending} Pending`,
-          sub: "Click to retry financial sync",
-          bg: "#fef2f2",
-          border: "#fecaca",
-          text: "#991b1b"
+          // A temporary cloud problem is not an emergency: the bill is already saved locally and
+          // the worker retries it automatically (with backoff). Only genuine conflicts use "Need Review".
+          dotColor: "#f59e0b",
+          label: `Saved locally \u2022 ${pending} waiting for cloud sync`,
+          sub: "Retries automatically \u2014 click to retry now",
+          bg: "#fffbeb",
+          border: "#fde68a",
+          text: "#b45309"
         };
       case "review":
         return {
@@ -58762,6 +58764,9 @@ function Lh() {
           isChangelogExpanded && (0, J.jsxs)(`ul`, {
             className: `vhc-settings-changelog-content`,
             children: [
+              (0, J.jsx)(`li`, { children: `Cloud stock now updates safely even when stock changed elsewhere after billing — no more chains of "Need Review" bills from one stock difference` }),
+              (0, J.jsx)(`li`, { children: `Every bill's stock deduction is applied exactly once, even after a lost connection, a retry or an app restart` }),
+              (0, J.jsx)(`li`, { children: `A temporary cloud problem now shows "Saved locally — waiting for cloud sync" and retries automatically with back-off` }),
               (0, J.jsx)(`li`, { children: `Reports: Total Bills now counts each bill once — a Split Payment bill (Cash + UPI) is no longer counted twice` }),
               (0, J.jsx)(`li`, { children: `Payment mode is never pre-selected: every new bill and tab starts with no payment mode, and Complete Payment stays disabled until one is chosen` }),
               (0, J.jsx)(`li`, { children: `Cash Received / Change to Return shown only for Cash payments, and cleared when switching away` }),
