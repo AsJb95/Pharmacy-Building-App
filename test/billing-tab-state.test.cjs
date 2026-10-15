@@ -223,7 +223,9 @@ check('W2 bill-draft inputs are tab state, not component-wide useState', () => {
 });
 check('W3 payment mode selection and reset go through the tested helpers', () => {
   assert.ok(nh.includes('t.id === activeTabId ? vhcTabSelectPaymentMode(t, mode) : t'));
-  assert.ok(nh.includes('t.id === activeTabId ? vhcTabResetForNewBill(t) : t'));
+  // v3.19.4: N(tabId) resets the tab the sale belongs to (defaults to the active tab)
+  assert.ok(nh.includes('let N = (tabId = activeTabId) =>'));
+  assert.ok(nh.includes('t.id === tabId ? vhcTabResetForNewBill(t) : t'));
   assert.ok(nh.includes('vhcTabAddCustomCharge(activeTab, chargeId)'));
   assert.ok(bundle.includes('tabs: parsed.tabs.map(vhcNormalizeTab)'));
 });

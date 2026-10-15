@@ -16506,7 +16506,13 @@ var Fr = (0, _.createContext)(),
         },
         ...o,
       ];
-      (s(n), localStorage.setItem(`pos_audit_logs`, JSON.stringify(n)), d(n));
+      s(n);
+      // The activity log is informational: a full or failing localStorage must never throw into
+      // the caller (it used to abort the post-sale cart reset). The in-memory log still updates.
+      try { localStorage.setItem(`pos_audit_logs`, JSON.stringify(n)); } catch (err) {
+        try { console.warn(`[VHC_LOG] activity log could not be saved to storage:`, err && err.name ? err.name : err); } catch {}
+      }
+      d(n);
     };
     return (0, J.jsx)(Br.Provider, {
       value: {
@@ -51632,6 +51638,39 @@ function vhcTabResetForNewBill(tab) {
     lastBillSnapshot: tab.lastBillSnapshot || fresh.lastBillSnapshot,
   };
 }
+// v3.19.4: runs the post-commit steps of a sale whose LOCAL commit already succeeded. Each step is
+// best-effort (a failure is logged, never thrown) and `reset` ALWAYS runs afterwards, so a failing
+// receipt/log/toast/repaint/sync step can never leave the billed items in the cart. Must only be
+// called after the local commit succeeded. Returns the labels of the steps that failed.
+function vhcFinishCommittedCheckout(billId, steps, reset) {
+  let failures = [];
+  try {
+    for (let [label, fn] of steps || []) {
+      try {
+        fn();
+      } catch (err) {
+        failures.push(label);
+        try { console.error(`[VHC_CHECKOUT] post-commit step "${label}" failed for ${billId}; the sale is saved:`, err); } catch {}
+      }
+    }
+  } finally {
+    reset();
+  }
+  return failures;
+}
+// Restart/rehydrate guard (pure): every restored tab whose checkout attempt id is a completed local
+// sale becomes a fresh bill (vhcTabResetForNewBill); all other tabs are returned unchanged.
+function vhcResetCompletedTabs(state, isCompleted) {
+  let changed = !1,
+    tabs = (state && Array.isArray(state.tabs) ? state.tabs : []).map((t) => {
+      if (t && t.checkoutAttemptId && isCompleted(t.checkoutAttemptId)) {
+        changed = !0;
+        return vhcTabResetForNewBill(t);
+      }
+      return t;
+    });
+  return changed ? { ...state, tabs } : state;
+}
 // '+' on Custom Charges: validates THIS tab's draft, appends it to THIS tab's charges and clears
 // the draft only on success. Charges already in the cart are never touched.
 function vhcTabAddCustomCharge(tab, newId) {
@@ -51817,7 +51856,9 @@ function Nh() {
     _.useEffect(() => {
     try {
       localStorage.setItem(`pos_active_cart`, JSON.stringify(o));
-    } catch {}
+    } catch {
+      try { localStorage.removeItem(`pos_active_cart`); } catch {}
+    }
   }, [o]),
     _.useEffect(() => {
       try {
@@ -51852,20 +51893,38 @@ function Nh() {
     _.useEffect(() => {
       try {
         localStorage.setItem(`pos_billing_tabs`, JSON.stringify(tabsState));
-      } catch {}
+      } catch {
+        // Storage refused the write (e.g. full). Never leave an OLDER saved copy behind: it would be
+        // restored on the next visit to Billing — after a completed sale, that is the billed cart.
+        try { localStorage.removeItem(`pos_billing_tabs`); } catch {}
+      }
     }, [tabsState]));
-  let N = () => {
-    (setTabs((prevTabs) => prevTabs.map((t) => (t.id === activeTabId ? vhcTabResetForNewBill(t) : t))),
-      localStorage.removeItem(`pos_active_cart`),
-      localStorage.removeItem(`pos_active_patient`),
-      localStorage.removeItem(`pos_active_doctor`),
-      localStorage.removeItem(`pos_active_injections`),
-      localStorage.removeItem(`pos_active_procedures`),
-      localStorage.removeItem(`pos_active_custom_charges`),
-      localStorage.removeItem(`pos_active_discount`),
-      localStorage.removeItem(`pos_active_discount_percent`),
-      localStorage.removeItem(`pos_active_discount_mode`));
+  // Reset one bill tab (default: the active one) to a brand-new empty bill: cart, quantities,
+  // batches, patient, doctor, discounts, payment mode, cash/split amounts, custom charges,
+  // injections/procedures and the checkout attempt id, plus the legacy single-cart storage keys.
+  // Never throws (each storage removal is independent), so a completed sale is always reset.
+  let N = (tabId = activeTabId) => {
+    setTabs((prevTabs) => prevTabs.map((t) => (t.id === tabId ? vhcTabResetForNewBill(t) : t)));
+    for (let key of [`pos_active_cart`, `pos_active_patient`, `pos_active_doctor`, `pos_active_injections`, `pos_active_procedures`,
+      `pos_active_custom_charges`, `pos_active_discount`, `pos_active_discount_percent`, `pos_active_discount_mode`]) {
+      try { localStorage.removeItem(key); } catch {}
+    }
   };
+  // Restart/rehydrate guard: a restored tab whose checkout attempt id is already a local sale was
+  // billed but never reset (app closed or storage failed right after the commit). It becomes a
+  // fresh bill instead of a cart that could be billed a second time. A tab whose attempt never
+  // committed (local save failed) is left untouched so it can be retried.
+  _.useEffect(() => {
+    let alive = true;
+    let ids = tabsState.tabs.map((t) => t && t.checkoutAttemptId).filter(Boolean);
+    if (!ids.length || !(window.electronAPI && window.electronAPI.getLocalSale)) return undefined;
+    Promise.all(ids.map((id) => Promise.resolve(window.electronAPI.getLocalSale(id)).then((sale) => (sale ? id : null)).catch(() => null)))
+      .then((found) => {
+        let done = new Set(found.filter(Boolean));
+        if (alive && done.size) setTabsState((prev) => vhcResetCompletedTabs(prev, (id) => done.has(id)));
+      });
+    return () => { alive = false; };
+  }, []);
   let vhcCloseTabDirect = (id) => {
       let idx = tabs.findIndex((t) => t.id === id);
       let remaining = tabs.filter((t) => t.id !== id);
@@ -52099,6 +52158,9 @@ function Nh() {
         return null;
       }
       checkoutInFlight.current = true;
+      // The tab this sale belongs to: the post-commit reset targets exactly this tab, even if the
+      // user switches tabs while the local save is in progress.
+      let checkoutTabId = activeTabId;
       let m = activeTab.checkoutAttemptId || `BILL-${Date.now()}`;
       if (!activeTab.checkoutAttemptId) {
         let attemptTabsState = { ...tabsState, tabs: tabsState.tabs.map((tab) => tab.id === activeTabId ? { ...tab, checkoutAttemptId: m } : tab) };
@@ -52441,26 +52503,29 @@ function Nh() {
           return null;
         }
       }
-      if (window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.run) {
-        setTimeout(() => Promise.resolve(window.VHC_FINANCIAL_SYNC.run({ source: `checkout:${m}` })).catch(() => i(`Bill saved. Cloud sync pending.`, `warning`, 8e3)), 500);
-      }
-      checkoutInFlight.current = false;
-      return (
-        re(m),
-        ie(billSnapshot2),
-        applyInventoryDeductions(m),
-        n(
-          `SALE`,
-          `Completed ${f} payment for ₹${a.toFixed(2)} for ${d} (Bill: ${m})`,
-        ),
-        i(
+      // v3.19.4: the sale is now durably committed in SQLite. Everything below is a best-effort side
+      // effect, and the bill reset is GUARANTEED (finally) — previously N() ran last, so any throw
+      // before it (e.g. the activity log hitting a full localStorage) left the billed items in the
+      // cart, ready to be billed again under a new bill id after a reload.
+      vhcFinishCommittedCheckout(m, [
+        [`cloud sync dispatch`, () => {
+          if (window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.run) {
+            setTimeout(() => Promise.resolve(window.VHC_FINANCIAL_SYNC.run({ source: `checkout:${m}` })).catch(() => i(`Bill saved. Cloud sync pending.`, `warning`, 8e3)), 500);
+          }
+        }],
+        [`reprint reference`, () => { re(m); ie(billSnapshot2); }],
+        [`inventory repaint`, () => applyInventoryDeductions(m)],
+        [`activity log`, () => n(`SALE`, `Completed ${f} payment for ₹${a.toFixed(2)} for ${d} (Bill: ${m})`)],
+        [`success toast`, () => i(
           `Payment Successful (${f.toUpperCase()})!\nPatient: ${d}\nBill ID: #${m}\nAmount: ₹${a.toFixed(2)}${paymentStatusSuffix}`,
           `success`,
           5e3,
-        ),
-        N(),
-        m
-      );
+        )],
+      ], () => {
+        N(checkoutTabId);
+        checkoutInFlight.current = false;
+      });
+      return m;
     },
     W = () => {
       // Must be gated on hasActiveBillContent alone — U (lastBillSnapshot/lastBillId) is the
@@ -58764,6 +58829,7 @@ function Lh() {
           isChangelogExpanded && (0, J.jsxs)(`ul`, {
             className: `vhc-settings-changelog-content`,
             children: [
+              (0, J.jsx)(`li`, { children: `After a successful bill the cart is always cleared for the next patient, even if a receipt, log or display step fails` }),
               (0, J.jsx)(`li`, { children: `Cloud stock now updates safely even when stock changed elsewhere after billing — no more chains of "Need Review" bills from one stock difference` }),
               (0, J.jsx)(`li`, { children: `Every bill's stock deduction is applied exactly once, even after a lost connection, a retry or an app restart` }),
               (0, J.jsx)(`li`, { children: `A temporary cloud problem now shows "Saved locally — waiting for cloud sync" and retries automatically with back-off` }),
