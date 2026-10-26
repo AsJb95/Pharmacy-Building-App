@@ -14,3 +14,9 @@ node_modules/
 # produced inside unpacked_app itself, but excluded defensively in case that ever changes
 release/
 dist-installer/
+
+# Google OAuth client config + tokens: local only, never committed (v3.19.5)
+config/client_secret_*.json
+config/google-oauth-client*.json
+*.oauth.json
+gdrive_oauth_token*

@@ -15411,6 +15411,7 @@ var Mn = (...e) =>
   })();
 function AutoSyncBadgeComponent() {
   const [syncState, setSyncState] = (0, _.useState)({ status: "checking", reachability: "unknown", pending: 0 });
+  const [showStockReview, setShowStockReview] = (0, _.useState)(false);
 
   (0, _.useEffect)(() => {
     let active = true;
@@ -15425,7 +15426,8 @@ function AutoSyncBadgeComponent() {
       // STOCK_CONFLICT / SALE_MISMATCH are NOT retried automatically (the cloud sale is confirmed
       // or differs); they are shown as "review needed" instead of an endless "Syncing…".
       // CANCELLED = bill deleted locally before it ever synced: nothing pending, nothing to review.
-      const notConfirmed = (Array.isArray(operations) ? operations : []).filter((op) => op.sync_status !== "CLOUD_CONFIRMED" && op.sync_status !== "CANCELLED");
+      // REVIEW_ACKNOWLEDGED = a review item an admin closed with a written reason: no longer pending or in review.
+      const notConfirmed = (Array.isArray(operations) ? operations : []).filter((op) => op.sync_status !== "CLOUD_CONFIRMED" && op.sync_status !== "CANCELLED" && op.sync_status !== "REVIEW_ACKNOWLEDGED");
       const review = notConfirmed.filter((op) => op.sync_status === "STOCK_CONFLICT" || op.sync_status === "SALE_MISMATCH");
       const pending = notConfirmed.filter((op) => op.sync_status !== "STOCK_CONFLICT" && op.sync_status !== "SALE_MISMATCH");
       const failed = pending.some((op) => op.sync_status === "SYNC_FAILED");
@@ -15548,10 +15550,11 @@ function AutoSyncBadgeComponent() {
   };
 
   const badge = getStatusBadge();
+  const inReview = (syncState.status || "") === "review";
 
-  return (0, J.jsxs)("div", {
-    onClick: handleSyncClick,
-    title: "Financial cloud sync status; click to retry",
+  return (0, J.jsxs)(_.Fragment, { children: [ (0, J.jsxs)("div", {
+    onClick: () => (inReview ? setShowStockReview(true) : handleSyncClick()),
+    title: inReview ? "Bills need stock review; click to open the review list" : "Financial cloud sync status; click to retry",
     style: {
       padding: "0.5rem 0.65rem",
       borderRadius: "10px",
@@ -15599,6 +15602,108 @@ function AutoSyncBadgeComponent() {
         children: badge.icon
       })
     ]
+  }, "badge"), showStockReview ? (0, J.jsx)(StockReviewModalComponent, { onClose: () => setShowStockReview(false) }, "review") : null ] });
+}
+
+// ─── Stock review list (stock-sync remediation) ─────────────────────────────────────────────────────────
+// One row per bill waiting for review, with the exact stored reason. Actions go through
+// window.VHC_FINANCIAL_SYNC.resolveStockReview, which re-applies ONLY the missing deductions with their original keys
+// (all-or-nothing on the server) and clears the item only after a cloud read-back verified every key.
+function vhcReviewLineText(l) {
+  if (!l) return "";
+  let parts = [String(l.key || "") + ": " + String(l.status || "")];
+  if (l.cloud_stock != null) parts.push("cloud stock " + l.cloud_stock);
+  if (l.needed != null) parts.push("needed " + l.needed);
+  return parts.join(" \u2022 ");
+}
+function StockReviewModalComponent({ onClose }) {
+  const [items, setItems] = (0, _.useState)(null);
+  const [busyBill, setBusyBill] = (0, _.useState)(null);
+  const [message, setMessage] = (0, _.useState)(null);
+  const [ackBill, setAckBill] = (0, _.useState)(null);
+  const [ackReason, setAckReason] = (0, _.useState)("");
+  const load = async () => {
+    try {
+      let list = window.VHC_FINANCIAL_SYNC && window.VHC_FINANCIAL_SYNC.getStockReviewItems ? await window.VHC_FINANCIAL_SYNC.getStockReviewItems() : [];
+      setItems(Array.isArray(list) ? list : []);
+    } catch (e) {
+      setItems([]);
+      setMessage({ ok: false, text: "Could not load the review list: " + (e && e.message ? e.message : e) });
+    }
+  };
+  (0, _.useEffect)(() => { load(); }, []);
+  const act = async (billId, mode, reason) => {
+    if (!window.VHC_FINANCIAL_SYNC || !window.VHC_FINANCIAL_SYNC.resolveStockReview) return;
+    setBusyBill(billId);
+    setMessage(null);
+    try {
+      let r = await window.VHC_FINANCIAL_SYNC.resolveStockReview(billId, { mode, reason });
+      setMessage(r && r.ok
+        ? { ok: true, text: mode === "acknowledge" ? "Bill " + billId + " closed with your reason. No stock was changed." : "Bill " + billId + ": stock verified in the cloud (" + (r.applied || 0) + " line(s) newly applied)." }
+        : { ok: false, text: "Bill " + billId + ": " + ((r && r.error) || "not resolved") + " Nothing was changed." });
+      if (r && r.ok) { setAckBill(null); setAckReason(""); }
+    } catch (e) {
+      setMessage({ ok: false, text: "Bill " + billId + ": " + (e && e.message ? e.message : e) });
+    } finally {
+      setBusyBill(null);
+      try { window.dispatchEvent(new CustomEvent("vhc-financial-sync-state", { detail: { source: "stock-review" } })); } catch (e) {}
+      load();
+    }
+  };
+  const btn = (label, onClick, disabled, tone) => (0, J.jsx)("button", {
+    type: "button", onClick, disabled,
+    style: { padding: "0.3rem 0.6rem", borderRadius: "6px", border: "1px solid " + (tone === "warn" ? "#f59e0b" : "#94a3b8"),
+      background: tone === "warn" ? "#fffbeb" : "#fff", color: "#1f2937", cursor: disabled ? "not-allowed" : "pointer", fontSize: "0.75rem", marginRight: "0.4rem" },
+    children: label,
+  }, label);
+  return (0, J.jsx)("div", {
+    "data-testid": "stock-review-modal",
+    onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
+    style: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" },
+    children: (0, J.jsxs)("div", {
+      style: { background: "#fff", color: "#111827", width: "min(820px, 94vw)", maxHeight: "86vh", overflowY: "auto", borderRadius: "12px", padding: "1rem 1.2rem", boxShadow: "0 10px 30px rgba(0,0,0,0.25)" },
+      children: [
+        (0, J.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" }, children: [
+          (0, J.jsx)("h3", { style: { margin: 0, fontSize: "1.05rem" }, children: "Bills needing stock review" }, "h"),
+          btn("Close", onClose, false),
+        ] }, "head"),
+        (0, J.jsx)("p", { style: { fontSize: "0.78rem", color: "#4b5563", margin: "0.4rem 0 0.8rem" },
+          children: "These sales are saved in the cloud, but their stock could not be applied automatically. Retry applies only the missing deductions, once each, and only if every line of the bill can be applied. Do not delete or re-create batches to fix these." }, "intro"),
+        message ? (0, J.jsx)("div", { "data-testid": "stock-review-message", style: { padding: "0.5rem 0.7rem", borderRadius: "8px", marginBottom: "0.7rem", fontSize: "0.78rem",
+          background: message.ok ? "#ecfdf5" : "#fef2f2", color: message.ok ? "#047857" : "#991b1b" }, children: message.text }, "msg") : null,
+        items === null ? (0, J.jsx)("div", { children: "Loading\u2026" }, "loading")
+          : items.length === 0 ? (0, J.jsx)("div", { style: { fontSize: "0.85rem" }, children: "Nothing is waiting for review." }, "empty")
+          : (0, J.jsx)("div", { children: items.map((it) => {
+            let rv = it.review || {};
+            let busy = busyBill === it.bill_id;
+            return (0, J.jsxs)("div", { "data-testid": "stock-review-row", style: { border: "1px solid #e5e7eb", borderRadius: "8px", padding: "0.6rem 0.75rem", marginBottom: "0.6rem" }, children: [
+              (0, J.jsxs)("div", { style: { fontWeight: 700, fontSize: "0.85rem" }, children: ["Bill ", it.bill_id, " \u2014 ", rv.code || it.sync_status] }, "t"),
+              (0, J.jsx)("div", { style: { fontSize: "0.8rem", margin: "0.2rem 0" }, children: rv.title || "" }, "r"),
+              Array.isArray(rv.lines) && rv.lines.length
+                ? (0, J.jsx)("ul", { style: { margin: "0.2rem 0 0.4rem 1rem", padding: 0, fontSize: "0.74rem" }, children: rv.lines.map((l, i) => (0, J.jsx)("li", { children: vhcReviewLineText(l) }, i)) }, "l")
+                : null,
+              (0, J.jsxs)("details", { style: { fontSize: "0.7rem", color: "#6b7280", marginBottom: "0.4rem" }, children: [
+                (0, J.jsx)("summary", { children: "Technical detail" }, "s"),
+                (0, J.jsx)("code", { style: { whiteSpace: "pre-wrap", wordBreak: "break-all" }, children: rv.detail || it.last_error || "" }, "c"),
+              ] }, "d"),
+              (0, J.jsxs)("div", { children: [
+                rv.canRetry ? btn(busy ? "Working\u2026" : "Retry stock", () => act(it.bill_id, "retry"), !!busyBill) : null,
+                rv.canRetryCurrentBatch ? btn("Apply to current batch (admin)", () => act(it.bill_id, "retry_current_batch"), !!busyBill, "warn") : null,
+                btn("Close with reason (admin)", () => { setAckBill(it.bill_id); setAckReason(""); }, !!busyBill),
+              ] }, "a"),
+              ackBill === it.bill_id ? (0, J.jsxs)("div", { style: { marginTop: "0.5rem" }, children: [
+                (0, J.jsx)("textarea", { value: ackReason, onChange: (e) => setAckReason(e.target.value), rows: 2,
+                  placeholder: "Why is this closed without an automatic stock change? e.g. shelf recounted on 23-Oct and corrected",
+                  style: { width: "100%", fontSize: "0.78rem", padding: "0.4rem", boxSizing: "border-box" } }, "ta"),
+                (0, J.jsxs)("div", { style: { marginTop: "0.3rem" }, children: [
+                  btn("Confirm close", () => act(it.bill_id, "acknowledge", ackReason), !!busyBill || String(ackReason).trim().length < 10, "warn"),
+                  btn("Cancel", () => setAckBill(null), !!busyBill),
+                ] }, "ab"),
+              ] }, "ack") : null,
+            ] }, it.bill_id);
+          }) }, "list"),
+      ],
+    }),
   });
 }
 
@@ -15614,7 +15719,7 @@ function StockValuationAdminComponent() {
     (acc, t) => {
       let n = parseFloat(t.unitsPerPack || t.units_per_pack) || 10,
         r = (parseFloat(t.mrp ?? t.price) || 0) / n,
-        i = parseInt(t.stock, 10) || 0,
+        i = parseFloat(t.stock) || 0,
         a = i * r;
       acc.totalSellingValue += a;
       acc.totalUnits += i;
@@ -15837,6 +15942,23 @@ function StockValuationAdminComponent() {
 // claim, stock_batches CAS update, stock_movements ledger) — this component is
 // presentation + confirmation only, so accepting from Desktop or Mobile always
 // produces the identical result.
+// Quantity shown for a Warehouse -> Pharmacy request line, using the SAME rule as accept_pharmacy_transfer
+// (vhc_transfer_dest_qty) and VHC Mobile: qty is in Main Stock STRIPS; the pharmacy receives qty x units_per_pack
+// UNITS when the line records its unit and pack size; a legacy line with neither is moved 1:1; anything else is
+// refused by the server, so it is flagged here before the user presses Accept.
+function describeTransferLineQty(it) {
+  let qty = Number(it && it.qty) || 0,
+    unit = it && it.transferUnit != null ? it.transferUnit : null,
+    upp = it && it.unitsPerPack != null ? Number(it.unitsPerPack) : null,
+    fmt = (n) => String(Math.round(n * 1000) / 1000);
+  if (unit == null && upp == null) return { ok: !0, text: `${fmt(qty)} (no unit recorded — added 1:1)` };
+  if ((unit === `strips` || unit === `units`) && upp > 0)
+    return {
+      ok: !0,
+      text: `${fmt(qty)} strip${qty === 1 ? `` : `s`} × ${fmt(upp)}/strip = ${fmt(qty * upp)} units to Pharmacy${unit === `units` ? ` (requested in units)` : ``}`,
+    };
+  return { ok: !1, text: `${fmt(qty)} — unit or pack size missing/unknown (unit: ${unit == null ? `none` : unit}, pack: ${upp == null ? `none` : fmt(upp)}). Accept will be refused.` };
+}
 function PendingStockRequestsModal({ onClose, onCountChange }) {
   let toastFn = Th(),
     confirmAction = Eh(),
@@ -15938,7 +16060,7 @@ function PendingStockRequestsModal({ onClose, onCountChange }) {
                             style: { display: `flex`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `0.4rem`, fontSize: `0.82rem`, background: `var(--surface)`, border: `1px solid var(--border)`, borderRadius: `8px`, padding: `0.4rem 0.6rem` },
                             children: [
                               (0, J.jsxs)(`span`, { style: { fontWeight: `700` }, children: [it.name, it.batch ? ` (Batch: ${it.batch})` : ``] }),
-                              (0, J.jsxs)(`span`, { style: { color: `var(--text-secondary)` }, children: [it.expiry ? `Exp: ${it.expiry} · ` : ``, `Qty: `, (0, J.jsx)(`strong`, { children: it.qty })] }),
+                              (0, J.jsxs)(`span`, { style: { color: `var(--text-secondary)` }, children: [it.expiry ? `Exp: ${it.expiry} · ` : ``, `Qty: `, (0, J.jsx)(`strong`, { style: describeTransferLineQty(it).ok ? undefined : { color: `var(--danger, #dc2626)` }, children: describeTransferLineQty(it).text })] }),
                             ],
                           }),
                         ),
@@ -16015,7 +16137,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
   // mount, then stays live via the same 'vhc-cloud-change' event every other
   // badge in this sidebar already listens to — no new plumbing, no polling of
   // its own (VHC_CLOUD already polls as a realtime fallback; see cloud-src).
-  let [themeMode, , toggleTheme] = vhcUseTheme(),
+  let [themeMode, , toggleTheme, themeChoice] = vhcUseTheme(),
     [pendingTransferCount, setPendingTransferCount] = (0, _.useState)(0),
     [pendingTransfersModalOpen, setPendingTransfersModalOpen] = (0, _.useState)(!1),
     refreshPendingTransferCount = () => {
@@ -16279,24 +16401,24 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               e ? `nav-link active` : `nav-link`,
             children: [(0, J.jsx)(br, { size: 19 }), `Settings & Sync`],
           }),
+          // v3.19.5: Appearance shortcut (replaces the Dark Mode toggle) — opens Settings at the theme cards.
           (0, J.jsxs)(`button`, {
             type: `button`,
-            className: `theme-toggle-btn`,
-            onClick: () => toggleTheme(),
-            title: themeMode === `dark` ? `Switch to Light Mode` : `Switch to Dark Mode`,
+            className: `theme-toggle-btn vhc-appearance-shortcut`,
+            onClick: () => {
+              window.location.hash = `#/settings`;
+              let tries = 0,
+                go = () => {
+                  let el = document.getElementById(`vhc-appearance`);
+                  el ? el.scrollIntoView({ behavior: `smooth`, block: `start` }) : ++tries < 20 && setTimeout(go, 100);
+                };
+              setTimeout(go, 60);
+            },
+            title: `Appearance — choose a theme`,
             children: [
-              (0, J.jsx)(`span`, {
-                style: { fontSize: `1rem`, lineHeight: 1 },
-                children: themeMode === `dark` ? `🌙` : `☀️`,
-              }),
-              (0, J.jsx)(`span`, {
-                children: themeMode === `dark` ? `Dark Mode` : `Light Mode`,
-              }),
-              (0, J.jsx)(`span`, {
-                className: `tt-track`,
-                "aria-hidden": `true`,
-                children: (0, J.jsx)(`span`, { className: `tt-knob` }),
-              }),
+              (0, J.jsx)(`span`, { style: { fontSize: `1rem`, lineHeight: 1 }, children: `🎨` }),
+              (0, J.jsx)(`span`, { children: `Appearance` }),
+              (0, J.jsx)(`span`, { className: `vhc-appearance-current`, children: vhcThemeLabel(themeChoice) }),
             ],
           }),
         ],
@@ -16420,6 +16542,8 @@ var Fr = (0, _.createContext)(),
     let [i, a] = (0, _.useState)([]),
       [o, s] = (0, _.useState)([]),
       [patients, setPatients] = (0, _.useState)([]),
+      // Only the newest inventory load may update the screen (an older, slower response must never overwrite it).
+      inventoryLoadSeq = (0, _.useRef)(0),
       c = (e) => {
         if (!e) return e;
         let t = String(e.name || ``).toUpperCase(),
@@ -16434,38 +16558,82 @@ var Fr = (0, _.createContext)(),
           : t.match(/(\b15['\s]*S\b|\b15\s*CAP|\b15\s*TAB|\b1X15\b)/i)
             ? (r = 15)
             : t.match(/(\b\d+ML\b|\bINJ\b|\bAMP\b|\bVIAL\b)/i) && (r = 1);
-        let i = parseInt(e.stock, 10) || 0;
-        return (
-          t.includes(`MNERWIN NT PLUS`) && i === 220 && (i = 2200),
-          { ...e, unitsPerPack: r, stock: i }
-        );
+        // Stock is shown, edited and saved exactly as stored. (A pre-v3.9.0 hard-coded rule rewrote 220 to 2200
+        // for "MNERWIN NT PLUS", and parseInt dropped fractional units; both made the screen disagree with the
+        // database and leaked into Add Item / bulk import writes.)
+        let parsedStock = parseFloat(e.stock),
+          i = Number.isFinite(parsedStock) ? parsedStock : 0;
+        return { ...e, unitsPerPack: r, stock: i };
       },
       l = async () => {
+        let mySeq = ++inventoryLoadSeq.current;
         try {
-          await window.VHC_CLOUD.fetchInventory();
-          let cloudInventory = window.VHC_CLOUD.getInventory().map(c);
+          // Pending local deductions are read BEFORE the cloud quantities: a deduction that reaches the cloud in
+          // between is then at worst counted twice until the next refresh (its realtime event triggers one), never hidden.
+          let overlays = null;
           if (window.electronAPI && window.electronAPI.getPendingStockOverlays) {
             try {
-              let overlays = await window.electronAPI.getPendingStockOverlays();
+              overlays = await window.electronAPI.getPendingStockOverlays();
+              overlays = Array.isArray(overlays) ? overlays : [];
+              // A pending bill's deduction may ALREADY be in the cloud (e.g. the server applied it but the reply was
+              // lost, so the bill still waits for its stock step). It is then already part of the cloud quantity and
+              // must not be subtracted a second time. The worker uses the key VHC:BILL:<bill>:<local movement id>.
+              if (overlays.length && window.VHC_CLOUD.findStockMovementsByKeysStrict) {
+                try {
+                  let keyOf = (row) => `VHC:BILL:${row.bill_id}:${row.local_movement_id}`;
+                  let keys = Array.from(new Set(overlays.filter((row) => row && row.bill_id && row.local_movement_id).map(keyOf)));
+                  let inCloud = new Set();
+                  for (let k = 0; k < keys.length; k += 80) { // short request URLs even after a long offline day
+                    let present = await window.VHC_CLOUD.findStockMovementsByKeysStrict(keys.slice(k, k + 80));
+                    (Array.isArray(present) ? present : []).forEach((m) => m && m.movement_key && inCloud.add(String(m.movement_key)));
+                  }
+                  overlays = overlays.filter((row) => !(row && row.bill_id && row.local_movement_id && inCloud.has(keyOf(row))));
+                } catch (keyErr) {
+                  // Unknown whether they were applied: keep every pending deduction (shows less, never more, stock).
+                  console.warn(`[VHC_STOCK] Could not check which pending deductions are already in the cloud:`, keyErr);
+                }
+              }
+            } catch (overlayErr) {
+              overlays = null;
+              console.warn(`[VHC_STOCK] Could not read pending local stock overlay:`, overlayErr);
+            }
+          }
+          // Use THIS load's own cloud result (the shared cache may already hold another load's response).
+          let fetched = await window.VHC_CLOUD.fetchInventory();
+          let cloudInventory = (Array.isArray(fetched) ? fetched : window.VHC_CLOUD.getInventory()).map(c);
+          if (overlays) {
+            try {
+              // Stock-sync remediation: overlay ONLY deductions still waiting to reach the cloud (the database returns
+              // just retryable operations), as a DELTA on the LIVE cloud quantity. The old overlay pinned a batch to
+              // the frozen closing quantity of an unresolved bill forever, hiding every later real stock change.
               let byBatch = new Map(), byLogical = new Map();
-              (Array.isArray(overlays) ? overlays : []).forEach((row) => {
-                if (row.server_stock_batch_id) byBatch.set(String(row.server_stock_batch_id), Number(row.closing));
-                else if (row.server_item_id && row.cloud_location_id) {
+              overlays.forEach((row) => {
+                let delta = Number(row.qty);
+                if (!Number.isFinite(delta) || delta === 0) return;
+                if (row.server_stock_batch_id) {
+                  let k = String(row.server_stock_batch_id);
+                  byBatch.set(k, (byBatch.get(k) || 0) + delta);
+                } else if (row.server_item_id && row.cloud_location_id) {
                   let key = `${String(row.server_item_id)}|${String(row.cloud_location_id)}|${String(row.batch_no || ``).trim().toLowerCase()}`;
-                  byLogical.set(key, Number(row.closing));
+                  byLogical.set(key, (byLogical.get(key) || 0) + delta);
                 }
               });
+              let withDelta = (item, delta) => Math.round(((Number(item.stock) || 0) + delta) * 1000) / 1000;
               cloudInventory = cloudInventory.map((item) => {
-                if (byBatch.has(String(item.id))) return { ...item, stock: byBatch.get(String(item.id)) };
+                // stockPendingSync: the shown stock includes local bills not yet applied to the cloud batch, so a
+                // manual correction must wait (Edit Item refuses it) — see N() in the inventory screen.
+                if (byBatch.has(String(item.id))) return { ...item, stock: withDelta(item, byBatch.get(String(item.id))), stockPendingSync: !0 };
                 let key = `${String(item.itemId || ``)}|${String(item.locationId || ``)}|${String(item.batch || ``).trim().toLowerCase()}`;
-                return byLogical.has(key) ? { ...item, stock: byLogical.get(key) } : item;
+                return byLogical.has(key) ? { ...item, stock: withDelta(item, byLogical.get(key)), stockPendingSync: !0 } : item;
               });
             } catch (overlayErr) {
               console.warn(`[VHC_STOCK] Could not apply pending local stock overlay:`, overlayErr);
             }
           }
+          if (mySeq !== inventoryLoadSeq.current) return; // a newer load started meanwhile; it will set the screen
           a(cloudInventory);
         } catch (e) {
+          // The previous (last good) inventory stays on screen; nothing is replaced with zero.
           console.log(`Error loading cloud inventory:`, e);
         }
       },
@@ -16525,6 +16693,8 @@ var Fr = (0, _.createContext)(),
             result = await window.VHC_CLOUD.addInventoryItem(t);
           result && !result.error &&
             (await l(), p(`ADDED_ITEM`, `Added ${t.name} (Qty: ${t.stock})`));
+          // Returned so the form can report a refusal (e.g. duplicate batch) instead of failing silently.
+          return result;
         },
         addItemsBulk: async (e) => {
           let result = await window.VHC_CLOUD.addInventoryItemsBulk(e.map(c));
@@ -16534,11 +16704,16 @@ var Fr = (0, _.createContext)(),
         // `reason` (3rd arg) is only required/used when the caller is changing the
         // stock quantity itself — see Ih()'s N() which validates a reason was
         // entered before ever reaching here.
-        updateItem: async (e, t, reason) => {
-          let n = c(t),
-            result = await window.VHC_CLOUD.updateInventoryItem(e, n, reason);
-          result && !result.error &&
-            (await l(), p(`EDITED_ITEM`, `Updated details for ${n.name}`));
+        // Returns the cloud result ({ error, code } on failure) so the Edit form can stay open and report it.
+        // The stock sent is the user's own value: c() is for display/pack size and truncates or rewrites
+        // stock, so it must not decide a correction. The success log is written only after cloud success.
+        updateItem: async (e, t, reason, options) => {
+          let n = { ...c(t), stock: t && t.stock !== void 0 ? t.stock : void 0 },
+            result = await window.VHC_CLOUD.updateInventoryItem(e, n, reason, options);
+          if (result && result.error) return result;
+          await l();
+          p(`EDITED_ITEM`, `Updated details for ${n.name}`);
+          return result || { ok: !0 };
         },
         // `context` ({billId, patientName, patientId, reason}) is passed explicitly by every
         // caller — never read from a global. This guarantees the resulting stock-ledger entries
@@ -16551,8 +16726,13 @@ var Fr = (0, _.createContext)(),
             deductions.map((d) => ({ id: d.id, qty: -(parseFloat(d.qty) || 0) })),
             { billId: ctx.billId, patientId: ctx.patientId, reason: ctx.reason || `Bill:${ctx.billId || `?`}` },
           );
-          result && !result.error &&
-            (await l(), p(`SALE_STOCK_OUT`, `Bill:${ctx.billId || `?`} - Stock updated for ${deductions.length} item(s)`));
+          if (result && result.error) {
+            await l();
+            p(`STOCK_RESTORE_FAILED`, `Bill:${ctx.billId || `?`} - ${result.error}`);
+            return result;
+          }
+          (await l(), p(`SALE_STOCK_OUT`, `Bill:${ctx.billId || `?`} - Stock updated for ${deductions.length} item(s)`));
+          return result;
         },
         // LOCAL-ONLY on-screen stock update for a sale already recorded in the local SQLite
         // database. Deliberately makes NO cloud call and never touches VHC_CLOUD's in-memory
@@ -16582,7 +16762,10 @@ var Fr = (0, _.createContext)(),
             let result = await window.VHC_CLOUD.deleteInventoryItem(e);
             result && !result.error &&
               (await l(), p(`DELETED_ITEM`, `Deleted ${t.name} from inventory`));
+            // Returned so the screen can show why a delete was refused (batch in use / not empty / has history).
+            return result;
           }
+          return null;
         },
         addLog: p,
         syncWithFirebase: async () => {},
@@ -17087,6 +17270,68 @@ function Wr() {
       }),
     ],
   });
+}
+function ModernDashboard() {
+  let { settings } = Ir(),
+    { inventory } = Vr(),
+    [sales, setSales] = (0, _.useState)([]),
+    [loading, setLoading] = (0, _.useState)(!0),
+    // v3.19.5 fix: `mn` is react-router's <Link> component (a forwardRef object, not callable);
+    // `Ze` is react-router's useNavigate hook. Calling the Link component as a hook crashed the dashboard.
+    navigate = Ze(),
+    // Role label from the same server-verified flag Settings uses (profiles.is_platform_admin);
+    // null (no label) until resolved or when it cannot be resolved, e.g. offline.
+    [dashRole, setDashRole] = (0, _.useState)(null);
+  (0, _.useEffect)(() => {
+    let active = !0;
+    window.VHC_CLOUD && window.VHC_CLOUD.isPlatformAdmin
+      ? window.VHC_CLOUD.isPlatformAdmin()
+          .then((isAdmin) => { active && setDashRole(isAdmin ? `Platform Admin` : `Clinic Admin`); })
+          .catch(() => { active && setDashRole(null); })
+      : setDashRole(null);
+    return () => { active = !1; };
+  }, []);
+  let load = () => {
+    setLoading(!0);
+    loadLocalSalesHistoryForUI().then((localSales) => {
+      fetch(`/api/reports/bills`).then((res) => res.json()).then((cloudSales) => {
+        let merged = mergeCloudSalesIntoLocal([...(Array.isArray(localSales) ? localSales : []), ...(Array.isArray(cloudSales) ? cloudSales : [])]);
+        setSales(merged);
+        setLoading(!1);
+      }).catch(() => {
+        setSales(mergeCloudSalesIntoLocal(Array.isArray(localSales) ? localSales : []));
+        setLoading(!1);
+      });
+    }).catch(() => { setSales([]); setLoading(!1); });
+  };
+  (0, _.useEffect)(() => {
+    load();
+    let onChange = (evt) => evt.detail && [`salesHistory`, `sales`, `sale_items`].includes(evt.detail.table) && load();
+    window.addEventListener(`vhc-cloud-change`, onChange);
+    return () => window.removeEventListener(`vhc-cloud-change`, onChange);
+  }, []);
+  let todayKey = new Date().toLocaleDateString(`en-CA`),
+    todaySales = sales.filter((sale) => {
+      let value = sale.date || sale.created_at || sale.sale_date;
+      return value && new Date(value).toLocaleDateString(`en-CA`) === todayKey;
+    }),
+    completed = todaySales.filter((sale) => String(sale.status || sale.paymentStatus || `Paid`).toLowerCase() !== `cancelled`),
+    unitsSold = completed.reduce((sum, sale) => sum + (sale.particulars || sale.items || sale.sale_items || []).reduce((lineSum, line) => lineSum + (Number(line.quantity ?? line.qty) || 0), 0), 0),
+    lowStock = (inventory || []).filter((item) => {
+      let threshold = Number(item.lowStockThreshold ?? item.low_stock_threshold ?? item.reorderLevel ?? item.reorder_level ?? item.minStock ?? 10);
+      return (Number(item.stock) || 0) <= threshold;
+    }).sort((a, b) => (Number(a.stock) || 0) - (Number(b.stock) || 0)),
+    expiring = getInventoryExpiryAlertItems(inventory || []).slice(0, 5),
+    recent = sales.filter((sale) => String(sale.status || sale.paymentStatus || `Paid`).toLowerCase() !== `cancelled`).slice(0, 5),
+    greeting = (() => { let hour = new Date().getHours(); return hour < 12 ? `Good Morning` : hour < 17 ? `Good Afternoon` : `Good Evening`; })(),
+    dateLabel = new Date().toLocaleString([], { weekday: `long`, day: `numeric`, month: `short`, year: `numeric`, hour: `numeric`, minute: `2-digit` });
+  let card = (title, value, subtitle, icon, tone) => (0, J.jsxs)(`div`, { className: `dashboard-kpi`, style: { borderTop: `3px solid ${tone}` }, children: [(0, J.jsxs)(`div`, { className: `dashboard-kpi-head`, children: [(0, J.jsx)(`span`, { children: title }), (0, J.jsx)(`span`, { className: `dashboard-kpi-icon`, style: { color: tone }, children: icon })] }), (0, J.jsx)(`strong`, { children: value }), (0, J.jsx)(`small`, { children: subtitle })] });
+  let quick = (label, path, tone, icon) => (0, J.jsxs)(`button`, { type: `button`, className: `dashboard-quick-action`, onClick: () => navigate(path), children: [(0, J.jsx)(`span`, { className: `dashboard-quick-icon`, style: { color: tone, background: `${tone}18` }, children: icon }), (0, J.jsx)(`span`, { children: label })] });
+  let recentPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Recent Bills` }), (0, J.jsx)(`p`, { children: `Latest completed billing activity` })] }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-link`, onClick: () => navigate(`/reports`), children: `View Reports` })] }), (0, J.jsx)(`div`, { className: `dashboard-table-wrap`, children: recent.length ? recent.map((sale) => (0, J.jsxs)(`div`, { className: `dashboard-bill-row`, children: [(0, J.jsx)(`strong`, { children: sale.billId || sale.bill_id || sale.id }), (0, J.jsx)(`span`, { children: sale.patientName || sale.patient || `Walk-in Patient` }), (0, J.jsx)(`span`, { children: ((n) => `${n} item${n === 1 ? `` : `s`}`)((sale.particulars || sale.items || sale.sale_items || []).length) }), (0, J.jsx)(`span`, { children: sale.status || sale.paymentStatus || `Completed` }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-open`, onClick: () => navigate(`/reports`), children: `Open` })] }, sale.billId || sale.bill_id || sale.id)) : (0, J.jsx)(`div`, { className: `dashboard-empty`, children: `No completed bills yet` }) })] });
+  let expiryPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel dashboard-expiry-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Expiring Soon` }), (0, J.jsx)(`p`, { children: `Earliest inventory expiry batches` })] }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-link`, onClick: () => navigate(`/inventory`), children: `View All` })] }), expiring.length ? expiring.map(({ item, expiryInfo }) => { let meta = getExpiryStatusMeta(expiryInfo.status); return (0, J.jsxs)(`div`, { className: `dashboard-expiry-row`, children: [(0, J.jsx)(`strong`, { children: item.name }), (0, J.jsx)(`span`, { children: item.batch || `—` }), (0, J.jsx)(`span`, { children: item.expiry || `—` }), (0, J.jsx)(`span`, { style: { color: meta.color, fontWeight: 800 }, children: expiryInfo.daysRemaining == null ? `—` : expiryInfo.daysRemaining < 0 ? `Expired` : `${expiryInfo.daysRemaining}d` })] }, item.id); }) : (0, J.jsx)(`div`, { className: `dashboard-empty`, children: `No upcoming expiries` })] });
+  let quickPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Quick Actions` }), (0, J.jsx)(`p`, { children: `Common pharmacy workflows` })] })] }), (0, J.jsx)(`div`, { className: `dashboard-quick-grid`, children: [quick(`New Bill`, `/billing`, `#2563eb`, `+`), quick(`Stock Receive`, `/inventory`, `#16a34a`, `+`), quick(`Stock Transfer`, `/inventory`, `#9333ea`, `↔`), quick(`View Reports`, `/reports`, `#ea580c`, `▤`)] })] });
+  let stockPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Stock Alerts` }), (0, J.jsx)(`p`, { children: `Most urgent low-stock items` })] }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-link`, onClick: () => navigate(`/inventory`), children: `View All` })] }), lowStock.length ? lowStock.slice(0, 5).map((item) => (0, J.jsxs)(`button`, { type: `button`, className: `dashboard-stock-row`, onClick: () => navigate(`/inventory`), children: [(0, J.jsx)(`span`, { className: `dashboard-stock-dot` }), (0, J.jsx)(`span`, { children: item.name }), (0, J.jsx)(`strong`, { children: `${Number(item.stock) || 0}` })] }, item.id)) : (0, J.jsx)(`div`, { className: `dashboard-empty`, children: `No low-stock items` })] });
+  return (0, J.jsxs)(`div`, { className: `modern-dashboard`, children: [(0, J.jsxs)(`section`, { className: `dashboard-welcome`, children: [(0, J.jsxs)(`div`, { children: [(0, J.jsx)(`p`, { className: `dashboard-eyebrow`, children: greeting + (dashRole ? `, ${dashRole}` : ``) }), (0, J.jsx)(`h1`, { children: settings.storeName || `VARNIKA HEALTH CARE` }), (0, J.jsx)(`p`, { children: `VHC Pharmacy POS` })] }), (0, J.jsxs)(`div`, { className: `dashboard-date`, children: [(0, J.jsx)(`span`, { children: dateLabel }), (0, J.jsx)(`span`, { children: `Operational dashboard` })] })] }), (0, J.jsx)(`section`, { className: `dashboard-kpi-grid`, children: [card(`Today's Bills`, loading ? `—` : completed.length, `Completed bills`, `▤`, `#2563eb`), card(`Items Sold`, loading ? `—` : unitsSold, `Medicine units`, `◉`, `#16a34a`), card(`Low Stock Items`, lowStock.length, `Below threshold`, `▼`, `#9333ea`), card(`Expiring Soon`, expiring.length, `Within 30 days`, `◷`, `#ea580c`)] }), (0, J.jsxs)(`div`, { className: `dashboard-main-grid`, children: [(0, J.jsxs)(`div`, { className: `dashboard-column`, children: [recentPanel, expiryPanel] }), (0, J.jsxs)(`aside`, { className: `dashboard-side-column`, children: [quickPanel, stockPanel] })] })] });
 }
 var Gr = 365.2425,
   Kr = 6048e5,
@@ -55573,6 +55818,8 @@ function Ih() {
     toastFn = Th(),
     [stockAdjustReason, setStockAdjustReason] = (0, _.useState)(``),
     [originalStockForEdit, setOriginalStockForEdit] = (0, _.useState)(null),
+    [savingEdit, setSavingEdit] = (0, _.useState)(!1),
+    editSaveRef = (0, _.useRef)({ inFlight: !1, key: null, fingerprint: null }),
     [a, o] = (0, _.useState)(``),
     [s, c] = (0, _.useState)(!1),
     [l, u] = (0, _.useState)(!1),
@@ -55629,19 +55876,19 @@ function Ih() {
     },
     w = e.filter((e) => e.name.toLowerCase().includes(a.toLowerCase())),
     T = e.length,
-    E = e.filter((e) => (parseInt(e.stock, 10) || 0) < 50),
+    E = e.filter((e) => (parseFloat(e.stock) || 0) < 50),
     D = e.filter(
       (e) =>
-        (parseInt(e.stock, 10) || 0) >= 50 &&
-        (parseInt(e.stock, 10) || 0) < 200,
+        (parseFloat(e.stock) || 0) >= 50 &&
+        (parseFloat(e.stock) || 0) < 200,
     ),
-    O = e.filter((e) => (parseInt(e.stock, 10) || 0) >= 200),
-    k = e.filter((e) => (parseInt(e.stock, 10) || 0) < 200),
+    O = e.filter((e) => (parseFloat(e.stock) || 0) >= 200),
+    k = e.filter((e) => (parseFloat(e.stock) || 0) < 200),
     A = e.reduce(
       (e, t) => {
         let n = parseFloat(t.unitsPerPack || t.units_per_pack) || 10,
           r = (parseFloat(t.mrp ?? t.price) || 0) / n,
-          i = parseInt(t.stock, 10) || 0,
+          i = parseFloat(t.stock) || 0,
           a = i * r;
         return (
           (e.totalSellingValue += a),
@@ -55688,17 +55935,40 @@ function Ih() {
           category: e.category || DEFAULT_CATEGORY,
         }),
         C(null),
-        setOriginalStockForEdit(parseInt(e.stock, 10) || 0),
+        setOriginalStockForEdit(Number.isFinite(parseFloat(e.stock)) ? parseFloat(e.stock) : 0),
         setStockAdjustReason(``),
+        (editSaveRef.current = { inFlight: !1, key: null, fingerprint: null, pendingSync: !!e.stockPendingSync }),
         f(!0));
     },
-    N = () => {
+    // Save Item / Update Item. An edit that changes stock is applied by the server in one transaction
+    // (apply_stock_correction); this awaits it, keeps the form open with the user's input on any failure,
+    // blocks double submission, and reuses one request key for retries of the same change (the server then
+    // answers ALREADY_APPLIED instead of applying it twice). The local audit mirror is written only after
+    // the cloud confirmed; it is not the authoritative ledger (stock_movements is).
+    N = async () => {
       if (!b.name) return;
-      let newStock = parseInt(b.stock, 10) || 0,
-        stockChanged = v !== null && originalStockForEdit !== null && newStock !== originalStockForEdit;
-      if (stockChanged && !stockAdjustReason.trim()) {
-        toastFn(`Please enter a reason for this stock change before saving.`, `warning`);
+      let guard = editSaveRef.current;
+      if (guard.inFlight) return;
+      let parsedStock = parseFloat(b.stock),
+        newStock = Number.isFinite(parsedStock) ? parsedStock : 0,
+        stockChanged = v !== null && originalStockForEdit !== null && Math.abs(newStock - originalStockForEdit) > 5e-4,
+        reasonText = stockAdjustReason.trim();
+      if (stockChanged && guard.pendingSync) {
+        toastFn(`This batch has bills that are not synced to the cloud yet, and the stock shown includes them. Wait until the sync status shows all financial records confirmed, reopen the item, then correct the stock. Nothing was saved.`, `warning`, 1e4);
         return;
+      }
+      if (stockChanged) {
+        if (newStock < 0) {
+          toastFn(`Stock cannot be negative.`, `warning`);
+          return;
+        }
+        let reasonProblem = window.VHC_CLOUD && window.VHC_CLOUD.manualStockReasonProblem
+          ? window.VHC_CLOUD.manualStockReasonProblem(reasonText)
+          : reasonText ? null : `Please enter a reason for this stock change before saving.`;
+        if (reasonProblem) {
+          toastFn(reasonProblem, `warning`);
+          return;
+        }
       }
       let e = {
         name: b.name,
@@ -55712,7 +55982,37 @@ function Ih() {
         unitsPerPack: parseInt(b.unitsPerPack, 10) || 10,
         category: b.category || DEFAULT_CATEGORY,
       };
-      (v ? r(v, { id: v, ...e }, stockChanged ? stockAdjustReason.trim() : undefined) : t({ id: Date.now(), ...e }),
+      if (!v) {
+        // Add New Item (not a stock correction). The batch + its opening quantity are recorded server-side; a refusal
+        // (e.g. this item + batch number already exists) keeps the form open and is shown to the user.
+        (async () => {
+          let addResult = await t({ id: Date.now(), ...e });
+          if (addResult && addResult.error) toastFn(addResult.error, `error`, 9e3);
+          else f(!1);
+        })();
+        return;
+      }
+      let fingerprint = JSON.stringify([v, originalStockForEdit, newStock, stockChanged ? reasonText : ``]);
+      if (guard.fingerprint !== fingerprint || !guard.key) {
+        guard.key = window.VHC_CLOUD && window.VHC_CLOUD.newStockRequestKey
+          ? window.VHC_CLOUD.newStockRequestKey()
+          : `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+        guard.fingerprint = fingerprint;
+      }
+      guard.inFlight = !0;
+      setSavingEdit(!0);
+      try {
+        let res = await r(v, { id: v, ...e }, stockChanged ? reasonText : void 0, { requestKey: guard.key, expectedStock: originalStockForEdit });
+        if (res && res.error) {
+          if (res.code === `STOCK_SAVED_DETAILS_FAILED`) {
+            // The correction is committed; a retry must only resend the other fields.
+            (setOriginalStockForEdit(newStock), setStockAdjustReason(``));
+            guard.key = null;
+            guard.fingerprint = null;
+          }
+          toastFn(`Not saved: ${res.error}`, `error`, 1e4);
+          return;
+        }
         stockChanged &&
           window.VHC_AUDIT &&
           window.VHC_AUDIT.logStock &&
@@ -55723,9 +56023,18 @@ function Ih() {
             qty: newStock - originalStockForEdit,
             opening: originalStockForEdit,
             closing: newStock,
-            reason: stockAdjustReason.trim(),
-          }),
-        f(!1));
+            reason: reasonText,
+          });
+        guard.key = null;
+        guard.fingerprint = null;
+        toastFn(stockChanged ? `Stock corrected (${originalStockForEdit} → ${newStock}) and saved.` : `Item updated.`, `success`);
+        f(!1);
+      } catch (err) {
+        toastFn(`Not saved: ${(err && err.message) || err}`, `error`, 1e4);
+      } finally {
+        guard.inFlight = !1;
+        setSavingEdit(!1);
+      }
     },
     P = (e) => {
       (C(null), g(e));
@@ -55959,15 +56268,15 @@ function Ih() {
                       children: `All items have healthy stock levels!`,
                     })
                   : (() => {
-                      let sortedLow = [...k].sort((a, b) => (parseInt(a.stock, 10) || 0) - (parseInt(b.stock, 10) || 0)),
-                        maxRef = Math.max(200, ...sortedLow.map((it) => parseInt(it.stock, 10) || 0)),
+                      let sortedLow = [...k].sort((a, b) => (parseFloat(a.stock) || 0) - (parseFloat(b.stock) || 0)),
+                        maxRef = Math.max(200, ...sortedLow.map((it) => parseFloat(it.stock) || 0)),
                         shown = sortedLow.slice(0, 10);
                       return (0, J.jsxs)(`div`, {
                         children: [
                           (0, J.jsx)(`div`, {
                             style: { display: `flex`, flexDirection: `column`, gap: `0.65rem` },
                             children: shown.map((it) => {
-                              let stockVal = parseInt(it.stock, 10) || 0,
+                              let stockVal = parseFloat(it.stock) || 0,
                                 pct = Math.max(2, Math.min(100, (stockVal / maxRef) * 100)),
                                 isCritical = stockVal < 5;
                               return (0, J.jsxs)(
@@ -56302,11 +56611,13 @@ function Ih() {
                 (0, J.jsxs)(`tbody`, {
                   children: [
                     w.map((e) => {
+                      // Stock may be fractional (e.g. 20.5 units after a correction): parseFloat, never parseInt, for every displayed
+                      // quantity and value (20.5 units x Rs 10 = Rs 205.00). Stored stock is not touched here.
                       let t =
                           parseFloat(e.unitsPerPack || e.units_per_pack) || 10,
                         n = (parseFloat(e.mrp ?? e.price) || 0) / t,
                         r = (e.stock / t).toFixed(1),
-                        i = (parseInt(e.stock, 10) || 0) * n;
+                        i = (parseFloat(e.stock) || 0) * n;
                       return (0, J.jsxs)(
                         `tr`,
                         {
@@ -56861,7 +57172,7 @@ function Ih() {
                   }),
                   v !== null &&
                     originalStockForEdit !== null &&
-                    (parseInt(b.stock, 10) || 0) !== originalStockForEdit &&
+                    Math.abs((Number.isFinite(parseFloat(b.stock)) ? parseFloat(b.stock) : 0) - originalStockForEdit) > 5e-4 &&
                     (0, J.jsxs)(`div`, {
                       className: `input-group`,
                       style: { gridColumn: `span 2` },
@@ -56869,7 +57180,7 @@ function Ih() {
                         (0, J.jsxs)(`label`, {
                           className: `input-label`,
                           style: { color: `var(--warning-strong)` },
-                          children: [`⚠️ Reason for stock change (`, originalStockForEdit, ` → `, parseInt(b.stock, 10) || 0, `) — required`],
+                          children: [`⚠️ Reason for stock change (`, originalStockForEdit, ` → `, Number.isFinite(parseFloat(b.stock)) ? parseFloat(b.stock) : 0, `) — required`],
                         }),
                         (0, J.jsx)(`input`, {
                           type: `text`,
@@ -56992,8 +57303,10 @@ function Ih() {
                 children: (0, J.jsx)(`button`, {
                   className: `btn btn-primary`,
                   onClick: N,
+                  disabled: savingEdit,
+                  "aria-busy": savingEdit ? `true` : void 0,
                   style: { width: `100%` },
-                  children: v ? `Update Item` : `Save Item`,
+                  children: savingEdit ? `Saving…` : v ? `Update Item` : `Save Item`,
                 }),
               }),
             ],
@@ -57036,7 +57349,13 @@ function Ih() {
                       flex: 1,
                     },
                     onClick: () => {
-                      h && (i(h), g(null));
+                      if (!h) return;
+                      let target = h;
+                      g(null);
+                      (async () => {
+                        let delResult = await i(target);
+                        if (delResult && delResult.error) toastFn(delResult.error, `error`, 9e3);
+                      })();
                     },
                     children: `Delete`,
                   }),
@@ -57062,10 +57381,10 @@ function Ih() {
         onClose: () => setLowStockViewAllOpen(!1),
         title: `Low Stock Alert — Full List`,
         rows: [...k]
-          .sort((a, b) => (parseInt(a.stock, 10) || 0) - (parseInt(b.stock, 10) || 0))
+          .sort((a, b) => (parseFloat(a.stock) || 0) - (parseFloat(b.stock) || 0))
           .map((it) => {
             let info = getExpiryInfo(it);
-            return { id: it.id, name: it.name, batch: it.batch, qty: parseInt(it.stock, 10) || 0, expiry: it.expiry, daysRemaining: info.daysRemaining, status: info.status };
+            return { id: it.id, name: it.name, batch: it.batch, qty: parseFloat(it.stock) || 0, expiry: it.expiry, daysRemaining: info.daysRemaining, status: info.status };
           }),
       }),
       (0, J.jsx)(AlertFullListModal, {
@@ -57076,7 +57395,7 @@ function Ih() {
           id: item.id,
           name: item.name,
           batch: item.batch,
-          qty: parseInt(item.stock, 10) || 0,
+          qty: parseFloat(item.stock) || 0,
           expiry: item.expiry,
           daysRemaining: expiryInfo.daysRemaining,
           status: expiryInfo.status,
@@ -57092,7 +57411,7 @@ function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
     .map((it) => ({ item: it, expiryInfo: getExpiryInfo(it) }))
     .sort((a, b) => (a.expiryInfo.daysRemaining ?? Infinity) - (b.expiryInfo.daysRemaining ?? Infinity));
   let soonestId = batches.length > 0 ? batches[0].item.id : null;
-  let totalStock = batches.reduce((sum, b) => sum + (parseInt(b.item.stock, 10) || 0), 0);
+  let totalStock = batches.reduce((sum, b) => sum + (parseFloat(b.item.stock) || 0), 0);
   return (0, J.jsx)(`div`, {
     className: `modal-overlay`,
     onClick: onClose,
@@ -57383,6 +57702,583 @@ function AlertFullListModal({ isOpen, onClose, title, rows }) {
     }),
   });
 }
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// v3.19.5 GOOGLE DRIVE BACKUP v2 (WhatsApp-style). Additive: the older Drive tools below (plain
+// JSON Backup Now / list / restore, Apps Script auto-sync) are left exactly as they were.
+//  • Encrypted: AES-256-GCM in the Electron main process with the admin's 64-digit recovery key
+//    (electron/vhc-backup-crypto.cjs); Google only ever stores ciphertext.
+//  • Verified: Drive's md5Checksum must equal the uploaded bytes, the file must self-decrypt before
+//    upload, and "Verify" re-downloads and checks the GCM tag + SHA-256 of the contents.
+//  • Daily: once per local day while the app is open and online (scheduler in l_), plus Back Up Now.
+//  • History + retention: newest 7 daily + 10 manual v2 backups are kept; only v2 files are pruned.
+//  • Safe restore: refused while any bill is still waiting for cloud sync; restored bills stay local
+//    history (vhc_pos_sales_history is never uploaded); inventory stays CLOUD-AUTHORITATIVE — backup
+//    stock is never written over a non-empty cloud inventory (no re-deduction / no stock rewind).
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+var VHC_BACKUP_V2_FOLDER_NAME = `VHC Pharmacy POS Backups`;
+var VHC_BACKUP_V2_STATUS_KEY = `vhc_gdrive_backup_v2_status`;
+var VHC_BACKUP_V2_FOLDER_KEY = `vhc_gdrive_backup_v2_folder`;
+var VHC_BACKUP_V2_LOCK_KEY = `vhc_gdrive_backup_v2_lock`;
+var VHC_BACKUP_V2_RETENTION = { daily: 7, manual: 10 };
+var vhcBackupV2InFlight = null;
+function vhcBackupLocalDayKey(value) {
+  let d = new Date(value);
+  return isNaN(d.getTime()) ? `` : d.toLocaleDateString(`en-CA`);
+}
+function vhcBackupReadStatus() {
+  try {
+    let s = JSON.parse(localStorage.getItem(VHC_BACKUP_V2_STATUS_KEY) || `{}`);
+    return s && typeof s === `object` ? s : {};
+  } catch (e) {
+    return {};
+  }
+}
+function vhcBackupWriteStatus(patch) {
+  let next = { ...vhcBackupReadStatus(), ...patch };
+  try { localStorage.setItem(VHC_BACKUP_V2_STATUS_KEY, JSON.stringify(next)); } catch (e) {}
+  try { window.dispatchEvent(new CustomEvent(`vhc-backup-v2-status`, { detail: next })); } catch (e) {}
+  return next;
+}
+// Daily rule: one successful backup per local calendar day; after a failure wait 30 min before retrying.
+function vhcBackupDailyDue(status, nowMs, enabled) {
+  if (enabled === !1) return !1;
+  let s = status || {};
+  if (s.lastSuccessAt && vhcBackupLocalDayKey(s.lastSuccessAt) === vhcBackupLocalDayKey(nowMs)) return !1;
+  if (s.lastAttemptAt && nowMs - new Date(s.lastAttemptAt).getTime() < 30 * 60 * 1e3) return !1;
+  return !0;
+}
+// Only files this feature created (appProperties.vhcBackup === "2") are ever considered for deletion.
+function vhcBackupRetentionDeletes(files, limits) {
+  let lim = limits || VHC_BACKUP_V2_RETENTION;
+  let out = [];
+  for (let kind of [`daily`, `manual`]) {
+    let mine = (Array.isArray(files) ? files : [])
+      .filter((f) => f && f.id && f.appProperties && f.appProperties.vhcBackup === `2` && f.appProperties.kind === kind)
+      .sort((a, b) => String(b.appProperties.createdAt || b.createdTime || ``).localeCompare(String(a.appProperties.createdAt || a.createdTime || ``)));
+    out.push(...mine.slice(Math.max(0, lim[kind] || 0)));
+  }
+  return out;
+}
+function vhcBackupCounts(snapshot) {
+  let n = (v) => (Array.isArray(v) ? v.length : 0);
+  return { bills: n(snapshot && snapshot.salesHistory), inventory: n(snapshot && snapshot.inventory), patients: n(snapshot && snapshot.patients) };
+}
+function vhcBackupErrorMessage(code) {
+  return (
+    {
+      NO_KEY: `No backup encryption key is set up on this PC yet.`,
+      WRONG_KEY: `This backup was made with a different recovery key. Enter the recovery key that was shown when backups were set up.`,
+      INVALID_KEY: `That is not a valid recovery key (it must be 64 letters/digits 0-9 and a-f).`,
+      TAMPERED: `This backup failed its integrity check (it was changed or damaged). Nothing was restored.`,
+      HASH_MISMATCH: `This backup failed its integrity check (contents do not match). Nothing was restored.`,
+      CORRUPT: `This backup file is damaged and cannot be read.`,
+      NOT_V2: `This is not an encrypted v2 backup. Use the older Drive Backups list below for it.`,
+      UNSUPPORTED_VERSION: `This backup was made by a newer version of the app. Update the app first.`,
+      KEY_EXISTS: `A different recovery key is already saved on this PC.`,
+      KEY_STORAGE_UNAVAILABLE: `Windows secure storage is not available, so the key cannot be saved safely on this PC.`,
+      SELF_CHECK_FAILED: `The backup could not be verified before upload. Nothing was uploaded.`,
+      INTEGRITY_MISMATCH: `Google Drive stored a different file than was sent; the upload was discarded. Please try again.`,
+      NOT_SIGNED_IN: `Sign in to Google Drive first.`,
+      RECONNECT_REQUIRED: `The Google Drive connection has expired or was removed. Please sign in to Google Drive again.`,
+      GOOGLE_OAUTH_NOT_CONFIGURED: `Google Drive sign-in is not configured on this PC (the VHC Google OAuth client file is missing).`,
+      GOOGLE_OAUTH_CLIENT_INVALID: `The Google OAuth client file on this PC is invalid.`,
+      FOREIGN_OAUTH_CLIENT: `The Google OAuth client on this PC belongs to another product and cannot be used by VHC Pharmacy POS.`,
+      TOKEN_STORAGE_UNAVAILABLE: `Windows secure storage is not available, so the Google sign-in cannot be saved safely on this PC.`,
+      OFFLINE: `This PC is offline.`,
+      BUSY: `A backup is already running.`,
+    }[code] || String(code || `Unknown error`)
+  );
+}
+async function vhcBuildBackupSnapshotV2(kind, inventoryFallback) {
+  let settings = {};
+  try { settings = JSON.parse(localStorage.getItem(`pos_settings`) || `{}`) || {}; } catch (e) {}
+  // Prefer the live cloud inventory cache (what the app shows), then the local copies.
+  let inventory = (window.VHC_CLOUD && window.VHC_CLOUD.getInventory && window.VHC_CLOUD.getInventory()) || [];
+  try {
+    (!Array.isArray(inventory) || inventory.length === 0) && (inventory = JSON.parse(localStorage.getItem(`pos_inventory`) || `[]`));
+    (!Array.isArray(inventory) || inventory.length === 0) && (inventory = JSON.parse(localStorage.getItem(`vhc_pos_inventory`) || `[]`));
+  } catch (e) {}
+  (!Array.isArray(inventory) || inventory.length === 0) && Array.isArray(inventoryFallback) && (inventory = inventoryFallback);
+  // v2 includes the SQLite (local-first) bills too — the older snapshot only read localStorage.
+  let salesHistory = await loadLocalSalesHistoryForUI();
+  return {
+    appName: `VHC Pharmacy POS`,
+    backupType: `GoogleDriveV2`,
+    snapshotVersion: 2,
+    kind,
+    timestamp: new Date().toISOString(),
+    formattedDate: new Date().toLocaleString(`en-IN`),
+    settings,
+    patients: (window.VHC_CLOUD && window.VHC_CLOUD.getAllPatients && window.VHC_CLOUD.getAllPatients()) || [],
+    salesHistory: Array.isArray(salesHistory) ? salesHistory : [],
+    inventory: Array.isArray(inventory) ? inventory : [],
+    cartDraft: [],
+  };
+}
+async function vhcDriveToken() {
+  let r = window.electronAPI && window.electronAPI.googleOAuthRefresh ? await window.electronAPI.googleOAuthRefresh() : null;
+  if (r && r.error === `RECONNECT_REQUIRED`) {
+    try { window.dispatchEvent(new CustomEvent(`vhc-gdrive-reconnect`)); } catch (e) {}
+    throw new Error(`RECONNECT_REQUIRED`);
+  }
+  if (!r || !r.success) throw new Error(r && /^GOOGLE_OAUTH_|^FOREIGN_OAUTH|^TOKEN_STORAGE/.test(String(r.error)) ? r.error : `NOT_SIGNED_IN`);
+  return r.accessToken;
+}
+async function vhcDriveJson(token, url, init) {
+  let res = await fetch(url, { ...(init || {}), headers: { Authorization: `Bearer ${token}`, ...((init && init.headers) || {}) } });
+  let text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (e) {}
+  if (!res.ok) throw new Error(`HTTP ${res.status} — ${(json && json.error && json.error.message) || text.slice(0, 160)}`);
+  return json;
+}
+function vhcDriveFolderFromSettings(settings) {
+  let m = String((settings && (settings.googleDriveUrl || settings.oneDriveUrl)) || ``).match(/folders\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+// Uses the folder link from Settings when one is set; otherwise finds or creates our own folder (tagged with
+// appProperties so a NEW PC signed into the same Google account finds the same backups automatically).
+async function vhcDriveEnsureBackupFolder(token, settings) {
+  // drive.file scope (least privilege): the app can only write into folders it created itself, so encrypted
+  // backups always live in the app's own tagged folder (a legacy folder link in Settings is not used here).
+  let cached = null;
+  try { cached = localStorage.getItem(VHC_BACKUP_V2_FOLDER_KEY); } catch (e) {}
+  if (cached) {
+    try {
+      let f = await vhcDriveJson(token, `https://www.googleapis.com/drive/v3/files/${cached}?fields=id,trashed`);
+      if (f && f.id && !f.trashed) return f.id;
+    } catch (e) {}
+  }
+  let q = `mimeType='application/vnd.google-apps.folder' and trashed=false and appProperties has { key='vhcBackupRoot' and value='1' }`;
+  let found = await vhcDriveJson(token, `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(`files(id,name,createdTime)`)}&orderBy=createdTime`);
+  let id = found && found.files && found.files[0] && found.files[0].id;
+  if (!id) {
+    let created = await vhcDriveJson(token, `https://www.googleapis.com/drive/v3/files?fields=id`, {
+      method: `POST`,
+      headers: { 'Content-Type': `application/json` },
+      body: JSON.stringify({ name: VHC_BACKUP_V2_FOLDER_NAME, mimeType: `application/vnd.google-apps.folder`, appProperties: { vhcBackupRoot: `1` } }),
+    });
+    id = created.id;
+  }
+  try { localStorage.setItem(VHC_BACKUP_V2_FOLDER_KEY, id); } catch (e) {}
+  return id;
+}
+async function vhcDriveListBackupsV2(token, folderId) {
+  let q = `'${folderId}' in parents and trashed=false and appProperties has { key='vhcBackup' and value='2' }`;
+  let json = await vhcDriveJson(
+    token,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(`files(id,name,size,createdTime,md5Checksum,appProperties)`)}&orderBy=createdTime desc&pageSize=100`,
+  );
+  return (json && Array.isArray(json.files) ? json.files : []).sort((a, b) =>
+    String((b.appProperties && b.appProperties.createdAt) || b.createdTime || ``).localeCompare(String((a.appProperties && a.appProperties.createdAt) || a.createdTime || ``)),
+  );
+}
+async function vhcDriveDownloadText(token, fileId) {
+  let res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+  let text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status} — could not download the backup`);
+  return text;
+}
+async function vhcDriveDeleteFile(token, fileId) {
+  let res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, { method: `DELETE`, headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok && res.status !== 204 && res.status !== 404) throw new Error(`HTTP ${res.status} — delete failed`);
+}
+async function vhcDriveUploadBackupV2(token, folderId, enc, kind) {
+  let h = enc.header;
+  let stamp = String(h.createdAt).replace(/[:.]/g, `-`);
+  let metadata = {
+    name: `VHC_POS_${kind === `daily` ? `Daily` : `Manual`}_Backup_${stamp}.vhcbak`,
+    parents: [folderId],
+    mimeType: `application/json`,
+    description: `VHC Pharmacy POS encrypted backup (v2). Restore it from VHC Pharmacy POS with your recovery key.`,
+    appProperties: { vhcBackup: `2`, kind, keyId: h.keyId, createdAt: h.createdAt, appVersion: String(h.appVersion || ``), sha256: h.payloadSha256 },
+  };
+  let boundary = `vhcbackupv2${Date.now()}`;
+  let body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${enc.envelopeText}\r\n--${boundary}--`;
+  let file = await vhcDriveJson(token, `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=${encodeURIComponent(`id,name,size,md5Checksum,createdTime,appProperties`)}`, {
+    method: `POST`,
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!file || !file.id || String(file.md5Checksum || ``).toLowerCase() !== String(enc.envelopeMd5).toLowerCase()) {
+    if (file && file.id) { try { await vhcDriveDeleteFile(token, file.id); } catch (e) {} }
+    throw new Error(`INTEGRITY_MISMATCH`);
+  }
+  return file;
+}
+// One backup at a time in this window, and across windows via a short-lived localStorage lock.
+async function vhcRunBackupV2({ kind, settings, inventoryFallback, addLog } = {}) {
+  if (vhcBackupV2InFlight) throw new Error(`BUSY`);
+  let now = Date.now();
+  try {
+    let lock = Number(localStorage.getItem(VHC_BACKUP_V2_LOCK_KEY) || 0);
+    if (lock && now - lock < 10 * 60 * 1e3) throw new Error(`BUSY`);
+    localStorage.setItem(VHC_BACKUP_V2_LOCK_KEY, String(now));
+  } catch (e) {
+    if (e && e.message === `BUSY`) throw e;
+  }
+  let k = kind === `daily` ? `daily` : `manual`;
+  vhcBackupV2InFlight = (async () => {
+    vhcBackupWriteStatus({ lastAttemptAt: new Date().toISOString(), running: !0 });
+    try {
+      if (typeof navigator !== `undefined` && navigator.onLine === !1) throw new Error(`OFFLINE`);
+      let keyStatus = await window.electronAPI.backupKeyStatus();
+      if (!keyStatus || !keyStatus.configured) throw new Error(`NO_KEY`);
+      let token = await vhcDriveToken();
+      let s = settings || (() => { try { return JSON.parse(localStorage.getItem(`pos_settings`) || `{}`); } catch (e) { return {}; } })();
+      let folderId = await vhcDriveEnsureBackupFolder(token, s);
+      let snapshot = await vhcBuildBackupSnapshotV2(k, inventoryFallback);
+      let counts = vhcBackupCounts(snapshot);
+      let enc = await window.electronAPI.backupEncrypt(JSON.stringify(snapshot), k, counts);
+      if (!enc || !enc.success) throw new Error((enc && enc.error) || `SELF_CHECK_FAILED`);
+      let file = await vhcDriveUploadBackupV2(token, folderId, enc, k);
+      let pruned = 0;
+      try {
+        for (let old of vhcBackupRetentionDeletes(await vhcDriveListBackupsV2(token, folderId))) {
+          if (old.id === file.id) continue;
+          await vhcDriveDeleteFile(token, old.id);
+          pruned++;
+        }
+      } catch (e) {
+        console.warn(`[VHC_BACKUP_V2] retention cleanup failed (backup itself is safe):`, e);
+      }
+      let status = vhcBackupWriteStatus({
+        running: !1,
+        lastSuccessAt: enc.header.createdAt,
+        lastSuccessKind: k,
+        lastFileId: file.id,
+        lastFileName: file.name,
+        lastSizeBytes: Number(file.size) || null,
+        lastCounts: counts,
+        lastKeyId: enc.header.keyId,
+        lastError: null,
+        lastErrorAt: null,
+      });
+      addLog && addLog(`BACKUP_GDRIVE_V2_CREATED`, `Encrypted ${k} backup uploaded and verified: ${file.name} (${counts.bills} bills, ${counts.inventory} items, ${counts.patients} patients)${pruned ? `; ${pruned} old backup(s) pruned` : ``}`);
+      return { ok: !0, file, counts, status };
+    } catch (err) {
+      let code = (err && err.message) || String(err);
+      vhcBackupWriteStatus({ running: !1, lastError: code, lastErrorAt: new Date().toISOString() });
+      addLog && addLog(`BACKUP_GDRIVE_V2_FAILED`, `${k} backup failed: ${vhcBackupErrorMessage(code)}`);
+      throw err;
+    } finally {
+      try { localStorage.removeItem(VHC_BACKUP_V2_LOCK_KEY); } catch (e) {}
+    }
+  })();
+  try {
+    return await vhcBackupV2InFlight;
+  } finally {
+    vhcBackupV2InFlight = null;
+  }
+}
+// Pure decision for the inventory AND patients parts of a restore (exported for tests).
+//   cloud has batches            -> keep cloud (backup stock is NOT applied: avoids rewinding stock / re-deducting)
+//   cloud empty (fresh project)  -> may load backup inventory, only after explicit confirmation
+//   cloud unreadable             -> keep cloud, nothing pushed
+function vhcRestoreInventoryDecision(cloudInventory, backupInventory) {
+  let b = Array.isArray(backupInventory) ? backupInventory.length : 0;
+  if (b === 0) return { action: `none`, reason: `backup-has-no-inventory` };
+  if (!Array.isArray(cloudInventory)) return { action: `keep-cloud`, reason: `cloud-unreadable` };
+  if (cloudInventory.length > 0) return { action: `keep-cloud`, reason: `cloud-authoritative`, cloudCount: cloudInventory.length };
+  return { action: `ask-load-into-empty-cloud`, reason: `cloud-empty`, backupCount: b };
+}
+async function vhcRestorePreflight() {
+  if (!(window.electronAPI && window.electronAPI.getUnsyncedFinancialSyncOperations)) return { ok: !0, pending: 0 };
+  let ops = await window.electronAPI.getUnsyncedFinancialSyncOperations();
+  let pending = Array.isArray(ops) ? ops.length : 0;
+  return pending > 0
+    ? { ok: !1, pending, message: `${pending} bill(s) on this PC are still waiting to reach the cloud. Restore is blocked until they finish syncing, so no bill can be lost or sent twice. Keep the app online and try again shortly.` }
+    : { ok: !0, pending: 0 };
+}
+function VhcDriveBackupV2Panel({ settings, updateSettings, toast, confirmAsync, addLog, signedIn, inventoryFallback, beginRestore, endRestore, onRestored }) {
+  let [keyStatus, setKeyStatus] = (0, _.useState)(null),
+    [status, setStatus] = (0, _.useState)(() => vhcBackupReadStatus()),
+    [files, setFiles] = (0, _.useState)([]),
+    [listLoading, setListLoading] = (0, _.useState)(!1),
+    [busy, setBusy] = (0, _.useState)(``),
+    [shownKey, setShownKey] = (0, _.useState)(``),
+    [keyPrompt, setKeyPrompt] = (0, _.useState)(null),
+    [keyInput, setKeyInput] = (0, _.useState)(``),
+    [verified, setVerified] = (0, _.useState)({});
+  let dailyEnabled = settings.gdriveDailyBackupEnabled !== !1;
+  let refreshKey = () =>
+    window.electronAPI && window.electronAPI.backupKeyStatus
+      ? window.electronAPI.backupKeyStatus().then(setKeyStatus).catch(() => setKeyStatus({ configured: !1 }))
+      : Promise.resolve();
+  let loadList = async () => {
+    if (!signedIn) return;
+    setListLoading(!0);
+    try {
+      let token = await vhcDriveToken();
+      setFiles(await vhcDriveListBackupsV2(token, await vhcDriveEnsureBackupFolder(token, settings)));
+    } catch (err) {
+      toast(`Could not load encrypted backups: ` + vhcBackupErrorMessage(err.message), `error`);
+    } finally {
+      setListLoading(!1);
+    }
+  };
+  (0, _.useEffect)(() => {
+    refreshKey();
+    let onStatus = (evt) => setStatus(evt.detail || vhcBackupReadStatus());
+    window.addEventListener(`vhc-backup-v2-status`, onStatus);
+    return () => window.removeEventListener(`vhc-backup-v2-status`, onStatus);
+  }, []);
+  (0, _.useEffect)(() => {
+    signedIn && loadList();
+  }, [signedIn]);
+  let createKey = async () => {
+    setBusy(`key`);
+    try {
+      let r = await window.electronAPI.backupCreateKey();
+      if (!r.success) throw new Error(r.error);
+      setShownKey(r.recoveryKey);
+      addLog(`BACKUP_GDRIVE_V2_KEY_CREATED`, `Backup encryption key created (key id ${r.keyId})`);
+      await refreshKey();
+    } catch (err) {
+      toast(vhcBackupErrorMessage(err.message), `error`, 8e3);
+    } finally {
+      setBusy(``);
+    }
+  };
+  let revealKey = async () => {
+    let r = await window.electronAPI.backupRevealKey();
+    r && r.success ? (setShownKey(r.recoveryKey), addLog(`BACKUP_GDRIVE_V2_KEY_SHOWN`, `Backup recovery key was displayed`)) : toast(vhcBackupErrorMessage(r && r.error), `error`);
+  };
+  let backupNow = async () => {
+    setBusy(`backup`);
+    try {
+      let r = await vhcRunBackupV2({ kind: `manual`, settings, inventoryFallback, addLog });
+      toast(`✅ Encrypted backup uploaded and verified (${r.counts.bills} bills, ${r.counts.inventory} items, ${r.counts.patients} patients).`, `success`, 6e3);
+      loadList();
+    } catch (err) {
+      toast(`Backup failed: ` + vhcBackupErrorMessage(err.message), `error`, 8e3);
+    } finally {
+      setBusy(``);
+    }
+  };
+  // Decrypt with the saved key; if it is missing or different, ask for the recovery key (new PC case).
+  let openBackup = async (file, typedKey) => {
+    let token = await vhcDriveToken();
+    let text = await vhcDriveDownloadText(token, file.id);
+    let r = await window.electronAPI.backupDecrypt(text, typedKey || void 0);
+    if (!r.success && (r.error === `NO_KEY` || r.error === `WRONG_KEY`) && !typedKey) return { needKey: !0, code: r.error };
+    if (!r.success) throw new Error(r.error);
+    if (typedKey && !(keyStatus && keyStatus.configured)) {
+      let saved = await window.electronAPI.backupImportKey(typedKey, text, !1);
+      saved && saved.success && (addLog(`BACKUP_GDRIVE_V2_KEY_IMPORTED`, `Recovery key entered and saved on this PC (key id ${saved.keyId})`), refreshKey());
+    }
+    return { text, plaintext: r.plaintext, header: r.header };
+  };
+  let verifyFile = async (file, typedKey) => {
+    setBusy(`verify:` + file.id);
+    try {
+      let o = await openBackup(file, typedKey);
+      if (o.needKey) { setKeyPrompt({ file, mode: `verify`, code: o.code }); return; }
+      setVerified((v) => ({ ...v, [file.id]: !0 }));
+      toast(`✅ Backup verified: decrypted and its contents match the recorded checksum.`, `success`);
+    } catch (err) {
+      setVerified((v) => ({ ...v, [file.id]: !1 }));
+      toast(`Verification failed: ` + vhcBackupErrorMessage(err.message), `error`, 8e3);
+    } finally {
+      setBusy(``);
+    }
+  };
+  let restoreFile = async (file, typedKey) => {
+    setBusy(`restore:` + file.id);
+    let started = !1;
+    try {
+      let pre = await vhcRestorePreflight();
+      if (!pre.ok) { toast(pre.message, `error`, 12e3); return; }
+      let o = await openBackup(file, typedKey);
+      if (o.needKey) { setKeyPrompt({ file, mode: `restore`, code: o.code }); return; }
+      let norm = vhcNormalizeBackup(JSON.parse(o.plaintext), `encrypted Drive backup "${file.name}"`);
+      let counts = vhcBackupCounts(norm);
+      let when = new Date(o.header.createdAt).toLocaleString(`en-IN`);
+      if (!(await confirmAsync(
+        `Restore the encrypted backup from ${when}?\n\n` +
+        `Contains: ${counts.bills} bills, ${counts.inventory} inventory items, ${counts.patients} patients (made on ${o.header.deviceLabel || `unknown PC`}, app v${o.header.appVersion || `?`}).\n\n` +
+        `• Settings and this PC's bill history are replaced by the backup.\n` +
+        `• Patients already in the shared cloud are kept exactly as they are (never overwritten).\n` +
+        `• Stock is NOT rolled back: the shared cloud inventory stays as it is, so sales made after this backup remain deducted.\n` +
+        `• Restored bills are history only — they are never uploaded again.`,
+      ))) return;
+      let again = await vhcRestorePreflight();
+      if (!again.ok) { toast(again.message, `error`, 12e3); return; }
+      if (!beginRestore()) return;
+      started = !0;
+      let parts = [], issues = [];
+      let salesPlan = vhcValidateBackupSalesHistory(norm.salesHistory);
+      if (!salesPlan.ok) throw new Error(salesPlan.error);
+      let salesOutcome = null;
+      salesPlan.apply && ((salesOutcome = await vhcApplyRestoredSalesHistory(norm.salesHistory)), parts.push(`${norm.salesHistory.length} bills (history)`));
+      norm.settings && typeof norm.settings === `object` && (updateSettings(norm.settings), localStorage.setItem(`pos_settings`, JSON.stringify(norm.settings)), parts.push(`Settings`));
+      // v3.19.5 QA fix: patients are CLOUD-AUTHORITATIVE like stock. An older backup must never overwrite newer
+      // patient details made on other terminals, so existing cloud patients are left untouched; backup patients
+      // are only loaded into an EMPTY cloud, after explicit confirmation.
+      let cloudPatients = null;
+      try { cloudPatients = window.VHC_CLOUD && window.VHC_CLOUD.fetchPatients ? await window.VHC_CLOUD.fetchPatients() : null; } catch (e) { cloudPatients = null; }
+      let patDecision = vhcRestoreInventoryDecision(cloudPatients, norm.patients);
+      if (patDecision.action === `keep-cloud`)
+        parts.push(patDecision.reason === `cloud-authoritative` ? `patients kept from cloud (${patDecision.cloudCount}, unchanged)` : `patients unchanged (cloud not reachable)`);
+      else if (patDecision.action === `ask-load-into-empty-cloud`) {
+        if (await confirmAsync(`The shared cloud patient list is EMPTY.\n\nLoad the ${patDecision.backupCount} patients from this backup into the cloud?`)) {
+          let pr = await window.VHC_CLOUD.restorePatientsFromBackup(norm.patients);
+          pr && pr.error ? issues.push(`Patients not loaded — ${pr.error}`) : parts.push(`${pr.restored}/${patDecision.backupCount} patients loaded into empty cloud`);
+        } else parts.push(`patients not loaded (cloud left empty)`);
+      }
+      let cloudInv = null;
+      try { cloudInv = window.VHC_CLOUD && window.VHC_CLOUD.fetchInventory ? await window.VHC_CLOUD.fetchInventory() : null; } catch (e) { cloudInv = null; }
+      let invDecision = vhcRestoreInventoryDecision(cloudInv, norm.inventory);
+      if (invDecision.action === `keep-cloud`)
+        parts.push(invDecision.reason === `cloud-authoritative` ? `inventory kept from cloud (${invDecision.cloudCount} batches, not rolled back)` : `inventory unchanged (cloud not reachable)`);
+      else if (invDecision.action === `ask-load-into-empty-cloud`) {
+        if (await confirmAsync(`The shared cloud inventory is EMPTY.\n\nLoad the ${invDecision.backupCount} inventory items from this backup into the cloud?`)) {
+          let ir = await window.VHC_CLOUD.restoreInventoryFromBackup(norm.inventory);
+          ir && ir.error ? issues.push(`Inventory not loaded — ${ir.error}`) : parts.push(`${ir.restored}/${invDecision.backupCount} inventory items loaded into empty cloud`);
+        } else parts.push(`inventory not loaded (cloud left empty)`);
+      }
+      let dur = await vhcConfirmDurable(salesOutcome);
+      addLog(`BACKUP_GDRIVE_V2_RESTORED`, `Restored encrypted backup "${file.name}" (${o.header.createdAt}): ${parts.join(`, `)}${issues.length ? ` | problems: ${issues.join(`; `)}` : ``}`);
+      toast((issues.length ? `⚠️ Restore finished with problems:\n• ${issues.join(`\n• `)}\n\nRestored: ` : `✅ Restored: `) + parts.join(`, `) + dur.note, issues.length || !dur.ok ? `warning` : `success`, 1e4);
+      onRestored();
+    } catch (err) {
+      toast(`Restore failed: ` + vhcBackupErrorMessage(err.message), `error`, 1e4);
+    } finally {
+      started && endRestore();
+      setBusy(``);
+    }
+  };
+  let submitKey = () => {
+    let p = keyPrompt;
+    if (!p) return;
+    let k = keyInput;
+    setKeyPrompt(null);
+    setKeyInput(``);
+    p.mode === `restore` ? restoreFile(p.file, k) : verifyFile(p.file, k);
+  };
+  let fmtSize = (b) => (b ? (b > 1048576 ? (b / 1048576).toFixed(1) + ` MB` : Math.max(1, Math.round(b / 1024)) + ` KB`) : `—`);
+  let fmtWhen = (v) => (v ? new Date(v).toLocaleString(`en-IN`, { day: `numeric`, month: `short`, year: `numeric`, hour: `numeric`, minute: `2-digit` }) : `Never`);
+  let keyReady = !!(keyStatus && keyStatus.configured);
+  let row = (label, value, tone) =>
+    (0, J.jsxs)(`div`, { className: `vhc-bk2-row`, children: [(0, J.jsx)(`span`, { children: label }), (0, J.jsx)(`strong`, { style: tone ? { color: tone } : void 0, children: value })] });
+  return (0, J.jsxs)(`section`, {
+    className: `vhc-bk2`,
+    "data-testid": `drive-backup-v2`,
+    children: [
+      (0, J.jsxs)(`div`, {
+        className: `vhc-bk2-head`,
+        children: [
+          (0, J.jsxs)(`div`, { children: [(0, J.jsx)(`h4`, { children: `🔐 Encrypted Daily Backup` }), (0, J.jsx)(`p`, { children: `Backed up to your Google Drive every day and protected with your recovery key. Restore on this or a new PC.` })] }),
+          (0, J.jsx)(`button`, { type: `button`, className: `btn btn-primary`, disabled: !signedIn || !keyReady || busy !== ``, onClick: backupNow, children: busy === `backup` ? `Backing up…` : `Back Up Now` }),
+        ],
+      }),
+      (0, J.jsxs)(`div`, {
+        className: `vhc-bk2-grid`,
+        children: [
+          row(`Google account`, signedIn ? `Connected` : `Not connected — sign in above`, signedIn ? `var(--success-strong, #15803d)` : `var(--danger-strong, #b91c1c)`),
+          row(`Encryption`, keyStatus == null ? `Checking…` : keyReady ? `On (key ${String(keyStatus.keyId).slice(0, 8)})` : `Not set up`, keyReady ? `var(--success-strong, #15803d)` : `var(--warning-strong, #b45309)`),
+          row(`Last successful backup`, status.lastSuccessAt ? `${fmtWhen(status.lastSuccessAt)} · ${status.lastSuccessKind === `daily` ? `Daily` : `Manual`} · ${fmtSize(status.lastSizeBytes)}` : `Never`),
+          status.lastError && (!status.lastSuccessAt || String(status.lastErrorAt) > String(status.lastSuccessAt))
+            ? row(`Last attempt`, `${fmtWhen(status.lastErrorAt)} — ${vhcBackupErrorMessage(status.lastError)}`, `var(--danger-strong, #b91c1c)`)
+            : null,
+        ],
+      }),
+      (0, J.jsxs)(`div`, {
+        className: `vhc-bk2-actions`,
+        children: [
+          (0, J.jsxs)(`label`, {
+            className: `vhc-bk2-toggle`,
+            children: [
+              (0, J.jsx)(`input`, { type: `checkbox`, checked: dailyEnabled, onChange: (evt) => { updateSettings({ ...settings, gdriveDailyBackupEnabled: evt.target.checked }); addLog(`BACKUP_GDRIVE_V2_DAILY_${evt.target.checked ? `ON` : `OFF`}`, `Daily encrypted backup turned ${evt.target.checked ? `on` : `off`}`); } }),
+              (0, J.jsx)(`span`, { children: `Automatic daily backup` }),
+            ],
+          }),
+          keyReady
+            ? (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, onClick: revealKey, children: `Show Recovery Key` })
+            : (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, disabled: busy !== `` || (keyStatus && keyStatus.storageAvailable === !1), onClick: createKey, children: `Set Up Encryption Key` }),
+          (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, disabled: !signedIn || listLoading, onClick: loadList, children: listLoading ? `Loading…` : `Refresh` }),
+        ],
+      }),
+      !keyReady && keyStatus != null && files.length > 0 &&
+        (0, J.jsx)(`p`, { className: `vhc-bk2-hint`, children: `Restoring on a new PC? Do not create a new key — click Restore on a backup below and type the recovery key you wrote down. It will be saved on this PC for future backups.` }),
+      shownKey &&
+        (0, J.jsxs)(`div`, {
+          className: `vhc-bk2-key`,
+          role: `alert`,
+          children: [
+            (0, J.jsx)(`strong`, { children: `Your 64-digit recovery key` }),
+            (0, J.jsx)(`code`, { children: shownKey }),
+            (0, J.jsx)(`p`, { children: `Write this down and keep it safe, away from this PC. It is the ONLY way to restore these backups on a new PC — nobody, including the app vendor, can recover it.` }),
+            (0, J.jsx)(`button`, { type: `button`, className: `btn btn-primary`, onClick: () => setShownKey(``), children: `I have written it down` }),
+          ],
+        }),
+      keyPrompt &&
+        (0, J.jsxs)(`div`, {
+          className: `vhc-bk2-key`,
+          children: [
+            (0, J.jsx)(`strong`, { children: keyPrompt.code === `WRONG_KEY` ? `This backup uses a different recovery key` : `Enter your recovery key` }),
+            (0, J.jsx)(`p`, { children: `Type the 64-digit recovery key that was shown when encrypted backups were set up (spaces are fine).` }),
+            (0, J.jsx)(`input`, { type: `password`, className: `input-field`, autoComplete: `off`, spellCheck: !1, placeholder: `xxxx xxxx xxxx …`, value: keyInput, onChange: (evt) => setKeyInput(evt.target.value), onKeyDown: (evt) => evt.key === `Enter` && submitKey() }),
+            (0, J.jsxs)(`div`, {
+              style: { display: `flex`, gap: `0.5rem` },
+              children: [
+                (0, J.jsx)(`button`, { type: `button`, className: `btn btn-primary`, onClick: submitKey, children: keyPrompt.mode === `restore` ? `Unlock & Continue` : `Unlock & Verify` }),
+                (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, onClick: () => { setKeyPrompt(null); setKeyInput(``); }, children: `Cancel` }),
+              ],
+            }),
+          ],
+        }),
+      (0, J.jsxs)(`div`, {
+        className: `vhc-bk2-history`,
+        children: [
+          (0, J.jsx)(`h5`, { children: `Backup history` }),
+          !signedIn
+            ? (0, J.jsx)(`p`, { className: `vhc-bk2-empty`, children: `Sign in to Google Drive to see encrypted backups.` })
+            : files.length === 0
+              ? (0, J.jsx)(`p`, { className: `vhc-bk2-empty`, children: listLoading ? `Loading…` : `No encrypted backups yet.` })
+              : (0, J.jsx)(`div`, {
+                  className: `vhc-bk2-list`,
+                  children: files.map((f) => {
+                    let ap = f.appProperties || {};
+                    return (0, J.jsxs)(`div`, {
+                      className: `vhc-bk2-item`,
+                      children: [
+                        (0, J.jsxs)(`div`, {
+                          children: [
+                            (0, J.jsx)(`strong`, { children: fmtWhen(ap.createdAt || f.createdTime) }),
+                            (0, J.jsx)(`span`, { className: `vhc-bk2-chip`, children: ap.kind === `daily` ? `Daily` : `Manual` }),
+                            verified[f.id] === !0 && (0, J.jsx)(`span`, { className: `vhc-bk2-chip vhc-bk2-ok`, children: `Verified` }),
+                            verified[f.id] === !1 && (0, J.jsx)(`span`, { className: `vhc-bk2-chip vhc-bk2-bad`, children: `Failed check` }),
+                            (0, J.jsx)(`small`, { children: `${fmtSize(Number(f.size))} · v${ap.appVersion || `?`}${keyStatus && keyStatus.keyId && ap.keyId && ap.keyId !== keyStatus.keyId ? ` · different key` : ``}` }),
+                          ],
+                        }),
+                        (0, J.jsxs)(`div`, {
+                          className: `vhc-bk2-item-actions`,
+                          children: [
+                            (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, disabled: busy !== ``, onClick: () => verifyFile(f), children: busy === `verify:` + f.id ? `Checking…` : `Verify` }),
+                            (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, disabled: busy !== ``, onClick: () => restoreFile(f), children: busy === `restore:` + f.id ? `Restoring…` : `Restore` }),
+                          ],
+                        }),
+                      ],
+                    }, f.id);
+                  }),
+                }),
+        ],
+      }),
+    ],
+  });
+}
+// v3.19.5 SECURITY: the admin password is ONLY the one configured in Settings
+// (settings.adminPassword). There is no built-in, default or master password. When none has
+// been configured yet, admin areas direct the user to create one (Settings -> Unlock Admin
+// Controls) instead of accepting a hidden default.
+function vhcAdminPasswordConfigured(settings) {
+  return !!settings && typeof settings.adminPassword === `string` && settings.adminPassword.length > 0;
+}
+function vhcVerifyAdminPassword(settings, input) {
+  return vhcAdminPasswordConfigured(settings) && typeof input === `string` && input.length > 0 && input === settings.adminPassword;
+}
+var VHC_ADMIN_PASSWORD_NOT_SET_MESSAGE = `No admin password is set on this PC. Create one in Settings -> Unlock Admin Controls first.`;
 function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
   let { settings: authSettings } = Ir(),
     [authPwd, setAuthPwd] = (0, _.useState)(``),
@@ -57392,7 +58288,11 @@ function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
   }, [isOpen]);
   if (!isOpen) return null;
   let verifyAuth = () => {
-    authPwd === (authSettings.adminPassword || `vhc@8099`) || authPwd === `vhc@8099`
+    if (!vhcAdminPasswordConfigured(authSettings)) {
+      setAuthErr(VHC_ADMIN_PASSWORD_NOT_SET_MESSAGE);
+      return;
+    }
+    vhcVerifyAdminPassword(authSettings, authPwd)
       ? (setAuthPwd(``), setAuthErr(``), onSuccess())
       : setAuthErr(`Incorrect password.`);
   };
@@ -57538,7 +58438,17 @@ function vhcNormalizeBackup(raw, sourceLabel) {
   console.log(
     `[VHC_RESTORE] Normalized backup from ${sourceLabel}: legacy=${isLegacy} settings=${!!settings} patients=${Array.isArray(patients) ? patients.length : 0} inventory=${Array.isArray(inventory) ? inventory.length : 0} salesHistory=${Array.isArray(salesHistory) ? salesHistory.length : 0}`,
   );
+  // v3.19.5: a backup without an admin password (e.g. the legacy plain-JSON AutoBackup, which no longer carries
+  // it) must never remove this PC's existing admin password when restored.
+  settings = vhcKeepCurrentAdminPassword(settings);
   return { settings, patients, inventory, salesHistory, isLegacy };
+}
+function vhcKeepCurrentAdminPassword(restored) {
+  if (!restored || typeof restored !== `object`) return restored;
+  if (typeof restored.adminPassword === `string` && restored.adminPassword.length > 0) return restored;
+  let current = {};
+  try { current = JSON.parse(localStorage.getItem(`pos_settings`) || `{}`) || {}; } catch (e) {}
+  return typeof current.adminPassword === `string` && current.adminPassword.length > 0 ? { ...restored, adminPassword: current.adminPassword } : restored;
 }
 // ---------------------------------------------------------------------------
 // Theme (Light / Dark) — UI-only. Persisted in its own localStorage key so it
@@ -57546,31 +58456,84 @@ function vhcNormalizeBackup(raw, sourceLabel) {
 // <html data-theme> is set by an inline bootstrap in index.html (no flash); these
 // helpers keep it in sync at runtime and let any component subscribe.
 // ---------------------------------------------------------------------------
-function vhcReadTheme() {
+// v3.19.5 six-theme Appearance system. `vhc_pos_theme` now stores the chosen THEME ID; the old values
+// 'light'/'dark' still read as Modern Light / Modern Dark, so upgraded PCs keep their look and a downgrade
+// to v3.19.4 still sees 'light' for every non-dark choice. <html data-theme> remains the BASE scheme
+// ('light'|'dark') that all existing [data-theme="dark"] rules use; <html data-vhc-theme> carries the
+// specific palette. The no-flash bootstrap in index.html applies the same mapping before first paint.
+var VHC_THEMES = [
+  { id: `system`, label: `System Default`, description: `Follows the Windows light/dark setting`, base: null, preview: { sidebar: `#0f172a`, bg: `#f8fafc`, card: `#ffffff`, accent: `#2563eb`, text: `#0f172a`, split: `#0f131a` } },
+  { id: `modern-light`, label: `Modern Light`, description: `Bright, clean default look`, base: `light`, preview: { sidebar: `#0f172a`, bg: `#f8fafc`, card: `#ffffff`, accent: `#2563eb`, text: `#0f172a` } },
+  { id: `modern-dark`, label: `Modern Dark`, description: `Dimmed, easier for long shifts`, base: `dark`, preview: { sidebar: `#0b0e14`, bg: `#0f131a`, card: `#1a1f27`, accent: `#4d8dff`, text: `#e8ebf1` } },
+  { id: `midnight`, label: `Midnight`, description: `Deep navy with indigo accents`, base: `dark`, preview: { sidebar: `#050811`, bg: `#070b14`, card: `#0e1424`, accent: `#7c8cff`, text: `#e6ecff` } },
+  { id: `classic-light`, label: `Classic Light`, description: `Traditional grey desktop style`, base: `light`, preview: { sidebar: `#1f2d3d`, bg: `#e9edf2`, card: `#ffffff`, accent: `#1f5fbf`, text: `#1b2430` } },
+  { id: `high-contrast`, label: `High Contrast`, description: `Black on white, strong borders`, base: `light`, preview: { sidebar: `#000000`, bg: `#ffffff`, card: `#ffffff`, accent: `#0033cc`, text: `#000000`, border: `#000000` } },
+];
+function vhcNormalizeThemeChoice(value) {
+  if (value === `dark`) return `modern-dark`;
+  if (value === `light`) return `modern-light`;
+  return VHC_THEMES.some((t) => t.id === value) ? value : `modern-light`;
+}
+function vhcSystemPrefersDark() {
   try {
-    return localStorage.getItem(`vhc_pos_theme`) === `dark` ? `dark` : `light`;
+    return !!(window.matchMedia && window.matchMedia(`(prefers-color-scheme: dark)`).matches);
   } catch {
-    return `light`;
+    return !1;
   }
 }
-function vhcApplyTheme(mode) {
-  let m = mode === `dark` ? `dark` : `light`;
-  try {
-    document.documentElement.setAttribute(`data-theme`, m);
-  } catch {}
-  try {
-    localStorage.setItem(`vhc_pos_theme`, m);
-  } catch {}
-  try {
-    window.dispatchEvent(new CustomEvent(`vhc-theme-change`, { detail: { theme: m } }));
-  } catch {}
-  return m;
+// Concrete palette for a choice: System Default resolves to Modern Light / Modern Dark.
+function vhcResolveTheme(choice) {
+  let c = vhcNormalizeThemeChoice(choice);
+  if (c === `system`) c = vhcSystemPrefersDark() ? `modern-dark` : `modern-light`;
+  let t = VHC_THEMES.find((x) => x.id === c);
+  return { choice: vhcNormalizeThemeChoice(choice), id: c, base: (t && t.base) || `light` };
 }
+function vhcReadThemeChoice() {
+  try {
+    return vhcNormalizeThemeChoice(localStorage.getItem(`vhc_pos_theme`));
+  } catch {
+    return `modern-light`;
+  }
+}
+// Unchanged contract for existing callers: the resolved BASE scheme.
+function vhcReadTheme() {
+  return vhcResolveTheme(vhcReadThemeChoice()).base;
+}
+function vhcThemeLabel(choice) {
+  let t = VHC_THEMES.find((x) => x.id === vhcNormalizeThemeChoice(choice));
+  return t ? t.label : `Modern Light`;
+}
+function vhcApplyTheme(mode) {
+  let r = vhcResolveTheme(mode);
+  try {
+    document.documentElement.setAttribute(`data-theme`, r.base);
+    document.documentElement.setAttribute(`data-vhc-theme`, r.id);
+  } catch {}
+  try {
+    localStorage.setItem(`vhc_pos_theme`, r.choice);
+  } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent(`vhc-theme-change`, { detail: { theme: r.base, choice: r.choice, id: r.id } }));
+  } catch {}
+  return r.base;
+}
+// Live-follow Windows while "System Default" is selected (one listener for the whole app).
+(function vhcWatchSystemTheme() {
+  try {
+    let mq = window.matchMedia && window.matchMedia(`(prefers-color-scheme: dark)`);
+    let onChange = () => vhcReadThemeChoice() === `system` && vhcApplyTheme(`system`);
+    mq && (mq.addEventListener ? mq.addEventListener(`change`, onChange) : mq.addListener && mq.addListener(onChange));
+  } catch {}
+})();
 function vhcUseTheme() {
-  let [theme, setTheme] = (0, _.useState)(vhcReadTheme());
+  let [theme, setTheme] = (0, _.useState)(vhcReadTheme()),
+    [choice, setChoice] = (0, _.useState)(vhcReadThemeChoice());
   return (
     (0, _.useEffect)(() => {
-      let h = (e) => setTheme((e && e.detail && e.detail.theme) || vhcReadTheme());
+      let h = (e) => {
+        setTheme((e && e.detail && e.detail.theme) || vhcReadTheme());
+        setChoice((e && e.detail && e.detail.choice) || vhcReadThemeChoice());
+      };
       return (
         window.addEventListener(`vhc-theme-change`, h),
         () => window.removeEventListener(`vhc-theme-change`, h)
@@ -57579,9 +58542,61 @@ function vhcUseTheme() {
     [
       theme,
       (m) => vhcApplyTheme(m),
-      () => vhcApplyTheme(vhcReadTheme() === `dark` ? `light` : `dark`),
+      () => vhcApplyTheme(vhcReadTheme() === `dark` ? `modern-light` : `modern-dark`),
+      choice,
     ]
   );
+}
+// Settings -> Appearance: one preview card per theme; applies instantly and persists.
+function VhcThemePicker() {
+  let [, applyTheme, , choice] = vhcUseTheme();
+  let mini = (p) =>
+    (0, J.jsxs)(`div`, {
+      className: `vhc-theme-mini`,
+      "aria-hidden": `true`,
+      style: { background: p.split ? `linear-gradient(135deg, ${p.bg} 50%, ${p.split} 50%)` : p.bg, borderColor: p.border || `rgba(15,23,42,.12)` },
+      children: [
+        (0, J.jsx)(`span`, { className: `vhc-theme-mini-side`, style: { background: p.sidebar } }),
+        (0, J.jsxs)(`span`, {
+          className: `vhc-theme-mini-main`,
+          children: [
+            (0, J.jsx)(`span`, { className: `vhc-theme-mini-bar`, style: { background: p.accent } }),
+            (0, J.jsx)(`span`, { className: `vhc-theme-mini-card`, style: { background: p.card, borderColor: p.border || `transparent` }, children: (0, J.jsx)(`i`, { style: { background: p.text } }) }),
+            (0, J.jsx)(`span`, { className: `vhc-theme-mini-card`, style: { background: p.card, borderColor: p.border || `transparent` }, children: (0, J.jsx)(`i`, { style: { background: p.accent } }) }),
+          ],
+        }),
+      ],
+    });
+  return (0, J.jsx)(`div`, {
+    className: `vhc-theme-grid`,
+    role: `radiogroup`,
+    "aria-label": `Theme`,
+    children: VHC_THEMES.map((t) => {
+      let active = choice === t.id;
+      return (0, J.jsxs)(
+        `button`,
+        {
+          type: `button`,
+          role: `radio`,
+          "aria-checked": active ? `true` : `false`,
+          "data-theme-id": t.id,
+          className: `vhc-theme-card${active ? ` is-active` : ``}`,
+          onClick: () => applyTheme(t.id),
+          children: [
+            mini(t.preview),
+            (0, J.jsxs)(`span`, {
+              className: `vhc-theme-card-text`,
+              children: [
+                (0, J.jsx)(`strong`, { children: t.label }),
+                (0, J.jsx)(`small`, { children: active ? `Currently active` : t.description }),
+              ],
+            }),
+          ],
+        },
+        t.id,
+      );
+    }),
+  });
 }
 function Lh() {
   let { settings: e, updateSettings: t } = Ir(),
@@ -57701,7 +58716,7 @@ function Lh() {
       }
     },
     N = async () => {
-      let t = e.gDriveScriptUrl || `https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec`;
+      let t = String(e.gDriveScriptUrl || ``);
       if (!t.trim()) {
         (i(
           `Please paste your Google Apps Script Backup URL in the setup field below first.`,
@@ -57761,7 +58776,7 @@ function Lh() {
       }
     },
     P = async () => {
-      let t = e.gDriveScriptUrl || `https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec`;
+      let t = String(e.gDriveScriptUrl || ``);
       if (!t.trim()) {
         (i(
           `Please paste your Google Apps Script URL in the setup field first.`,
@@ -57834,7 +58849,7 @@ function Lh() {
     F = async () => {
       if (!k) return;
       if (!beginRestoreOrWarn()) return;
-      let n = e.gDriveScriptUrl || `https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec`;
+      let n = String(e.gDriveScriptUrl || ``);
       console.log(`[VHC_RESTORE] G-Drive (Apps Script) restore: starting for file "${k.name}" (id=${k.id})`);
       (w(`restoring`), E(`Downloading & restoring "${k.name}"...`));
       try {
@@ -58051,7 +59066,10 @@ function Lh() {
     getValidGdriveAccessToken = async () => {
       if (gdriveAccessToken && Date.now() < gdriveAccessTokenExpiry - 6e4) return gdriveAccessToken;
       let refreshResult = await window.electronAPI.googleOAuthRefresh();
-      if (!refreshResult.success) throw new Error(refreshResult.error || `Not signed in to Google Drive`);
+      if (!refreshResult.success) {
+        refreshResult.error === `RECONNECT_REQUIRED` && window.dispatchEvent(new CustomEvent(`vhc-gdrive-reconnect`));
+        throw new Error(vhcBackupErrorMessage(refreshResult.error || `NOT_SIGNED_IN`));
+      }
       (setGdriveAccessToken(refreshResult.accessToken), setGdriveAccessTokenExpiry(Date.now() + refreshResult.expiresIn * 1e3));
       return refreshResult.accessToken;
     },
@@ -58084,7 +59102,7 @@ function Lh() {
             settingsAddLog(`GDRIVE_SIGNED_IN`, `Signed in to Google Drive as ${result.email}`),
             i(`Signed in to Google Drive as ${result.email}`, `success`),
             loadGdriveFiles());
-        else i(`Google sign-in failed: ` + result.error, `error`);
+        else i(`Google sign-in failed: ` + vhcBackupErrorMessage(result.error), `error`, 8e3);
       } catch (err) {
         i(`Google sign-in failed: ` + err.message, `error`);
       } finally {
@@ -58304,9 +59322,26 @@ function Lh() {
       }
     },
     [L, ee] = (0, _.useState)(``),
+    [adminSetupConfirm, setAdminSetupConfirm] = (0, _.useState)(``),
     R = () => {
-      u === (e.adminPassword || `vhc@8099`) ||
-      u === `vhc@8099`
+      // v3.19.5: no built-in password. First-time setup when none is configured on this PC.
+      if (!vhcAdminPasswordConfigured(e)) {
+        let newAdminPwd = String(u || ``).trim();
+        if (newAdminPwd.length < 3) {
+          p(`Please enter a password with at least 3 characters.`);
+          return;
+        }
+        if (newAdminPwd !== String(adminSetupConfirm || ``).trim()) {
+          p(`Passwords do not match.`);
+          return;
+        }
+        t({ ...e, adminPassword: newAdminPwd });
+        settingsAddLog(`ADMIN_PASSWORD_CREATED`, `Admin password was created (none was configured on this PC)`);
+        (l(!0), p(``), d(``), setAdminSetupConfirm(``));
+        i(`Admin password created. Keep it safe - there is no built-in recovery password.`, `success`, 5e3);
+        return;
+      }
+      vhcVerifyAdminPassword(e, u)
         ? (l(!0), p(``), d(``))
         : p(`Incorrect password.`);
     },
@@ -58539,15 +59574,25 @@ function Lh() {
   (0, _.useEffect)(() => {
     window.electronAPI && window.electronAPI.googleOAuthStatus &&
       window.electronAPI.googleOAuthStatus().then((status) => {
+        // v3.19.5: a revoked/expired/foreign-client token is cleared by the main process; ask for a fresh sign-in.
+        status.reconnect && i(vhcBackupErrorMessage(`RECONNECT_REQUIRED`), `warning`, 8e3);
         status.signedIn &&
           ((setGdriveSignedIn(!0), setGdriveEmail(status.email)),
             window.electronAPI.googleOAuthRefresh().then((refreshResult) => {
-              refreshResult.success &&
-                (setGdriveAccessToken(refreshResult.accessToken),
+              refreshResult.success
+                ? (setGdriveAccessToken(refreshResult.accessToken),
                   setGdriveAccessTokenExpiry(Date.now() + refreshResult.expiresIn * 1e3),
-                  loadGdriveFiles());
+                  loadGdriveFiles())
+                : refreshResult.error === `RECONNECT_REQUIRED` &&
+                  (setGdriveSignedIn(!1), setGdriveEmail(null), setGdriveAccessToken(null), setGdriveAccessTokenExpiry(0),
+                  i(vhcBackupErrorMessage(`RECONNECT_REQUIRED`), `warning`, 8e3));
             }));
       });
+    let onReconnect = () => {
+      (setGdriveSignedIn(!1), setGdriveEmail(null), setGdriveAccessToken(null), setGdriveAccessTokenExpiry(0));
+    };
+    window.addEventListener(`vhc-gdrive-reconnect`, onReconnect);
+    return () => window.removeEventListener(`vhc-gdrive-reconnect`, onReconnect);
   }, []);
   (0, _.useEffect)(() => {
     // The bot is always "available" now — it authenticates to Telegram through a secure
@@ -58651,6 +59696,7 @@ function Lh() {
       // `vhc_pos_theme` key (see vhcUseTheme). Switch applies instantly.
       (0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-appearance`,
+        id: `vhc-appearance`,
         style: {
           padding: `1.25rem 1.5rem`,
           background: `var(--surface)`,
@@ -58675,81 +59721,10 @@ function Lh() {
               fontSize: `0.85rem`,
               color: `var(--text-muted)`,
             },
-            children: `Choose how VHC Pharmacy POS looks. Your choice is remembered on this computer.`,
+            children: `Choose how VHC Pharmacy POS looks. The change applies immediately and is remembered on this computer.`,
           }),
-          (0, J.jsxs)(`div`, {
-            style: {
-              display: `flex`,
-              gap: `0.75rem`,
-              flexWrap: `wrap`,
-            },
-            children: [
-              (0, J.jsxs)(`button`, {
-                type: `button`,
-                onClick: () => setThemeMode(`light`),
-                style: {
-                  flex: `1 1 200px`,
-                  cursor: `pointer`,
-                  textAlign: `left`,
-                  padding: `1rem 1.25rem`,
-                  borderRadius: `12px`,
-                  background: themeMode === `light` ? `var(--accent-light)` : `var(--surface-raised)`,
-                  border: themeMode === `light` ? `2px solid var(--accent)` : `2px solid var(--border)`,
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.85rem`,
-                  transition: `all 0.15s ease`,
-                },
-                children: [
-                  (0, J.jsx)(`span`, { style: { fontSize: `1.6rem`, lineHeight: 1 }, children: `☀️` }),
-                  (0, J.jsxs)(`div`, {
-                    children: [
-                      (0, J.jsx)(`div`, {
-                        style: { fontWeight: `800`, color: `var(--text-primary)`, fontSize: `0.95rem` },
-                        children: `Light Mode`,
-                      }),
-                      (0, J.jsx)(`div`, {
-                        style: { fontSize: `0.78rem`, color: `var(--text-muted)`, marginTop: `0.1rem` },
-                        children: themeMode === `light` ? `Currently active` : `Bright, default look`,
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-              (0, J.jsxs)(`button`, {
-                type: `button`,
-                onClick: () => setThemeMode(`dark`),
-                style: {
-                  flex: `1 1 200px`,
-                  cursor: `pointer`,
-                  textAlign: `left`,
-                  padding: `1rem 1.25rem`,
-                  borderRadius: `12px`,
-                  background: themeMode === `dark` ? `var(--accent-light)` : `var(--surface-raised)`,
-                  border: themeMode === `dark` ? `2px solid var(--accent)` : `2px solid var(--border)`,
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.85rem`,
-                  transition: `all 0.15s ease`,
-                },
-                children: [
-                  (0, J.jsx)(`span`, { style: { fontSize: `1.6rem`, lineHeight: 1 }, children: `🌙` }),
-                  (0, J.jsxs)(`div`, {
-                    children: [
-                      (0, J.jsx)(`div`, {
-                        style: { fontWeight: `800`, color: `var(--text-primary)`, fontSize: `0.95rem` },
-                        children: `Dark Mode`,
-                      }),
-                      (0, J.jsx)(`div`, {
-                        style: { fontSize: `0.78rem`, color: `var(--text-muted)`, marginTop: `0.1rem` },
-                        children: themeMode === `dark` ? `Currently active` : `Dimmed, easier for long shifts`,
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-            ],
-          }),
+          // v3.19.5: six theme preview cards (VhcThemePicker); applies instantly, remembered after restart.
+          (0, J.jsx)(VhcThemePicker, {}),
         ],
       }),
       // Account type is derived from the real, server-verified isPlatformAdmin state (see
@@ -58842,6 +59817,7 @@ function Lh() {
               (0, J.jsx)(`li`, { children: `Return / Exchange for historical bills when the original stock batch can be traced exactly; unsafe lines are refused` }),
               (0, J.jsx)(`li`, { children: `Checkout retries are now replay-safe: repeated clicks, keyboard shortcuts and post-save failures cannot create duplicate bills` }),
               (0, J.jsx)(`li`, { children: `Receipt particulars are restored, and medicine quantity shortcuts 1–10 are available in Billing` }),
+              (0, J.jsx)(`li`, { children: `Modern operational dashboard with live billing, stock and expiry insights` }),
             ],
           }),
         ],
@@ -59049,7 +60025,9 @@ function Lh() {
                       color: `var(--text-secondary)`,
                       marginBottom: `0.75rem`,
                     },
-                    children: `Enter Admin Password to unlock database reset, password settings, and data clearing options:`,
+                    children: vhcAdminPasswordConfigured(e)
+                      ? `Enter Admin Password to unlock database reset, password settings, and data clearing options:`
+                      : `No admin password has been set on this PC yet. Create one now - it will be required for database reset, backup & restore, password settings and data clearing. There is no built-in password.`,
                   }),
                   (0, J.jsxs)(`div`, {
                     style: {
@@ -59061,16 +60039,25 @@ function Lh() {
                       (0, J.jsx)(`input`, {
                         type: `password`,
                         className: `input-field`,
-                        placeholder: `Enter Admin Password`,
+                        placeholder: vhcAdminPasswordConfigured(e) ? `Enter Admin Password` : `New Admin Password`,
                         value: u,
                         onChange: (e) => d(e.target.value),
                         onKeyDown: (e) => e.key === `Enter` && R(),
                       }),
+                      !vhcAdminPasswordConfigured(e) &&
+                        (0, J.jsx)(`input`, {
+                          type: `password`,
+                          className: `input-field`,
+                          placeholder: `Confirm Admin Password`,
+                          value: adminSetupConfirm,
+                          onChange: (evt) => setAdminSetupConfirm(evt.target.value),
+                          onKeyDown: (evt) => evt.key === `Enter` && R(),
+                        }),
                       (0, J.jsx)(`button`, {
                         type: `button`,
                         className: `btn btn-primary`,
                         onClick: R,
-                        children: `Unlock Admin`,
+                        children: vhcAdminPasswordConfigured(e) ? `Unlock Admin` : `Create & Unlock`,
                       }),
                     ],
                   }),
@@ -60025,6 +61012,19 @@ function Lh() {
                               }),
                             ],
                           }),
+                        // v3.19.5: encrypted, verified, daily Drive backups (WhatsApp-style). Older tools below are unchanged.
+                        (0, J.jsx)(VhcDriveBackupV2Panel, {
+                          settings: e,
+                          updateSettings: t,
+                          toast: i,
+                          confirmAsync: a,
+                          addLog: settingsAddLog,
+                          signedIn: gdriveSignedIn,
+                          inventoryFallback: n,
+                          beginRestore: beginRestoreOrWarn,
+                          endRestore: endRestore,
+                          onRestored: refreshUiAfterDataChange,
+                        }),
                         gdriveSignedIn &&
                           (0, J.jsxs)(`div`, {
                             style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
@@ -63320,6 +64320,94 @@ function a_() {
       let restoreList = Array.from(restoreMap, ([id, qty]) => ({ id, qty: -qty })),
         restoredCount = Array.from(restoreMap.values()).reduce((sum, q) => sum + q, 0);
 
+      let stockRestoreNote = "";
+      // Stock-sync remediation: the cloud restore is driven by the bill's RECORDED deductions (restore_bill_stock),
+      // never by its line quantities matched by name: a bill whose stock was never (or only partly) deducted must not
+      // add stock back, and each deduction is restored once into the batch it came from (retries restore nothing
+      // twice). On success the server also writes the BILL-DELETED marker, so a late sync can never deduct the bill.
+      // T7 fix: the restore must SUCCEED before anything is deleted. If it fails (offline, refused, constraint error)
+      // the delete stops here: the local sale, its local stock, localStorage history and the cloud sale are all left
+      // untouched, so the bill and its stock stay consistent and the user can retry. The restore and the local
+      // cancellation run while no financial sync can start (no upload/deduction of this bill mid-delete). No patient
+      // id is sent: the counter's local patient id is not a cloud patients.id (it broke the restore before).
+      // The older line-based path below is used only while the server function is not installed.
+      let ledgerRestore = null;
+      if (window.VHC_CLOUD && window.VHC_CLOUD.restoreBillStock) {
+        let runLedgerRestore = async () => {
+          let res;
+          try {
+            res = await window.VHC_CLOUD.restoreBillStock({
+              billId: billRecord.billId,
+              reason: "Bill deleted \u2014 stock restored to inventory",
+            });
+          } catch (restoreErr) {
+            res = { status: "ERROR", error: restoreErr && restoreErr.message ? restoreErr.message : String(restoreErr) };
+          }
+          // An empty/unknown reply is a failure too (never falls through to the line-based restore or a delete).
+          if (!res || typeof res !== "object" || !res.status) res = { status: "ERROR", error: "The cloud returned no restore result" };
+          let okStatus = res && (res.status === "APPLIED" || res.status === "ALREADY_APPLIED" || res.status === "NOTHING_TO_RESTORE");
+          // Cancel the local sale only once the cloud restore is confirmed (also cancels a still-pending upload/stock step).
+          if (okStatus && window.electronAPI && window.electronAPI.cancelLocalSale) {
+            try { await window.electronAPI.cancelLocalSale(billRecord.billId); } catch (earlyCancelErr) {}
+          }
+          return res;
+        };
+        let fs = window.VHC_FINANCIAL_SYNC;
+        if (fs && typeof fs.runExclusiveOfFinancialSync === "function") {
+          let excl = await fs.runExclusiveOfFinancialSync(runLedgerRestore);
+          ledgerRestore = excl && excl.ok ? excl.value : { status: "SYNC_BUSY", error: (excl && excl.error) || "Cloud sync is running." };
+        } else {
+          ledgerRestore = await runLedgerRestore();
+        }
+      }
+      let ledgerStatus = ledgerRestore && ledgerRestore.status;
+      let ledgerSummary = null;
+      if (ledgerStatus && ledgerStatus !== "RPC_MISSING") {
+        if (!(ledgerStatus === "APPLIED" || ledgerStatus === "ALREADY_APPLIED" || ledgerStatus === "NOTHING_TO_RESTORE")) {
+          let why = ledgerRestore.conflict || ledgerStatus;
+          // ERROR = no usable reply (connection lost, timed out, or empty reply). The request may already have been
+          // processed by the cloud, so its result is UNKNOWN: never claim that nothing changed there. Every other
+          // status is a definite answer from the server (it rolls back all its writes) or was never sent (SYNC_BUSY).
+          let outcomeUnknown = ledgerStatus === "ERROR";
+          let hint =
+            ledgerStatus === "SYNC_BUSY" || ledgerStatus === "RETRY" ? "Another update of this bill was in progress. Try again in a moment."
+            : ledgerStatus === "NOT_PERMITTED" ? "This user is not allowed to restore stock."
+            : ledgerStatus === "CONFLICT_BILL_HAS_RETURNS" ? "This bill has returns; correct the remaining stock with an audited stock correction."
+            : ledgerStatus === "CONFLICT_ALREADY_RESTORED" ? "Its stock was already restored by an older app version; ask an admin to review it."
+            : "Check the bill's batches (a batch may be missing) and ask an admin to review it.";
+          window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`BILL_DELETE_REFUSED`, {
+            billId: billRecord.billId,
+            source: `user-action`,
+            previous: { status: ledgerStatus, conflict: ledgerRestore.conflict || null },
+            next: { deleted: false },
+            message: outcomeUnknown
+              ? `Bill ${billRecord.billId} was NOT removed on this counter: the cloud did not confirm the stock restore (${ledgerRestore.error || "no reply"}); cloud result unknown.`
+              : `Bill ${billRecord.billId} was NOT removed: cloud stock restore failed (${why}${ledgerRestore.error ? ": " + ledgerRestore.error : ""}).`,
+          });
+          if (typeof t === "function") {
+            if (outcomeUnknown)
+              t("Bill " + billRecord.billId + " was NOT removed on this counter. The cloud did not confirm the stock restore" +
+                (ledgerRestore.error ? " (" + ledgerRestore.error + ")" : "") +
+                ": the connection may have dropped or timed out, so the cloud result is UNKNOWN \u2014 the stock may or may not already have been restored." +
+                " Do not correct the stock by hand. Remove the bill again when the counter is online: the retry restores each item at most once," +
+                " then removes the bill, or tells you the stock was already restored.", "error", 15e3);
+            else
+              t("Bill " + billRecord.billId + " was NOT removed: its cloud stock could not be restored (" + why + "). " + hint +
+                " Nothing was changed on this counter or in the cloud.", "error", 12e3);
+          }
+          return;
+        }
+        restoreList = [];
+        unmatched = [];
+        let ledgerLines = Array.isArray(ledgerRestore.lines) ? ledgerRestore.lines : [];
+        restoredCount = ledgerLines.filter((l) => l && l.status === "APPLIED").reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
+        // What THIS attempt did vs what an earlier attempt already did (shown to the user; nothing is restored twice).
+        ledgerSummary = {
+          status: ledgerStatus,
+          applied: ledgerLines.filter((l) => l && l.status === "APPLIED").length,
+          already: ledgerLines.filter((l) => l && l.status === "ALREADY_APPLIED").length,
+        };
+      }
       if (restoreList.length > 0 && reportsUpdateItemsBulk) {
         // Patient identity for this restore comes ONLY from the snapshot embedded in the bill
         // at the time it was created — never from live OPD state. Bills saved before this
@@ -63332,7 +64420,9 @@ function a_() {
           patientId: (snap && snap.patientId) || billRecord.patientId || "",
           reason: "Bill deleted — stock restored to inventory",
         };
-        await reportsUpdateItemsBulk(restoreList, restoreContext);
+        let restoreResult = await reportsUpdateItemsBulk(restoreList, restoreContext);
+        if (restoreResult && restoreResult.error)
+          stockRestoreNote = "\n(Warning: cloud stock was NOT fully restored — " + restoreResult.error + ". Check these batches and correct them with a stock correction.)";
         // Keep the legacy mirror key in sync for older code paths / backup snapshots that read it.
         try {
           let refreshed = localStorage.getItem("pos_inventory");
@@ -63388,6 +64478,8 @@ function a_() {
       // line, see createSale's recordOnly), so delete_sale_and_restore has nothing to
       // restore here either — the existing reportsUpdateItemsBulk restore above remains
       // the sole mechanism that touches stock_batches for this delete.
+      // T7 fix: reached only after the cloud restore succeeded (or on the pre-deployment line-based path); a failed
+      // restore returned above, so the cloud sale is never soft-deleted while its deductions are still in place.
       if (window.VHC_CLOUD && window.VHC_CLOUD.deleteSaleByBillId) {
         window.VHC_CLOUD.deleteSaleByBillId(billToDelete.billId).catch((cloudErr) =>
           console.warn(`[VHC_CLOUD] deleteSaleByBillId failed for ${billToDelete.billId}:`, cloudErr));
@@ -63396,15 +64488,25 @@ function a_() {
       r((prevBills) => Array.isArray(prevBills) ? prevBills.filter((b) => b && b.billId !== billToDelete.billId) : []);
       if (u && u.billId === billToDelete.billId) d(null);
 
-      let msg = "Bill " + billToDelete.billId + " removed and " + restoredCount + " unit(s) returned to inventory!";
+      let msg = stockRestoreNote
+        ? "Bill " + billToDelete.billId + " removed, but its stock was not fully returned to inventory."
+        : ledgerSummary && ledgerSummary.status === "ALREADY_APPLIED"
+          ? "Bill " + billToDelete.billId + " removed. Its stock had already been restored to inventory by an earlier attempt (" +
+            ledgerSummary.already + " item line(s)); no additional stock was added."
+        : ledgerSummary && ledgerSummary.status === "NOTHING_TO_RESTORE"
+          ? "Bill " + billToDelete.billId + " removed. No cloud stock had been deducted for this bill, so no stock was added."
+        : ledgerSummary && ledgerSummary.already > 0
+          ? "Bill " + billToDelete.billId + " removed and " + restoredCount + " unit(s) returned to inventory. " + ledgerSummary.already +
+            " other item line(s) had already been restored by an earlier attempt and were not added again."
+        : "Bill " + billToDelete.billId + " removed and " + restoredCount + " unit(s) returned to inventory!";
       if (unmatched.length > 0) msg += "\n(Could not match in inventory: " + unmatched.filter(Boolean).join(", ") + ")";
       // Removing a bill rewrites localStorage AND commits a SQLite cancellation immediately; confirm the
       // localStorage side is on disk before reporting success, otherwise a hard kill could resurrect
       // the removed bill from the previous localStorage state.
       let deleteDur = await vhcConfirmDurable(null);
       if (!deleteDur.ok) localCancelNote += deleteDur.note;
-      msg += localCancelNote;
-      if (typeof t === "function") t(msg, localCancelNote ? "warning" : "success");
+      msg += stockRestoreNote + localCancelNote;
+      if (typeof t === "function") t(msg, localCancelNote || stockRestoreNote ? "warning" : "success");
     } catch (err) {
       console.error("Error deleting bill:", err);
       if (typeof t === "function") t("Failed to delete bill: " + err.message, "error");
@@ -65653,6 +66755,33 @@ function l_() {
     // managed by the Electron main process — see electron/main.js. Distinct from
     // `connectionStatus` above, which belongs to the separate invoice-photo bot.
     [telegramSvcStatus, setTelegramSvcStatus] = (0, _.useState)(null);
+  // v3.19.5: automatic encrypted daily Google Drive backup (vhcRunBackupV2). This shell only renders after
+  // sign-in, so a backup never runs before data has loaded. At most one success per local day, silent;
+  // skipped when offline, not signed in to Google, no key, or turned off. Status: Settings -> Backup & Restore.
+  _.useEffect(() => {
+    let stopped = !1;
+    let tick = async () => {
+      if (stopped || !(window.electronAPI && window.electronAPI.backupKeyStatus && window.electronAPI.googleOAuthStatus)) return;
+      let settingsNow = {};
+      try { settingsNow = JSON.parse(localStorage.getItem(`pos_settings`) || `{}`) || {}; } catch (e) {}
+      if (!vhcBackupDailyDue(vhcBackupReadStatus(), Date.now(), settingsNow.gdriveDailyBackupEnabled)) return;
+      if (typeof navigator !== `undefined` && navigator.onLine === !1) return;
+      try {
+        let [g, k] = await Promise.all([window.electronAPI.googleOAuthStatus(), window.electronAPI.backupKeyStatus()]);
+        if (stopped || !g || !g.signedIn || !k || !k.configured) return;
+        await vhcRunBackupV2({ kind: `daily`, settings: settingsNow, inventoryFallback: rootInventory, addLog: rootAddLog });
+      } catch (err) {
+        console.warn(`[VHC_BACKUP_V2] daily backup did not complete:`, err && err.message);
+      }
+    };
+    let first = setTimeout(tick, 2 * 60 * 1e3),
+      every = setInterval(tick, 15 * 60 * 1e3);
+    return () => {
+      stopped = !0;
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, []);
   _.useEffect(() => {
     if (!(window.electronAPI && window.electronAPI.getTelegramBotStatus)) return;
     let cancelled = false;
@@ -65763,7 +66892,7 @@ function l_() {
           children: [
             (0, J.jsxs)(wt, {
               children: [
-                (0, J.jsx)(St, { path: `/`, element: (0, J.jsx)(Wr, {}) }),
+                (0, J.jsx)(St, { path: `/`, element: (0, J.jsx)(ModernDashboard, {}) }),
                 (0, J.jsx)(St, {
                   path: `/inbox`,
                   element: (0, J.jsx)($i, {
@@ -65826,6 +66955,25 @@ function l_() {
     }),
   });
 }
+// Retries VHC_CLOUD.init() after a failed start: 15 s, 30 s, 60 s, then every 2 minutes, until it succeeds or the user
+// signs out. init() is safe to repeat (reads + a single realtime subscription). On success the inventory and patient
+// lists are reloaded once, because their first load may have failed or be stale.
+function vhcScheduleCloudInitRetry(attempt) {
+  clearTimeout(window.__vhcCloudInitRetryTimer);
+  let delay = Math.min(12e4, 15e3 * Math.pow(2, Math.max(0, attempt - 1)));
+  window.__vhcCloudInitRetryTimer = setTimeout(async () => {
+    window.__vhcCloudInitRetryTimer = null;
+    let r = await window.VHC_CLOUD.init();
+    if (r && r.error) {
+      console.warn(`[VHC_CLOUD] Cloud init retry ${attempt} failed — trying again`, r.error);
+      vhcScheduleCloudInitRetry(attempt + 1);
+      return;
+    }
+    console.log(`[VHC_CLOUD] Cloud init succeeded on retry ${attempt}; realtime updates are active.`);
+    window.dispatchEvent(new CustomEvent(`vhc-cloud-change`, { detail: { table: `stock_batches`, source: `init-retry` } }));
+    window.dispatchEvent(new CustomEvent(`vhc-cloud-change`, { detail: { table: `patients`, source: `init-retry` } }));
+  }, delay);
+}
 function VhcCloudAuthGate({ children }) {
   let [ready, setReady] = (0, _.useState)(!1),
     [session, setSession] = (0, _.useState)(null),
@@ -65849,7 +66997,11 @@ function VhcCloudAuthGate({ children }) {
         setSession(s);
         let initResult = await window.VHC_CLOUD.init();
         if (initResult && initResult.error) {
-          console.error(`[VHC_CLOUD] Cloud init failed after sign-in check — app will still open; retry via reload once network is restored —`, initResult.error);
+          console.error(`[VHC_CLOUD] Cloud init failed after sign-in check — app will still open; retrying automatically —`, initResult.error);
+          // init() is what starts the realtime subscription, the only thing that refreshes the screens when the cloud
+          // changes (e.g. a stock correction made elsewhere). A failed start used to be final for the whole session, so
+          // the inventory screen kept old quantities until the app was restarted. Retry until it succeeds.
+          vhcScheduleCloudInitRetry(1);
         }
       } else if (authState && authState.mode === `offline` && authState.offlineIdentity) {
         // This identity was recorded only after successful online authentication.
@@ -65866,6 +67018,8 @@ function VhcCloudAuthGate({ children }) {
   // data (localStorage caches, sales history, inventory, settings) is touched here at all.
   (0, _.useEffect)(() => {
     let onSignedOut = () => {
+      clearTimeout(window.__vhcCloudInitRetryTimer); // no init retries after sign-out
+      window.__vhcCloudInitRetryTimer = null;
       (setSession(null), setOfflineIdentity(null), setEmail(``), setPassword(``), setErr(``));
     };
     return (

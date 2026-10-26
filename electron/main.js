@@ -4,6 +4,9 @@ import { fileURLToPath } from 'url';
 import { spawn, fork } from 'child_process';
 import http from 'http';
 import fs from 'fs';
+import os from 'os';
+import crypto from 'crypto';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,9 +58,7 @@ ensureDataDir();
 // Desktop-app OAuth client. Client secret is not a true secret for installed apps (per
 // Google/RFC 8252 guidance) but is still kept server-side (main process) rather than in the
 // renderer bundle.
-const GOOGLE_OAUTH_CLIENT_ID = '193589136107-ijhf2q3mdrsbuaobvb7jg33vb8ooc3cv.apps.googleusercontent.com';
-const GOOGLE_OAUTH_CLIENT_SECRET = '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';
-const GOOGLE_OAUTH_SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email';
+// Google OAuth client: loaded at runtime from local config, never hard-coded (see loadGoogleOAuthClient).
 let oauthSignInServer = null;
 
 // Fix Windows Program Files / Portable permission issues (Access Denied 0x5 GPU cache errors)
@@ -312,31 +313,94 @@ ipcMain.handle('gdrive-fetch', (event, { url }) => {
   });
 });
 
-// ─── Google OAuth sign-in (loopback flow — RFC 8252) ───
+// ─── Google OAuth sign-in (loopback + PKCE, RFC 8252 / RFC 7636) — v3.19.5 ───
+// VHC Pharmacy POS uses its OWN Google Cloud OAuth client (Desktop app). The client JSON is NOT in source or
+// Git; it is read at runtime from the first readable location:
+//   1. %VHC_GOOGLE_OAUTH_CLIENT_FILE%                  (dev / QA override)
+//   2. <userData>\google-oauth-client.json             (per-PC provisioning)
+//   3. C:\VHC_Pharmacy_Data\google-oauth-client.json   (shared data folder)
+//   4. <resources>\client_secret_vhc.json              (installer extraResources, from git-ignored config\)
+//   5. <app>\config\client_secret_vhc.json             (unpackaged dev run)
+// Another customer's OAuth client (NHC Pharmacy POS) is refused outright. Scope is least-privilege
+// drive.file (only files this app creates) + openid email. Refresh tokens are stored ONLY via Windows
+// DPAPI (safeStorage); if that is unavailable sign-in is refused instead of writing a plain-text token.
+const GOOGLE_OAUTH_SCOPES = 'openid email https://www.googleapis.com/auth/drive.file';
+const FOREIGN_OAUTH_CLIENT_PREFIXES = ['193589136107-']; // NHC Pharmacy POS — never valid for VHC
+function googleOAuthClientCandidates() {
+  const list = [];
+  if (process.env.VHC_GOOGLE_OAUTH_CLIENT_FILE) list.push(['env', process.env.VHC_GOOGLE_OAUTH_CLIENT_FILE]);
+  list.push(['userData', path.join(app.getPath('userData'), 'google-oauth-client.json')]);
+  list.push(['dataDir', path.join(VHC_DATA_DIR, 'google-oauth-client.json')]);
+  if (app.isPackaged) list.push(['resources', path.join(process.resourcesPath, 'client_secret_vhc.json')]);
+  else list.push(['dev', path.join(__dirname, '..', 'config', 'client_secret_vhc.json')]);
+  return list;
+}
+function parseGoogleOAuthClient(text) {
+  const j = JSON.parse(text);
+  const c = (j && (j.installed || j.web)) || j || {};
+  const clientId = String(c.client_id || '').trim();
+  const clientSecret = String(c.client_secret || '').trim();
+  if (!/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(clientId) || !clientSecret) return { error: 'GOOGLE_OAUTH_CLIENT_INVALID' };
+  if (FOREIGN_OAUTH_CLIENT_PREFIXES.some((p) => clientId.startsWith(p))) return { error: 'FOREIGN_OAUTH_CLIENT' };
+  return { clientId, clientSecret };
+}
+let googleOAuthClientCache = null;
+function loadGoogleOAuthClient() {
+  if (googleOAuthClientCache) return googleOAuthClientCache;
+  let lastError = 'GOOGLE_OAUTH_NOT_CONFIGURED';
+  for (const [source, file] of googleOAuthClientCandidates()) {
+    try {
+      if (!fs.existsSync(file) || fs.statSync(file).size === 0) continue;
+      const parsed = parseGoogleOAuthClient(fs.readFileSync(file, 'utf8'));
+      if (parsed.error) { lastError = parsed.error; continue; }
+      googleOAuthClientCache = { ...parsed, source, fingerprint: crypto.createHash('sha256').update(parsed.clientId).digest('hex').slice(0, 16) };
+      return googleOAuthClientCache;
+    } catch (e) {
+      lastError = 'GOOGLE_OAUTH_CLIENT_INVALID';
+    }
+  }
+  return { error: lastError };
+}
 function getOAuthTokenFilePath() {
   return path.join(app.getPath('userData'), 'gdrive_oauth_token.enc');
 }
 function getOAuthMetaFilePath() {
   return path.join(app.getPath('userData'), 'gdrive_oauth_meta.json');
 }
+function clearGoogleOAuthTokens() {
+  try { if (fs.existsSync(getOAuthTokenFilePath())) fs.unlinkSync(getOAuthTokenFilePath()); } catch (e) {}
+  try { if (fs.existsSync(getOAuthMetaFilePath())) fs.unlinkSync(getOAuthMetaFilePath()); } catch (e) {}
+}
+const base64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 ipcMain.handle('google-oauth-status', async () => {
+  const client = loadGoogleOAuthClient();
+  if (client.error) return { signedIn: false, configured: false, error: client.error };
   try {
-    if (!fs.existsSync(getOAuthMetaFilePath()) || !fs.existsSync(getOAuthTokenFilePath())) {
-      return { signedIn: false };
-    }
+    if (!fs.existsSync(getOAuthMetaFilePath()) || !fs.existsSync(getOAuthTokenFilePath())) return { signedIn: false, configured: true };
     const meta = JSON.parse(fs.readFileSync(getOAuthMetaFilePath(), 'utf8'));
-    return { signedIn: !!meta.email, email: meta.email || null };
+    // A token issued to a different OAuth client (e.g. the old NHC-branded one) can never refresh here.
+    if (meta.client !== client.fingerprint) {
+      clearGoogleOAuthTokens();
+      return { signedIn: false, configured: true, reconnect: true, error: 'RECONNECT_REQUIRED' };
+    }
+    return { signedIn: !!meta.email, configured: true, email: meta.email || null };
   } catch (e) {
-    return { signedIn: false };
+    return { signedIn: false, configured: true };
   }
 });
 
 ipcMain.handle('google-oauth-signin', async () => {
+  const client = loadGoogleOAuthClient();
+  if (client.error) return { success: false, error: client.error };
+  if (!safeStorage.isEncryptionAvailable()) return { success: false, error: 'TOKEN_STORAGE_UNAVAILABLE' };
   if (oauthSignInServer) {
     try { oauthSignInServer.close(); } catch (e) {}
     oauthSignInServer = null;
   }
+  const codeVerifier = base64url(crypto.randomBytes(48));
+  const codeChallenge = base64url(crypto.createHash('sha256').update(codeVerifier).digest());
+  const oauthState = base64url(crypto.randomBytes(16));
   return new Promise((resolve) => {
     let redirectUri = '';
     let settled = false;
@@ -349,7 +413,7 @@ ipcMain.handle('google-oauth-signin', async () => {
     const timeoutHandle = setTimeout(() => {
       if (oauthSignInServer) { try { oauthSignInServer.close(); } catch (e) {} oauthSignInServer = null; }
       finish({ success: false, error: 'Sign-in timed out. Please try again.' });
-    }, 120000);
+    }, 180000);
 
     const server = http.createServer(async (req, res) => {
       try {
@@ -361,10 +425,11 @@ ipcMain.handle('google-oauth-signin', async () => {
         }
         const code = reqUrl.searchParams.get('code');
         const errorParam = reqUrl.searchParams.get('error');
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        const stateOk = reqUrl.searchParams.get('state') === oauthState;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(
           '<html><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;">' +
-          '<h2>' + (code ? '✅ Signed in! You can close this tab.' : '❌ Sign-in failed or was cancelled.') + '</h2>' +
+          '<h2>' + (code && stateOk ? '✅ VHC Pharmacy POS is connected to Google Drive. You can close this tab.' : '❌ Sign-in failed or was cancelled.') + '</h2>' +
           '</body></html>'
         );
         try { server.close(); } catch (e) {}
@@ -374,14 +439,19 @@ ipcMain.handle('google-oauth-signin', async () => {
           finish({ success: false, error: errorParam || 'No authorization code received' });
           return;
         }
+        if (!stateOk) {
+          finish({ success: false, error: 'Sign-in response did not match this request (state mismatch).' });
+          return;
+        }
 
         const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
             code,
-            client_id: GOOGLE_OAUTH_CLIENT_ID,
-            client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+            client_id: client.clientId,
+            client_secret: client.clientSecret,
+            code_verifier: codeVerifier,
             redirect_uri: redirectUri,
             grant_type: 'authorization_code'
           }).toString()
@@ -391,23 +461,23 @@ ipcMain.handle('google-oauth-signin', async () => {
           finish({ success: false, error: tokenJson.error_description || tokenJson.error || 'Token exchange failed' });
           return;
         }
+        if (!String(tokenJson.scope || '').split(' ').includes('https://www.googleapis.com/auth/drive.file')) {
+          finish({ success: false, error: 'Google Drive permission was not granted. Please allow access to continue.' });
+          return;
+        }
+        if (!tokenJson.refresh_token) {
+          finish({ success: false, error: 'Google did not return an offline token. Please remove the app at myaccount.google.com/permissions and sign in again.' });
+          return;
+        }
 
-        const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        const userRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
           headers: { Authorization: 'Bearer ' + tokenJson.access_token }
         });
         const userJson = await userRes.json();
         const email = userJson.email || 'Unknown';
 
-        if (tokenJson.refresh_token) {
-          try {
-            const canEncrypt = safeStorage.isEncryptionAvailable();
-            const tokenBuffer = canEncrypt
-              ? safeStorage.encryptString(tokenJson.refresh_token)
-              : Buffer.from(tokenJson.refresh_token, 'utf8');
-            fs.writeFileSync(getOAuthTokenFilePath(), tokenBuffer);
-          } catch (e) {}
-        }
-        fs.writeFileSync(getOAuthMetaFilePath(), JSON.stringify({ email }));
+        fs.writeFileSync(getOAuthTokenFilePath(), safeStorage.encryptString(tokenJson.refresh_token));
+        fs.writeFileSync(getOAuthMetaFilePath(), JSON.stringify({ email, client: client.fingerprint, scope: GOOGLE_OAUTH_SCOPES, createdAt: new Date().toISOString() }));
 
         finish({ success: true, email, accessToken: tokenJson.access_token, expiresIn: tokenJson.expires_in });
       } catch (e) {
@@ -420,12 +490,15 @@ ipcMain.handle('google-oauth-signin', async () => {
       const port = server.address().port;
       redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
       const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-        client_id: GOOGLE_OAUTH_CLIENT_ID,
+        client_id: client.clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
         scope: GOOGLE_OAUTH_SCOPES,
         access_type: 'offline',
-        prompt: 'consent'
+        prompt: 'consent',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+        state: oauthState
       }).toString();
       shell.openExternal(authUrl);
     });
@@ -433,25 +506,39 @@ ipcMain.handle('google-oauth-signin', async () => {
   });
 });
 
+// Expired / revoked / foreign-client / unreadable refresh tokens are cleared and reported as RECONNECT_REQUIRED
+// so the UI asks for a fresh sign-in instead of failing repeatedly.
 ipcMain.handle('google-oauth-refresh', async () => {
+  const client = loadGoogleOAuthClient();
+  if (client.error) return { success: false, error: client.error };
   try {
     if (!fs.existsSync(getOAuthTokenFilePath())) return { success: false, error: 'Not signed in' };
-    const tokenBuffer = fs.readFileSync(getOAuthTokenFilePath());
-    const refreshToken = safeStorage.isEncryptionAvailable()
-      ? safeStorage.decryptString(tokenBuffer)
-      : tokenBuffer.toString('utf8');
+    let meta = {};
+    try { meta = JSON.parse(fs.readFileSync(getOAuthMetaFilePath(), 'utf8')); } catch (e) {}
+    if (meta.client !== client.fingerprint) { clearGoogleOAuthTokens(); return { success: false, error: 'RECONNECT_REQUIRED' }; }
+    let refreshToken;
+    try {
+      refreshToken = safeStorage.decryptString(fs.readFileSync(getOAuthTokenFilePath()));
+    } catch (e) {
+      clearGoogleOAuthTokens();
+      return { success: false, error: 'RECONNECT_REQUIRED' };
+    }
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         refresh_token: refreshToken,
-        client_id: GOOGLE_OAUTH_CLIENT_ID,
-        client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+        client_id: client.clientId,
+        client_secret: client.clientSecret,
         grant_type: 'refresh_token'
       }).toString()
     });
     const tokenJson = await tokenRes.json();
     if (!tokenJson.access_token) {
+      if (['invalid_grant', 'invalid_client', 'unauthorized_client'].includes(tokenJson.error)) {
+        clearGoogleOAuthTokens();
+        return { success: false, error: 'RECONNECT_REQUIRED' };
+      }
       return { success: false, error: tokenJson.error_description || tokenJson.error || 'Refresh failed' };
     }
     return { success: true, accessToken: tokenJson.access_token, expiresIn: tokenJson.expires_in };
@@ -462,12 +549,113 @@ ipcMain.handle('google-oauth-refresh', async () => {
 
 ipcMain.handle('google-oauth-signout', async () => {
   try {
-    if (fs.existsSync(getOAuthTokenFilePath())) fs.unlinkSync(getOAuthTokenFilePath());
-    if (fs.existsSync(getOAuthMetaFilePath())) fs.unlinkSync(getOAuthMetaFilePath());
+    clearGoogleOAuthTokens();
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+// ─── v3.19.5 Google Drive Backup v2 — encryption key + envelope ───
+// The recovery key (256-bit, shown as 64 hex digits) encrypts every v2 backup (AES-256-GCM, see
+// vhc-backup-crypto.cjs). It is stored on this PC ONLY with Windows DPAPI (safeStorage); if DPAPI is
+// unavailable we refuse to store it rather than writing it in plain text. It is never sent to Google or
+// Supabase. The renderer receives it only to show it to an admin (create / reveal), never for encryption.
+const backupCrypto = createRequire(import.meta.url)('./vhc-backup-crypto.cjs');
+function getBackupKeyFilePath() { return path.join(app.getPath('userData'), 'gdrive_backup_key.enc'); }
+function getBackupKeyMetaFilePath() { return path.join(app.getPath('userData'), 'gdrive_backup_key_meta.json'); }
+function readStoredBackupKey() {
+  try {
+    if (!fs.existsSync(getBackupKeyFilePath()) || !safeStorage.isEncryptionAvailable()) return null;
+    return backupCrypto.normalizeRecoveryKey(safeStorage.decryptString(fs.readFileSync(getBackupKeyFilePath())));
+  } catch (e) {
+    return null;
+  }
+}
+function readBackupKeyMeta() {
+  try { return JSON.parse(fs.readFileSync(getBackupKeyMetaFilePath(), 'utf8')); } catch (e) { return null; }
+}
+function storeBackupKey(recoveryKey, source) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('KEY_STORAGE_UNAVAILABLE');
+  const key = backupCrypto.normalizeRecoveryKey(recoveryKey);
+  if (!key) throw new Error('INVALID_KEY');
+  const meta = { keyId: backupCrypto.keyIdFor(key), createdAt: new Date().toISOString(), source };
+  fs.writeFileSync(getBackupKeyFilePath(), safeStorage.encryptString(key));
+  fs.writeFileSync(getBackupKeyMetaFilePath(), JSON.stringify(meta));
+  return meta;
+}
+ipcMain.handle('vhc-backup:key-status', async () => {
+  const key = readStoredBackupKey();
+  const meta = readBackupKeyMeta();
+  return {
+    configured: !!key,
+    keyId: key ? backupCrypto.keyIdFor(key) : null,
+    createdAt: key && meta ? meta.createdAt : null,
+    source: key && meta ? meta.source : null,
+    storageAvailable: safeStorage.isEncryptionAvailable(),
+  };
+});
+ipcMain.handle('vhc-backup:create-key', async () => {
+  try {
+    if (readStoredBackupKey()) return { success: false, error: 'KEY_EXISTS' };
+    const key = backupCrypto.generateRecoveryKey();
+    const meta = storeBackupKey(key, 'generated');
+    return { success: true, keyId: meta.keyId, recoveryKey: backupCrypto.formatRecoveryKey(key) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+ipcMain.handle('vhc-backup:reveal-key', async () => {
+  const key = readStoredBackupKey();
+  return key ? { success: true, recoveryKey: backupCrypto.formatRecoveryKey(key), keyId: backupCrypto.keyIdFor(key) } : { success: false, error: 'NO_KEY' };
+});
+// Import on a new PC. When a backup is supplied, the key must actually open it before it is saved.
+ipcMain.handle('vhc-backup:import-key', async (event, { recoveryKey, envelopeText, replace } = {}) => {
+  try {
+    const key = backupCrypto.normalizeRecoveryKey(recoveryKey);
+    if (!key) return { success: false, error: 'INVALID_KEY' };
+    const existing = readStoredBackupKey();
+    if (existing && existing !== key && !replace) return { success: false, error: 'KEY_EXISTS' };
+    if (envelopeText) {
+      const check = backupCrypto.decryptBackup({ envelopeText, recoveryKey: key });
+      if (!check.ok) return { success: false, error: check.code };
+    }
+    const meta = storeBackupKey(key, 'imported');
+    return { success: true, keyId: meta.keyId };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+ipcMain.handle('vhc-backup:encrypt', async (event, { plaintext, kind, counts } = {}) => {
+  try {
+    const key = readStoredBackupKey();
+    if (!key) return { success: false, error: 'NO_KEY' };
+    const out = backupCrypto.encryptBackup({
+      plaintext,
+      recoveryKey: key,
+      meta: { kind, counts, appVersion: app.getVersion(), deviceLabel: os.hostname() },
+    });
+    // Self-check before anything is uploaded: the file we are about to send must decrypt to the same bytes.
+    const verify = backupCrypto.decryptBackup({ envelopeText: out.envelopeText, recoveryKey: key });
+    if (!verify.ok || verify.plaintext !== plaintext) return { success: false, error: 'SELF_CHECK_FAILED' };
+    return { success: true, envelopeText: out.envelopeText, header: out.header, envelopeMd5: out.envelopeMd5 };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+ipcMain.handle('vhc-backup:decrypt', async (event, { envelopeText, recoveryKey } = {}) => {
+  try {
+    const key = recoveryKey ? backupCrypto.normalizeRecoveryKey(recoveryKey) : readStoredBackupKey();
+    if (!key) return { success: false, error: recoveryKey ? 'INVALID_KEY' : 'NO_KEY', header: backupCrypto.readHeader(envelopeText).header || null };
+    const out = backupCrypto.decryptBackup({ envelopeText, recoveryKey: key });
+    return out.ok ? { success: true, plaintext: out.plaintext, header: out.header } : { success: false, error: out.code, header: out.header || null };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+ipcMain.handle('vhc-backup:read-header', async (event, { envelopeText } = {}) => {
+  const out = backupCrypto.readHeader(envelopeText);
+  return out.ok ? { success: true, header: out.header } : { success: false, error: out.code };
 });
 
 // ─── Telegram bot integration ───
@@ -983,6 +1171,27 @@ ipcMain.handle('database:mark-financial-sync-review-required', async (event, pay
   const mod = await initLocalDatabase();
   if (!mod) return DB_UNAVAILABLE();
   try { return mod.markFinancialSyncReviewRequired(payload && payload.billId, payload && payload.status, payload && payload.detail, payload && payload.cloudSaleId); } catch (e) { return { success: false, error: e.message }; }
+});
+// Stock-sync remediation: review workflow + batch-reference guard (narrow, named calls; no SQL passthrough).
+ipcMain.handle('database:get-financial-sync-review-items', async () => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getFinancialSyncReviewItems(); } catch (e) { return []; }
+});
+ipcMain.handle('database:mark-financial-sync-review-resolved', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncReviewResolved(payload && payload.billId, (payload && payload.options) || {}); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:mark-financial-sync-review-acknowledged', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.markFinancialSyncReviewAcknowledged(payload && payload.billId, (payload && payload.options) || {}); } catch (e) { return { success: false, error: e.message }; }
+});
+ipcMain.handle('database:get-stock-batch-references', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return DB_UNAVAILABLE();
+  try { return mod.getStockBatchReferences(payload || {}); } catch (e) { return { success: false, error: e.message, bills: [] }; }
 });
 
 // Administrative clears. Each is one explicit, transactional database operation (no SQL from the

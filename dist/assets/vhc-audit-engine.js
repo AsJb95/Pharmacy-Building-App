@@ -588,7 +588,20 @@ function _stockMovementKey(billId, movement) {
   return `VHC:BILL:${billId}:${movement.id}`;
 }
 
-async function _reconcileStockForOperation(op, localSale) {
+// Compact, human-checkable summary of the server's per-line answer (kept in last_error for the review screen).
+function _summarizeBulkLines(lines) {
+  return JSON.stringify((Array.isArray(lines) ? lines : []).map((l) => {
+    const out = { key: String(l.movement_key || '').split(':').pop(), status: l.status };
+    if (l.actual_opening != null) out.cloud_stock = Number(l.actual_opening);
+    if (l.requested_qty != null) out.needed = -Number(l.requested_qty);
+    if (l.stock_batch_id) out.batch = l.stock_batch_id;
+    if (l.existing_bill_id) out.existing_bill = l.existing_bill_id;
+    return out;
+  })).slice(0, 1500);
+}
+
+async function _reconcileStockForOperation(op, localSale, options) {
+  const opts = options || {};
   if (Number(op && op.contract_version || 1) < 2) {
     return { skipped: true, reason: 'legacy financial sync contract' };
   }
@@ -597,6 +610,61 @@ async function _reconcileStockForOperation(op, localSale) {
   }
   const movements = (Array.isArray(localSale.stock_movements) ? localSale.stock_movements : [])
     .filter((movement) => movement && movement.type === 'BILL');
+  const billIdForStock = localSale.bill_id || localSale.billId;
+  // Stock-sync remediation (migration 20261023000100): every BILL line of the bill in ONE server transaction —
+  // all lines are applied or none, exactly once per ORIGINAL movement_key, so a retry of a fully or partly applied
+  // bill only applies what is missing and a refused line can no longer leave the bill half-deducted.
+  if (movements.length > 0 && window.VHC_CLOUD.applyBillStockMovementsStrict && window.VHC_CLOUD.findStockMovementsByKeysStrict) {
+    const lines = movements.map((movement) => {
+      const movementKey = _stockMovementKey(billIdForStock, movement);
+      const line = {
+        movement_key: movementKey,
+        stock_batch_id: movement.server_stock_batch_id || null,
+        item_id: movement.server_item_id || null,
+        location_id: movement.cloud_location_id || null,
+        batch_no: movement.batch_no || null,
+        quantity_delta: Number(movement.qty),
+        expected_opening: Number(movement.opening),
+        movement_type: 'BILL',
+        reason: movement.reason || `Bill:${billIdForStock}`,
+      };
+      if (!line.stock_batch_id && !(line.item_id && line.location_id && line.batch_no)) {
+        throw new Error(`STOCK_BATCH_IDENTITY_MISSING: ${movementKey}`);
+      }
+      return line;
+    });
+    const bulk = await window.VHC_CLOUD.applyBillStockMovementsStrict({
+      bill_id: billIdForStock, allow_identity_fallback: opts.allowIdentityFallback === true, movements: lines,
+    });
+    const bulkStatus = String(bulk && bulk.status || '').toUpperCase();
+    if (bulkStatus !== 'RPC_MISSING') {
+      if (bulkStatus === 'CONFLICT') {
+        throw new Error(`STOCK_RECONCILIATION_CONFLICT: bill=${billIdForStock} status=${bulk.conflict || 'CONFLICT'} applied=0 lines=${_summarizeBulkLines(bulk.lines)}`);
+      }
+      if (bulkStatus === 'NOT_PERMITTED') {
+        // Signed in with an account that may not deduct pharmacy stock: nothing was written; retried later.
+        throw new Error(`STOCK_RECONCILIATION_NOT_PERMITTED: bill=${billIdForStock} ${bulk.reason || ''}`.trim());
+      }
+      if (bulkStatus === 'RETRY') throw new Error(`STOCK_RECONCILIATION_RETRY: bill=${billIdForStock} concurrent apply`);
+      if (bulkStatus !== 'APPLIED' && bulkStatus !== 'ALREADY_APPLIED') {
+        throw new Error(`STOCK_RECONCILIATION_FAILED: bill=${billIdForStock} status=${bulkStatus || 'UNKNOWN'}`);
+      }
+      // Verify the final outcome: every key exists exactly once, for THIS bill, with THIS quantity.
+      const rows = await window.VHC_CLOUD.findStockMovementsByKeysStrict(lines.map((l) => l.movement_key));
+      const byKey = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.movement_key, row]));
+      for (const l of lines) {
+        const row = byKey.get(l.movement_key);
+        if (!row) throw new Error(`STOCK_RECONCILIATION_READBACK_FAILED: ${l.movement_key}`);
+        if (String(row.bill_id || '') !== String(billIdForStock) || Math.abs(Number(row.qty) - l.quantity_delta) > 0.0005) {
+          throw new Error(`STOCK_RECONCILIATION_CONFLICT: ${l.movement_key} status=READBACK_MISMATCH bill=${row.bill_id} qty=${row.qty}`);
+        }
+      }
+      return {
+        reconciled: lines.length, atomic: true, applied: Number(bulk.applied || 0),
+        movements: (Array.isArray(bulk.lines) ? bulk.lines : []).map((l) => ({ movementKey: l.movement_key, status: l.status, fallback: !!l.fallback })),
+      };
+    }
+  }
   const results = [];
   let useDeltaRpc = true;
   for (const movement of movements) {
@@ -1155,16 +1223,25 @@ function findPatientsByName(name) {
 }
 
 // Admin PIN verification
-// Reuses the app's single real admin password (Settings → Admin Security Unlock), not a
+// Reuses the app's single configured admin password (Settings → Unlock Admin Controls), not a
 // separate undocumented PIN — so there is only one admin secret across the whole app.
-function verifyAdminPin(pin) {
+// v3.19.5 SECURITY: there is no built-in/default/master password. If no password is
+// configured, or settings cannot be read, access is denied.
+const ADMIN_PASSWORD_NOT_SET_MESSAGE = 'No admin password is set on this PC. Create one in Settings → Unlock Admin Controls first.';
+function readConfiguredAdminPassword() {
   try {
     const settings = JSON.parse(localStorage.getItem('pos_settings') || '{}');
-    const stored = settings.adminPassword || 'vhc@8099';
-    return pin === stored || pin === 'vhc@8099';
+    return settings && typeof settings.adminPassword === 'string' ? settings.adminPassword : '';
   } catch (e) {
-    return pin === 'vhc@8099';
+    return '';
   }
+}
+function isAdminPasswordConfigured() {
+  return readConfiguredAdminPassword().length > 0;
+}
+function verifyAdminPin(pin) {
+  const stored = readConfiguredAdminPassword();
+  return stored.length > 0 && typeof pin === 'string' && pin.length > 0 && pin === stored;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1629,7 +1706,7 @@ function openStockHistory() {
         const msgEl = overlay.querySelector('#vhc-adj-msg');
 
         if (!verifyAdminPin(pin)) {
-          if (msgEl) msgEl.innerHTML = '<span style="color:#f87171;">❌ Invalid admin PIN.</span>';
+          if (msgEl) msgEl.innerHTML = '<span style="color:#f87171;">❌ ' + (isAdminPasswordConfigured() ? 'Invalid admin PIN.' : ADMIN_PASSWORD_NOT_SET_MESSAGE) + '</span>';
           return;
         }
         if (!productId) {
@@ -1727,7 +1804,7 @@ function promptAdminGate(onSuccess) {
       bg.remove();
       onSuccess();
     } else {
-      errEl.textContent = 'Incorrect password.';
+      errEl.textContent = isAdminPasswordConfigured() ? 'Incorrect password.' : ADMIN_PASSWORD_NOT_SET_MESSAGE;
     }
   };
   bg.querySelector('#vhc-gate-verify').onclick = submit;
@@ -1824,14 +1901,156 @@ window.VHC_AUDIT = {
   openPatientDisambig,
   openStockHistory,
   verifyAdminPin,
+  isAdminPasswordConfigured,
   computeReconciliation,
   addManualPatient,
   mergeManualPatientInto,
   promptAdminGate,
 };
 
+// ─── Stock review workflow (stock-sync remediation) ───────────────────────────────────────────────────
+// Turns a stored review item into the exact reason shown to staff. Reads ONLY the stored last_error text.
+const _REVIEW_REASONS = {
+  CONFLICT_BATCH_NOT_FOUND: 'The batch this bill sold from no longer exists in the cloud (it was deleted or re-created).',
+  CONFLICT_BATCH_AMBIGUOUS: 'More than one cloud batch has this item and batch number, so the right one cannot be chosen safely.',
+  CONFLICT_BATCH_IDENTITY: 'The cloud batch no longer matches the item or batch number this bill sold.',
+  CONFLICT_INSUFFICIENT_STOCK: 'The cloud batch has less stock than this bill sold.',
+  CONFLICT_MOVEMENT_MISMATCH: 'A different stock entry is already recorded under this bill line\'s key.',
+  CONFLICT_BILL_DELETED: 'This bill was deleted; its stock must not be deducted any more.',
+  READBACK_MISMATCH: 'The recorded stock entry does not match this bill line.',
+  OPENING_MISMATCH: 'The cloud stock differed from the counter\'s stock when the bill was synced (older app version).',
+  STOCK_BATCH_IDENTITY_MISSING: 'This bill line has no cloud batch link, so it cannot be applied automatically.',
+  SALE_CONTENT_MISMATCH: 'A cloud bill with this number exists but its contents differ from this counter\'s bill.',
+  STOCK_RECONCILIATION_FAILED: 'The server refused the stock step.',
+};
+function describeStockReviewItem(item) {
+  const text = String(item && item.last_error || '');
+  let code = null;
+  const m = text.match(/status=(CONFLICT_[A-Z_]+|READBACK_MISMATCH)/) || text.match(/\b(CONFLICT_[A-Z_]+|SALE_CONTENT_MISMATCH|STOCK_BATCH_IDENTITY_MISSING|STOCK_RECONCILIATION_FAILED)\b/);
+  if (m) code = m[1];
+  else if (/expected=[-\d.]+ actual=/.test(text)) code = 'OPENING_MISMATCH';
+  let lines = [];
+  const lm = text.match(/lines=(\[.*\])\s*$/);
+  if (lm) { try { lines = JSON.parse(lm[1]); } catch (e) { lines = []; } }
+  const status = String(item && item.sync_status || '');
+  return {
+    billId: item && item.bill_id,
+    status,
+    code: code || (status === 'SALE_MISMATCH' ? 'SALE_CONTENT_MISMATCH' : 'UNKNOWN'),
+    title: _REVIEW_REASONS[code] || (status === 'SALE_MISMATCH' ? _REVIEW_REASONS.SALE_CONTENT_MISMATCH : 'Stock could not be applied automatically.'),
+    lines,
+    detail: text,
+    canRetry: status === 'STOCK_CONFLICT',
+    canRetryCurrentBatch: status === 'STOCK_CONFLICT' && (code === 'CONFLICT_BATCH_NOT_FOUND' || lines.some((l) => l && l.status === 'CONFLICT_BATCH_NOT_FOUND')),
+  };
+}
+
+async function getStockReviewItems() {
+  if (!(window.electronAPI && window.electronAPI.getFinancialSyncReviewItems)) return [];
+  const items = await window.electronAPI.getFinancialSyncReviewItems();
+  return (Array.isArray(items) ? items : []).map((item) => ({ ...item, review: describeStockReviewItem(item) }));
+}
+
+// Bill delete (T7 fix): runs `fn` while no financial sync run can start, so a counter never uploads or deducts a
+// bill in the middle of its deletion. Waits up to `waitMs` for a running sync to finish, then gives up (nothing run).
+async function runExclusiveOfFinancialSync(fn, opts) {
+  const waitMs = opts && Number.isFinite(Number(opts.waitMs)) ? Math.max(0, Number(opts.waitMs)) : 15000;
+  const started = Date.now();
+  while (_financialSyncInFlight) {
+    if (Date.now() - started >= waitMs) return { ok: false, busy: true, error: 'Cloud sync is running. Try again in a moment.' };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  _financialSyncInFlight = true;
+  try {
+    return { ok: true, value: await fn() };
+  } finally {
+    _financialSyncInFlight = false;
+  }
+}
+
+// Resolve ONE review item. mode:
+//   'retry'               re-apply the bill's missing deductions with their ORIGINAL keys (never double-deducts);
+//   'retry_current_batch' admin only: same, but a line whose batch was deleted goes to the current batch with the same
+//                         item + batch number (audited server-side);
+//   'acknowledge'         admin only: close the item WITHOUT any stock write, with a written reason (e.g. recounted).
+// The review status is cleared only after the final outcome is verified (cloud read-back of every key) or, for an
+// acknowledgement, after the admin check and the reason are recorded.
+async function resolveStockReview(billId, options) {
+  const opts = options || {};
+  const mode = ['retry', 'retry_current_batch', 'acknowledge'].includes(opts.mode) ? opts.mode : 'retry';
+  if (!billId) return { ok: false, error: 'Missing bill id' };
+  if (!(window.electronAPI && window.electronAPI.getFinancialSyncReviewItems && window.electronAPI.markFinancialSyncReviewResolved
+        && window.electronAPI.markFinancialSyncReviewAcknowledged)) {
+    return { ok: false, error: 'Review workflow is not available in this build' };
+  }
+  if (_financialSyncInFlight) return { ok: false, error: 'Cloud sync is running. Try again in a moment.' };
+  _financialSyncInFlight = true;
+  try {
+    const items = await window.electronAPI.getFinancialSyncReviewItems();
+    const item = (Array.isArray(items) ? items : []).find((x) => x.bill_id === billId);
+    if (!item) return { ok: false, error: `Bill ${billId} is not waiting for review` };
+    const session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
+    if (!session) return { ok: false, error: 'Sign in online to resolve review items' };
+    const actor = (session.user && (session.user.email || session.user.id)) || 'unknown';
+    if (mode !== 'retry') {
+      const isAdmin = window.VHC_CLOUD && window.VHC_CLOUD.isCurrentUserAdmin ? await window.VHC_CLOUD.isCurrentUserAdmin() : false;
+      if (!isAdmin) return { ok: false, error: 'Only an admin can do this' };
+    }
+    if (mode === 'acknowledge') {
+      const reason = String(opts.reason || '').trim();
+      if (reason.length < 10) return { ok: false, error: 'Write the reason (at least 10 characters), e.g. what was recounted' };
+      const done = await window.electronAPI.markFinancialSyncReviewAcknowledged(billId, { resolution: reason, resolvedBy: actor });
+      if (!done || done.success === false) return { ok: false, error: (done && done.error) || 'Could not record the acknowledgement' };
+      logFinancial('STOCK_REVIEW_ACKNOWLEDGED', { billId, source: 'user-action', message: `Review item closed by admin without an automatic stock write. Reason: ${reason}`, previous: { status: item.sync_status, error: item.last_error } });
+      _emitFinancialSyncState({ status: 'synced', reachability: 'online', billId });
+      return { ok: true, billId, status: 'REVIEW_ACKNOWLEDGED' };
+    }
+    if (item.sync_status !== 'STOCK_CONFLICT') {
+      return { ok: false, error: 'Only a stock conflict can be retried. A bill whose cloud copy differs needs an admin to check it and acknowledge it.' };
+    }
+    const localSale = await window.electronAPI.getLocalSale(billId);
+    if (!localSale) return { ok: false, error: `Local bill ${billId} not found` };
+    if (localSale.status && String(localSale.status).toLowerCase() !== 'active') {
+      return { ok: false, error: `Bill ${billId} was deleted on this counter; its stock must not be deducted. An admin can acknowledge it.` };
+    }
+    let stock;
+    try {
+      stock = await _reconcileStockForOperation({ contract_version: item.contract_version }, localSale, { allowIdentityFallback: mode === 'retry_current_batch' });
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      if (_isNetworkStyleCloudError(error)) return { ok: false, transient: true, error: `Cloud not reachable: ${message}` };
+      // Still refused: keep it in review with the NEW exact reason (no stock was written — the call is all-or-nothing).
+      await window.electronAPI.markFinancialSyncReviewRequired(billId, 'STOCK_CONFLICT', message, item.cloud_sale_id);
+      logFinancial('STOCK_REVIEW_RETRY_REFUSED', { billId, source: 'user-action', message });
+      return { ok: false, error: message, review: describeStockReviewItem({ ...item, last_error: message }) };
+    }
+    if (!stock || stock.skipped || !stock.atomic) {
+      return { ok: false, error: 'This bill was made by an older app version and cannot be verified automatically. An admin can acknowledge it after checking the stock.' };
+    }
+    const done = await window.electronAPI.markFinancialSyncReviewResolved(billId, {
+      cloudSaleId: item.cloud_sale_id,
+      resolution: `Stock verified in the cloud after review (${mode}); newly applied lines: ${stock.applied}`,
+      resolvedBy: actor,
+    });
+    if (!done || done.success === false) return { ok: false, error: (done && done.error) || 'Could not record the resolution' };
+    if (window.VHC_CLOUD.fetchInventory) {
+      try { await window.VHC_CLOUD.fetchInventory(); } catch (e) {}
+      try { window.dispatchEvent(new CustomEvent('vhc-cloud-change', { detail: { table: 'stock_batches', source: 'stock-review' } })); } catch (e) {}
+    }
+    logFinancial('STOCK_REVIEW_RESOLVED', { billId, source: 'user-action', message: `Stock deductions verified after review (${mode}).`, next: stock });
+    _emitFinancialSyncState({ status: 'synced', reachability: 'online', billId });
+    return { ok: true, billId, status: 'CLOUD_CONFIRMED', applied: stock.applied };
+  } finally {
+    _financialSyncInFlight = false;
+  }
+}
+
 window.VHC_FINANCIAL_SYNC = {
   run: runFinancialSyncWorker,
+  getStockReviewItems,
+  resolveStockReview,
+  runExclusiveOfFinancialSync,
+  describeStockReviewItem,
   checkReachability: checkCloudReachability,
   getReachabilityState: () => _cloudReachability,
   deriveLegacyPendingChangesFlag,

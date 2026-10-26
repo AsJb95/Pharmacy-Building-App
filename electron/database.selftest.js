@@ -737,7 +737,7 @@ check('V1. schema includes durable financial sync metadata but no network engine
   const versions = raw.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((r) => r.version);
   const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
   raw.close();
-  assert.deepStrictEqual(versions, [1, 2, 3, 4, 5]);
+  assert.deepStrictEqual(versions, [1, 2, 3, 4, 5, 6]);
   assert.ok(!tables.includes('sync_queue'), 'no sync_queue table must exist');
   assert.ok(tables.includes('credit_repayments'));
   assert.ok(tables.includes('financial_sync_operations'));
@@ -1238,8 +1238,9 @@ check('Y9. stock conflict is a visible terminal state: auditable, not retried, n
   assert.ok(!getUnsyncedFinancialSyncOperations().some((x) => x.bill_id === billId), 'conflict must not be auto-retried');
   markFinancialSyncAttempt(billId, 'anything');
   assert.strictEqual(opOf(billId).sync_status, 'STOCK_CONFLICT', 'never downgraded to SYNC_FAILED');
-  // still overlays local stock (the cloud deduction was not applied)
-  assert.ok(getPendingStockOverlays().some((x) => x.bill_id === billId));
+  // Stock-sync remediation (2026-10-23): a review item must NOT freeze the displayed batch at its old closing
+  // quantity (that frozen overlay is what hid real cloud stock and led staff to delete/re-create batches).
+  assert.ok(!getPendingStockOverlays().some((x) => x.bill_id === billId), 'a conflicted bill must not overlay cloud stock');
 });
 
 check('Y10. wrong/invalid cloud ids are refused and never overwrite a confirmed id', () => {

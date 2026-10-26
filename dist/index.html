@@ -6,14 +6,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VHC Pharmacy-POS</title>
     <script>
-      /* Theme bootstrap — runs before any paint so there is no light->dark flash.
-         Default is light for existing users; only a stored preference switches it. */
+      /* Theme bootstrap — runs before any paint so there is no flash. Mirrors vhcResolveTheme() in the
+         bundle: stored theme id (or legacy 'light'/'dark') -> data-theme (base) + data-vhc-theme (palette). */
       (function () {
+        var base = { 'modern-light': 'light', 'modern-dark': 'dark', 'midnight': 'dark', 'classic-light': 'light', 'high-contrast': 'light' };
         try {
           var t = localStorage.getItem('vhc_pos_theme');
-          document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+          if (t === 'dark') t = 'modern-dark';
+          if (t === 'light') t = 'modern-light';
+          if (t === 'system') t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'modern-dark' : 'modern-light';
+          if (!base[t]) t = 'modern-light';
+          document.documentElement.setAttribute('data-theme', base[t]);
+          document.documentElement.setAttribute('data-vhc-theme', t);
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'light');
+          document.documentElement.setAttribute('data-vhc-theme', 'modern-light');
         }
       })();
     </script>

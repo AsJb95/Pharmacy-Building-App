@@ -261,6 +261,23 @@ const MIGRATIONS = [
         .run(now);
     },
   },
+  {
+    // Stock-sync remediation: a review item (STOCK_CONFLICT / SALE_MISMATCH) can now be resolved. The outcome,
+    // when and by whom are kept on the operation itself; nothing existing is rewritten.
+    version: 6,
+    name: 'add_financial_sync_review_resolution',
+    up(database) {
+      database.exec(`
+        ALTER TABLE financial_sync_operations ADD COLUMN review_resolution TEXT;
+        ALTER TABLE financial_sync_operations ADD COLUMN review_resolved_at TEXT;
+        ALTER TABLE financial_sync_operations ADD COLUMN review_resolved_by TEXT;
+      `);
+      const now = new Date().toISOString();
+      database
+        .prepare("UPDATE database_metadata SET value = '6', updated_at = ? WHERE key = 'schema_version'")
+        .run(now);
+    },
+  },
 ];
 
 function ensureMigrationsTable(database) {
@@ -785,10 +802,18 @@ export function createLocalSale(payload) {
 //   STOCK_CONFLICT                          cloud sale confirmed; stock reconciliation refused (review, no auto-retry)
 //   SALE_MISMATCH                           a cloud sale with this bill_id exists but differs (review, no auto-retry)
 //   CLOUD_CONFIRMED                         sale + stock fully confirmed
-//   CANCELLED                               bill deleted locally before cloud confirmation (never uploaded, not pending)
+//   CANCELLED                               bill deleted locally (before cloud confirmation, or while only its stock step
+//                                           was still pending): never uploaded / stock step never run
+//   REVIEW_ACKNOWLEDGED                     a review item an admin closed with a written reason (no stock written)
 const SALE_CONFIRMED_STATUSES = ['CLOUD_CONFIRMED', 'SALE_CONFIRMED_STOCK_PENDING', 'STOCK_CONFLICT'];
 const REVIEW_REQUIRED_STATUSES = ['STOCK_CONFLICT', 'SALE_MISMATCH'];
+const RETRYABLE_STATUSES = ['PENDING_CLOUD', 'SYNCING', 'SYNC_FAILED', 'SALE_CONFIRMED_STOCK_PENDING'];
 const SALE_CONFIRMED_SQL_LIST = SALE_CONFIRMED_STATUSES.map((s) => `'${s}'`).join(', ');
+const RETRYABLE_SQL_LIST = RETRYABLE_STATUSES.map((s) => `'${s}'`).join(', ');
+// Statuses a local bill delete may cancel: everything that has not reached a terminal cloud outcome. A bill deleted
+// while only its stock step was pending must not have that step run afterwards (bill delete restores any recorded
+// deduction through restore_bill_stock instead).
+const CANCELLABLE_SQL_LIST = ['PENDING_CLOUD', 'SYNCING', 'SYNC_FAILED', 'SALE_CONFIRMED_STOCK_PENDING'].map((s) => `'${s}'`).join(', ');
 
 export function getFinancialSyncOperations(statuses = null) {
   if (!db) return [];
@@ -817,7 +842,7 @@ export function getFinancialIntegritySnapshot() {
 // Retried automatically by the financial sync worker. SALE_CONFIRMED_STOCK_PENDING retries the
 // stock step ONLY — the sale itself is already verified in the cloud and is never re-uploaded.
 export function getUnsyncedFinancialSyncOperations() {
-  return getFinancialSyncOperations(['PENDING_CLOUD', 'SYNCING', 'SYNC_FAILED', 'SALE_CONFIRMED_STOCK_PENDING']);
+  return getFinancialSyncOperations(RETRYABLE_STATUSES);
 }
 
 export function markFinancialSyncAttempt(billId, error = null) {
@@ -928,6 +953,88 @@ export function markFinancialSyncConfirmed(billId, cloudSaleId = null) {
   return setSaleConfirmedStatus(billId, cloudSaleId, 'CLOUD_CONFIRMED', { fullyConfirmed: true });
 }
 
+// ─── Review workflow (stock-sync remediation) ────────────────────────────────────────────────────────────────
+// Items that need a person: the exact stored reason is returned as-is (last_error), never re-derived.
+export function getFinancialSyncReviewItems() {
+  if (!db) return [];
+  const placeholders = REVIEW_REQUIRED_STATUSES.map(() => '?').join(',');
+  return db.prepare(
+    `SELECT bill_id, sync_status, last_error, cloud_sale_id, contract_version, retry_count, last_attempt_at, created_at, updated_at
+     FROM financial_sync_operations
+     WHERE operation_type = 'UPLOAD_SALE' AND sync_status IN (${placeholders})
+     ORDER BY created_at ASC, id ASC`
+  ).all(...REVIEW_REQUIRED_STATUSES);
+}
+
+const cleanText = (value, max = 500) => String(value == null ? '' : value).trim().slice(0, max);
+
+// STOCK_CONFLICT -> CLOUD_CONFIRMED, ONLY after the caller verified in the cloud that every deduction of the bill
+// now exists exactly once (the worker's read-back). Keeps the confirmed cloud sale id; records how it was resolved.
+export function markFinancialSyncReviewResolved(billId, { cloudSaleId = null, resolution = '', resolvedBy = '' } = {}) {
+  if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  const existing = db.prepare("SELECT * FROM financial_sync_operations WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'").get(billId);
+  if (!existing) return { success: false, error: `No sync operation for ${billId}` };
+  if (existing.sync_status !== 'STOCK_CONFLICT') {
+    return { success: false, error: `Only a STOCK_CONFLICT item can be resolved by a stock retry (status is ${existing.sync_status})` };
+  }
+  const id = cloudSaleId || existing.cloud_sale_id;
+  const done = setSaleConfirmedStatus(billId, id, 'CLOUD_CONFIRMED', { fullyConfirmed: true });
+  if (!done.success) return done;
+  db.prepare(
+    `UPDATE financial_sync_operations SET review_resolution = ?, review_resolved_at = ?, review_resolved_by = ?
+     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE'`
+  ).run(cleanText(resolution) || 'Stock deductions verified in the cloud', new Date().toISOString(), cleanText(resolvedBy, 120) || null, billId);
+  return { success: true, billId, status: 'CLOUD_CONFIRMED' };
+}
+
+// STOCK_CONFLICT / SALE_MISMATCH -> REVIEW_ACKNOWLEDGED: an admin closes the item WITHOUT any automatic stock write
+// (e.g. the shelf was physically recounted and corrected). A written reason is mandatory and kept.
+export function markFinancialSyncReviewAcknowledged(billId, { resolution = '', resolvedBy = '' } = {}) {
+  if (!db || !billId) return { success: false, error: 'Local database is not initialized or billId is missing' };
+  const reason = cleanText(resolution);
+  if (reason.length < 10) return { success: false, error: 'A written reason (at least 10 characters) is required' };
+  const now = new Date().toISOString();
+  const placeholders = REVIEW_REQUIRED_STATUSES.map(() => '?').join(',');
+  const info = db.prepare(
+    `UPDATE financial_sync_operations
+     SET sync_status = 'REVIEW_ACKNOWLEDGED', review_resolution = ?, review_resolved_at = ?, review_resolved_by = ?, updated_at = ?
+     WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE' AND sync_status IN (${placeholders})`
+  ).run(reason, now, cleanText(resolvedBy, 120) || null, now, billId, ...REVIEW_REQUIRED_STATUSES);
+  if (!info.changes) return { success: false, error: `No review item for ${billId}` };
+  return { success: true, billId, status: 'REVIEW_ACKNOWLEDGED' };
+}
+
+// Bills that still depend on a batch (not yet confirmed, or waiting for review). Used to refuse deleting a batch that
+// a bill on this counter will still deduct from. Identity match = cloud batch id, or cloud item + location + batch no.
+export function getStockBatchReferences({ serverStockBatchId = null, serverItemId = null, cloudLocationId = null, batchNo = null } = {}) {
+  if (!db) return { success: false, error: 'Local database is not initialized', bills: [] };
+  const rows = db.prepare(
+    `SELECT DISTINCT fso.bill_id, fso.sync_status
+     FROM financial_sync_operations fso
+     JOIN stock_movements sm ON sm.bill_id = fso.bill_id AND sm.type = 'BILL'
+     LEFT JOIN items i ON i.id = sm.item_id
+     LEFT JOIN stock_batches sb ON sb.id = (
+       SELECT sb2.id FROM stock_batches sb2
+       WHERE sb2.item_id = sm.item_id AND IFNULL(sb2.batch_no, '') = IFNULL(sm.batch_no, '')
+       ORDER BY (sb2.id IN (SELECT si2.stock_batch_id FROM sale_items si2 JOIN sales s2 ON s2.id = si2.sale_id WHERE s2.bill_id = sm.bill_id)) DESC, sb2.created_at, sb2.id
+       LIMIT 1)
+     WHERE fso.operation_type = 'UPLOAD_SALE'
+       AND fso.sync_status NOT IN ('CLOUD_CONFIRMED', 'CANCELLED', 'REVIEW_ACKNOWLEDGED')
+       AND (
+         (? IS NOT NULL AND sb.server_id = ?)
+         OR (? IS NOT NULL AND ? IS NOT NULL AND i.server_id = ? AND sb.location_id = ?
+             AND LOWER(TRIM(IFNULL(sm.batch_no, ''))) = LOWER(TRIM(IFNULL(?, ''))))
+       )
+     ORDER BY fso.bill_id`
+  ).all(serverStockBatchId, serverStockBatchId, serverItemId, cloudLocationId, serverItemId, cloudLocationId, batchNo);
+  return {
+    success: true,
+    bills: rows.map((r) => r.bill_id),
+    pending: rows.filter((r) => RETRYABLE_STATUSES.includes(r.sync_status)).length,
+    review: rows.filter((r) => REVIEW_REQUIRED_STATUSES.includes(r.sync_status)).length,
+  };
+}
+
 /** Read-only lookup used by tests/verification — never exposed to the renderer as a generic query. */
 export function getLocalSaleByBillId(billId) {
   if (!db) return null;
@@ -976,7 +1083,7 @@ export function getPendingStockOverlays() {
        LIMIT 1)
      WHERE fso.operation_type = 'UPLOAD_SALE'
        AND fso.contract_version >= 2
-       AND fso.sync_status NOT IN ('CLOUD_CONFIRMED', 'CANCELLED')
+       AND fso.sync_status IN (${RETRYABLE_SQL_LIST})
      ORDER BY sm.created_at, sm.id`
   ).all();
 }
@@ -1021,7 +1128,7 @@ export function cancelLocalSale(billId) {
       const cancelledOps = db.prepare(
         `UPDATE financial_sync_operations
          SET sync_status = 'CANCELLED', last_error = 'Bill deleted locally before cloud confirmation', updated_at = ?
-         WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE' AND sync_status NOT IN (${SALE_CONFIRMED_SQL_LIST})`
+         WHERE bill_id = ? AND operation_type = 'UPLOAD_SALE' AND sync_status IN (${CANCELLABLE_SQL_LIST})`
       ).run(now, billId).changes;
 
       return { success: true, saleId: sale.id, restoredLines: items.length, cancelledSyncOperations: cancelledOps };

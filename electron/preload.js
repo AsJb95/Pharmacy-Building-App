@@ -61,6 +61,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   markFinancialSyncSaleConfirmed: (billId, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-sale-confirmed', { billId, cloudSaleId }),
   markFinancialSyncStockPending: (billId, error) => ipcRenderer.invoke('database:mark-financial-sync-stock-pending', { billId, error }),
   markFinancialSyncReviewRequired: (billId, status, detail, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-review-required', { billId, status, detail, cloudSaleId }),
+  getFinancialSyncReviewItems: () => ipcRenderer.invoke('database:get-financial-sync-review-items'),
+  markFinancialSyncReviewResolved: (billId, options) => ipcRenderer.invoke('database:mark-financial-sync-review-resolved', { billId, options }),
+  markFinancialSyncReviewAcknowledged: (billId, options) => ipcRenderer.invoke('database:mark-financial-sync-review-acknowledged', { billId, options }),
+  getStockBatchReferences: (ref) => ipcRenderer.invoke('database:get-stock-batch-references', ref),
   // Administrative clears used by Clear Sales History / Reset / Factory Reset / Restore.
   adminClearLocalSalesHistory: () => ipcRenderer.invoke('database:admin-clear-sales-history'),
   adminClearLocalSalesAndLedger: () => ipcRenderer.invoke('database:admin-clear-sales-and-ledger'),
@@ -82,6 +86,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   googleOAuthRefresh: () => ipcRenderer.invoke('google-oauth-refresh'),
   googleOAuthSignOut: () => ipcRenderer.invoke('google-oauth-signout'),
   googleOAuthStatus: () => ipcRenderer.invoke('google-oauth-status'),
+  // v3.19.5 Drive Backup v2 (encryption happens in the main process; see vhc-backup-crypto.cjs)
+  backupKeyStatus: () => ipcRenderer.invoke('vhc-backup:key-status'),
+  backupCreateKey: () => ipcRenderer.invoke('vhc-backup:create-key'),
+  backupRevealKey: () => ipcRenderer.invoke('vhc-backup:reveal-key'),
+  backupImportKey: (recoveryKey, envelopeText, replace) => ipcRenderer.invoke('vhc-backup:import-key', { recoveryKey, envelopeText, replace }),
+  backupEncrypt: (plaintext, kind, counts) => ipcRenderer.invoke('vhc-backup:encrypt', { plaintext, kind, counts }),
+  backupDecrypt: (envelopeText, recoveryKey) => ipcRenderer.invoke('vhc-backup:decrypt', { envelopeText, recoveryKey }),
+  backupReadHeader: (envelopeText) => ipcRenderer.invoke('vhc-backup:read-header', { envelopeText }),
   // Telegram bot integration — the bot now ships inside the app and is run by the main
   // process as a managed child process (see electron/main.js). These calls read/write only
   // the non-secret scheduling fields, and read its notification log for display in the

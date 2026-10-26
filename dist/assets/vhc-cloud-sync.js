@@ -20359,7 +20359,7 @@ ${suffix}`;
     const div = document.createElement("div");
     div.id = "vhc-test-env-indicator";
     div.textContent = `Environment: TEST${CLOUD_CONFIG.disabledReason ? " - cloud writes disabled" : ""}`;
-    div.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:999999;background:#facc15;color:#111827;border:2px solid #92400e;border-radius:6px;padding:7px 10px;font:700 12px system-ui,-apple-system,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.25);";
+    div.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:999999;background:#facc15;color:#111827;border:2px solid #92400e;border-radius:6px;padding:7px 10px;font:700 12px system-ui,-apple-system,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.25);pointer-events:none;";
     document.body.appendChild(div);
   }
   if (document.readyState === "loading") {
@@ -20647,25 +20647,145 @@ ${suffix}`;
   }
   async function addInventoryItem(item) {
     const locId = await ensurePharmacyLocation();
+    // item.category flows straight into resolveItemId's destructured params —
+    // sets items.category only on first insert of a brand-new catalog item,
+    // never touches an existing shared row (see updateInventoryItem for edits).
     const itemId = await resolveItemId(item);
-    const { data, error } = await supabase.from("stock_batches").insert({
-      item_id: itemId,
-      location_id: locId,
-      batch_no: item.batch || null,
-      expiry_date: expiryToISODate(item.expiry),
-      mrp: item.mrp ?? item.price,
-      net_rate: item.netRate ?? item.rate,
-      gst: item.gst,
-      stockist: item.stockist || null,
-      qty: item.stock || 0
-    }).select("*, items(name, category, hsn_code, units_per_pack)").single();
+    // Stock-sync remediation: create the batch AND its opening quantity in the ledger in one server transaction
+    // (create_stock_batch). A second batch with the same item + batch number is refused instead of duplicated.
+    // Falls back to the older direct insert only while the server function is not deployed.
+    const openingQty = Number.isFinite(parseFloat(item.stock)) ? parseFloat(item.stock) : 0;
+    const { data: created, error: createError } = await supabase.rpc('create_stock_batch', {
+      payload: {
+        request_key: item.requestKey || newStockRequestKey(), item_id: itemId, location_id: locId,
+        batch_no: item.batch || null, expiry_date: expiryToISODate(item.expiry),
+        mrp: item.mrp ?? item.price ?? null, net_rate: item.netRate ?? item.rate ?? null, gst: item.gst ?? null,
+        stockist: item.stockist || null, opening_qty: openingQty,
+        reason: item.openingReason || 'New batch added in Inventory',
+      },
+    });
+    if (createError && !isRpcMissing(createError)) throw createError;
+    if (!createError) {
+      const s = created && created.status;
+      if (s === 'CONFLICT_BATCH_EXISTS') {
+        throw stockRpcError(s, `"${item.name || 'This item'}" batch "${item.batch || '(no batch)'}" already exists (current stock ${created.current_qty}). Nothing was created. Add the new stock to the existing batch with a stock correction instead.`, created);
+      }
+      if (s !== 'APPLIED' && s !== 'ALREADY_APPLIED') throw stockRpcError(s || 'UNKNOWN', describeStockStatus(created), created);
+      const { data: row, error: readError } = await supabase
+        .from('stock_batches').select('*, items(name, category, hsn_code, units_per_pack)').eq('id', created.stock_batch_id).single();
+      if (readError) throw readError;
+      const mappedNew = rowToInventoryItem(row);
+      inventoryCache = [...inventoryCache.filter((i) => i.id !== mappedNew.id), mappedNew];
+      cacheSet('inventory', inventoryCache);
+      return mappedNew;
+    }
+    const { data, error } = await supabase
+      .from('stock_batches')
+      .insert({
+        item_id: itemId, location_id: locId,
+        batch_no: item.batch || null, expiry_date: expiryToISODate(item.expiry),
+        mrp: item.mrp ?? item.price, net_rate: item.netRate ?? item.rate, gst: item.gst,
+        stockist: item.stockist || null, qty: item.stock || 0,
+      })
+      .select('*, items(name, category, hsn_code, units_per_pack)').single();
     if (error) throw error;
     const mapped = rowToInventoryItem(data);
     inventoryCache = [...inventoryCache, mapped];
-    cacheSet("inventory", inventoryCache);
+    cacheSet('inventory', inventoryCache);
     return mapped;
   }
-  async function updateInventoryItem(id, patch, reason) {
+  // ─── Manual stock corrections (EDIT / RESTORE / TRANSFER) ───────────────────────────────────────────
+  // All three go through server RPCs (supabase/migrations/20261022000100_stock_correction_rpcs.sql) so each
+  // stock change and its stock_movements row commit atomically, concurrency is checked under a row lock, a
+  // retried request cannot apply twice, and created_by is taken from the signed-in session on the server.
+  // If an RPC is not installed the change is REFUSED (never silently falls back to the old two-step write).
+  const GENERIC_STOCK_REASONS = new Set([
+    'update', 'updated', 'edit', 'edited', 'change', 'changed', 'stock', 'stock update', 'stock change',
+    'stock edit', 'correction', 'stock correction', 'adjust', 'adjusted', 'adjustment', 'na', 'n a', 'none',
+    'nil', 'null', 'test', 'ok', 'reason', 'no reason', 'manual', 'misc', 'other', 'fix', 'qty', 'quantity',
+  ]);
+  function manualStockReasonProblem(reason) {
+    const r = String(reason == null ? '' : reason).trim();
+    if (r.length < 3) return 'A reason (at least 3 characters) is required for manual stock changes.';
+    if (r.length > 500) return 'The reason is too long (500 characters maximum).';
+    const norm = r.toLowerCase().replace(/[\s\p{P}]+/gu, ' ').trim();
+    if (GENERIC_STOCK_REASONS.has(norm)) return `"${r}" is too general. Describe why the stock changed (for example: "Physical count on 21-Oct, 2 strips damaged").`;
+    return null;
+  }
+  function newStockRequestKey() {
+    const c = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
+    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+    return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+  function stockRpcError(code, message, extra) {
+    const e = new Error(message);
+    e.code = code;
+    if (extra) e.details = JSON.stringify(extra);
+    return e;
+  }
+  function isRpcMissing(error) {
+    const code = String((error && error.code) || '');
+    const msg = String((error && error.message) || '');
+    return code === 'PGRST202' || code === '42883' || /could not find the function|function .* does not exist/i.test(msg);
+  }
+  function describeStockStatus(r) {
+    const s = r && r.status;
+    switch (s) {
+      case 'CONFLICT_STALE_OPENING':
+        return `Stock for this batch is now ${r.current_qty}, not the ${r.expected_qty} you started from (it was changed elsewhere). Nothing was saved. Close and reopen the item, check the quantity, then correct it again.`;
+      case 'CONFLICT_BATCH_NOT_FOUND': return 'This batch no longer exists in the cloud. Nothing was saved. Refresh the inventory.';
+      case 'CONFLICT_NOT_PHARMACY_BATCH': return 'This batch is not pharmacy stock, so it cannot be corrected here. Nothing was saved.';
+      case 'CONFLICT_REQUEST_KEY_REUSED': return 'This save request was already used for a different correction. Nothing was saved. Please save again.';
+      case 'CONFLICT_MOVEMENT_MISMATCH': return 'A different stock restore is already recorded for this bill and batch. Nothing was changed.';
+      case 'REJECTED_REASON': return manualStockReasonProblem(r.reason) || 'The reason was rejected. Nothing was saved.';
+      case 'REJECTED_NEGATIVE_QTY': return 'Stock cannot be negative. Nothing was saved.';
+      case 'ALREADY_COMPLETED': return `Transfer ${r.transfer_number || ''} was already accepted. Nothing was changed.`;
+      case 'NOT_PENDING': return `This request is already "${r.current_status}". Nothing was changed.`;
+      case 'NOT_FOUND': return 'Request not found. Refresh and try again.';
+      case 'NOT_PERMITTED': return 'Your account is not allowed to make this stock change (ask an admin). Nothing was changed.';
+      case 'CONFLICT_INSUFFICIENT_STOCK': return `Warehouse stock for "${r.name}" is ${r.available}, but ${r.needed} is needed. Nothing was transferred; the request is still Pending.`;
+      case 'CONFLICT_SOURCE_NOT_FOUND': return `"${r.name}" (this batch) was not found in Main Stock. Nothing was transferred; the request is still Pending.`;
+      case 'CONFLICT_SOURCE_AMBIGUOUS': return `"${r.name}" matches ${r.matches} Main Stock batches, so the correct one cannot be chosen safely. Nothing was transferred.`;
+      case 'CONFLICT_DESTINATION_AMBIGUOUS': return `"${r.name}" matches ${r.matches} pharmacy batches, so the correct one cannot be chosen safely. Nothing was transferred.`;
+      case 'CONFLICT_LINE_WITHOUT_ITEM': return `"${r.name}" is not linked to an inventory item. Nothing was transferred.`;
+      case 'CONFLICT_NO_LINES': return 'This request has no items to transfer.';
+      case 'CONFLICT_LOCATION_AMBIGUOUS': return `The ${r.location_type} location is not unique (${r.matches} found). Nothing was transferred.`;
+      case 'CONFLICT_TRANSFER_UNIT': return `"${r.name}" has a missing or unknown unit (unit: ${r.transfer_unit ?? 'none'}, pack size: ${r.units_per_pack ?? 'none'}), so its quantity cannot be converted safely. Nothing was transferred; the request is still Pending.`;
+      case 'CONFLICT_LOCATION_MISMATCH': return 'This request is not a Main Stock to Pharmacy transfer. Nothing was transferred.';
+      default: return `The server refused the stock change (${s || 'no status'}). Nothing was saved.`;
+    }
+  }
+  async function applyStockCorrection({ id, expectedStock, newStock, reason, requestKey }) {
+    const problem = manualStockReasonProblem(reason);
+    if (problem) throw stockRpcError('REJECTED_REASON', problem);
+    if (!Number.isFinite(newStock) || newStock < 0) throw stockRpcError('REJECTED_NEGATIVE_QTY', 'Enter a stock quantity of 0 or more. Nothing was saved.');
+    if (!Number.isFinite(expectedStock)) throw stockRpcError('MISSING_EXPECTED_STOCK', 'The starting stock is unknown. Reopen the item and try again.');
+    const { data, error } = await supabase.rpc('apply_stock_correction', {
+      payload: { request_key: requestKey || newStockRequestKey(), stock_batch_id: id, expected_qty: expectedStock, new_qty: newStock, reason: String(reason).trim() },
+    });
+    if (error) {
+      if (isRpcMissing(error)) throw stockRpcError('RPC_MISSING', 'The stock-correction server update (apply_stock_correction) is not installed yet. Stock was NOT changed.');
+      throw error;
+    }
+    const s = data && data.status;
+    if (s === 'APPLIED' || s === 'ALREADY_APPLIED' || s === 'NO_CHANGE') return data;
+    throw stockRpcError(s || 'UNKNOWN', describeStockStatus(data), data);
+  }
+  async function applyStockRestore({ id, delta, billId, reason, patientId }) {
+    const problem = manualStockReasonProblem(reason);
+    if (problem) throw stockRpcError('REJECTED_REASON', problem);
+    const { data, error } = await supabase.rpc('apply_stock_restore', {
+      payload: { bill_id: billId, stock_batch_id: id, quantity_delta: delta, reason: String(reason).trim(), patient_id: UUID_RE.test(String(patientId || '')) ? patientId : null },
+    });
+    if (error) {
+      if (isRpcMissing(error)) throw stockRpcError('RPC_MISSING', 'The stock-restore server update (apply_stock_restore) is not installed yet. Stock was NOT restored.');
+      throw error;
+    }
+    const s = data && data.status;
+    if (s === 'APPLIED' || s === 'ALREADY_APPLIED') return data;
+    throw stockRpcError(s || 'UNKNOWN', describeStockStatus(data), data);
+  }
+  async function updateInventoryItem(id, patch, reason, options) {
     const current = inventoryCache.find((i) => i.id === id);
     if (!current) throw new Error(`Inventory item ${id} not found in cache`);
     const batchPatch = {};
@@ -20677,24 +20797,28 @@ ${suffix}`;
     else if (patch.price !== void 0) batchPatch.mrp = patch.price;
     if (patch.gst !== void 0) batchPatch.gst = patch.gst;
     if (patch.stockist !== void 0) batchPatch.stockist = patch.stockist;
-    const stockChanged = patch.stock !== void 0 && patch.stock !== current.stock;
-    if (stockChanged) batchPatch.qty = patch.stock;
-    if (Object.keys(batchPatch).length > 0) {
-      const { error } = await supabase.from("stock_batches").update(batchPatch).eq("id", id);
-      if (error) throw error;
-    }
+    // Stock changes are applied ONLY through apply_stock_correction (atomic batch update + EDIT movement,
+    // compare-and-set on the quantity the user started from, idempotent per request key, server-side actor).
+    // The quantity is never part of the plain batch update below. expectedStock is what the user saw when the
+    // edit began (options.expectedStock); without it, the cached cloud value is used.
+    const opts = options || {};
+    const expectedStock = opts.expectedStock !== undefined && opts.expectedStock !== null ? Number(opts.expectedStock) : Number(current.stock);
+    const stockChanged = patch.stock !== undefined && patch.stock !== null && Math.abs(Number(patch.stock) - expectedStock) > 0.0005;
+    let correction = null;
     if (stockChanged) {
-      if (!reason || !reason.trim()) throw new Error("A reason is required for manual stock changes");
-      await supabase.from("stock_movements").insert({
-        item_id: current.itemId,
-        location_id: await ensurePharmacyLocation(),
-        batch_no: current.batch,
-        type: "EDIT",
-        qty: patch.stock - current.stock,
-        opening: current.stock,
-        closing: patch.stock,
-        reason: reason.trim()
-      });
+      correction = await applyStockCorrection({ id, expectedStock, newStock: Number(patch.stock), reason, requestKey: opts.requestKey });
+    }
+
+    if (Object.keys(batchPatch).length > 0) {
+      // .select('id') returns the rows actually updated; an empty result means nothing was written
+      // (row gone or not permitted), which must not be reported as success.
+      const { data: updatedRows, error } = await supabase.from('stock_batches').update(batchPatch).eq('id', id).select('id');
+      if (error || !updatedRows || updatedRows.length === 0) {
+        const why = error ? (error.message || String(error)) : 'no batch row was updated (it may have been removed, or you may not have permission)';
+        throw stockRpcError(correction ? 'STOCK_SAVED_DETAILS_FAILED' : 'DETAILS_NOT_SAVED',
+          correction ? `The stock correction WAS saved, but the other changes were not: ${why}. Save again to retry the other changes.`
+                     : `Changes were not saved: ${why}.`);
+      }
     }
     let persistedCategory = current.category;
     let persistedUnitsPerPack = current.unitsPerPack;
@@ -20742,7 +20866,7 @@ ${suffix}`;
         );
         if (existing) {
           await updateInventoryItem(existing.id, {
-            stock: parseInt(item.stock, 10) || 0,
+            stock: Number.isFinite(parseFloat(item.stock)) ? parseFloat(item.stock) : 0,
             mrp: item.mrp ?? item.price,
             netRate: item.netRate,
             gst: item.gst,
@@ -20764,10 +20888,34 @@ ${suffix}`;
     const ctx = context || {};
     const locId = await ensurePharmacyLocation();
     const results = [];
+    // RESTORE (positive delta, e.g. a deleted bill's stock coming back): one atomic, idempotent server call per
+    // batch, keyed by bill + batch, so deleting/retrying the same bill can never restore twice. Lines on the
+    // same batch are summed first. Every batch is attempted; failures are collected and reported together.
+    const restores = new Map();
+    for (const d of deductions) {
+      const delta = parseFloat(d.qty) || 0;
+      if (delta > 0) restores.set(d.id, (restores.get(d.id) || 0) + delta);
+    }
+    const restoreProblems = [];
+    if (restores.size > 0) {
+      if (!ctx.billId) throw stockRpcError('RESTORE_NEEDS_BILL', 'A stock restore must name its bill, so it can never be applied twice. Nothing was restored.');
+      for (const [id, delta] of restores) {
+        const current = inventoryCache.find((i) => i.id === id);
+        try {
+          const r = await applyStockRestore({ id, delta, billId: ctx.billId, reason: ctx.reason, patientId: ctx.patientId });
+          results.push({ id, opening: r.opening, closing: r.closing, status: r.status });
+        } catch (e) {
+          restoreProblems.push(`${(current && current.name) || id}: ${e.message || e}`);
+        }
+      }
+    }
+    // BILL (negative delta): legacy direct path, unchanged. Bill stock normally goes through
+    // apply_bill_stock_movement in the financial sync worker; this branch is kept exactly as before.
     for (const d of deductions) {
       const current = inventoryCache.find((i) => i.id === d.id);
       if (!current) continue;
       const delta = parseFloat(d.qty) || 0;
+      if (!(delta < 0)) continue;
       const opening = parseFloat(current.stock) || 0;
       const closing = opening + delta;
       const { error } = await supabase.from("stock_batches").update({ qty: closing }).eq("id", d.id);
@@ -20787,6 +20935,9 @@ ${suffix}`;
       results.push({ id: d.id, opening, closing });
     }
     await fetchInventory();
+    if (restoreProblems.length) {
+      throw stockRpcError('RESTORE_INCOMPLETE', `Cloud stock was not restored for: ${restoreProblems.join('; ')}`);
+    }
     return results;
   }
   async function reconcileStockMovement(payload) {
@@ -20817,11 +20968,92 @@ ${suffix}`;
     if (error) throw error;
     return data || null;
   }
-  async function deleteInventoryItem(id) {
-    const { error } = await supabase.from("stock_batches").delete().eq("id", id);
+  async function applyBillStockMovements(payload) {
+    assertCloudWritesAllowed('applyBillStockMovements');
+    const { data, error } = await supabase.rpc('apply_bill_stock_movements', { payload });
+    if (error) {
+      if (isRpcMissing(error)) return { status: 'RPC_MISSING' };
+      throw error;
+    }
+    return data;
+  }
+  async function findStockMovementsByKeys(movementKeys) {
+    const keys = Array.from(new Set((Array.isArray(movementKeys) ? movementKeys : []).filter(Boolean).map(String)));
+    if (keys.length === 0) return [];
+    const { data, error } = await supabase
+      .from('stock_movements')
+      .select('id, movement_key, item_id, location_id, batch_no, type, qty, opening, closing, bill_id, created_by, created_at')
+      .in('movement_key', keys);
+    if (error) throw error;
+    return data || [];
+  }
+  // No patient id is sent (T7 fix): the counter only knows its LOCAL patient id, which is not a cloud patients.id and
+  // broke the restore on stock_movements_patient_id_fkey. The server takes the patient from the recorded deductions.
+  async function restoreBillStock({ billId, reason }) {
+    assertCloudWritesAllowed('restoreBillStock');
+    const { data, error } = await supabase.rpc('restore_bill_stock', {
+      payload: { bill_id: billId, reason: String(reason || '').trim() },
+    });
+    if (error) {
+      if (isRpcMissing(error)) return { status: 'RPC_MISSING' };
+      throw error;
+    }
+    return data;
+  }
+  async function isCurrentUserAdmin() {
+    try {
+      const { data, error } = await supabase.rpc('is_admin');
+      return !error && data === true;
+    } catch (e) {
+      return false;
+    }
+  }
+  async function deleteInventoryItem(id, options) {
+    const opts = options || {};
+    const current = inventoryCache.find((i) => i.id === id);
+    if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.getStockBatchReferences) {
+      const refs = await window.electronAPI.getStockBatchReferences({
+        serverStockBatchId: id, serverItemId: current ? current.itemId : null,
+        cloudLocationId: current ? current.locationId : null, batchNo: current ? current.batch : null,
+      });
+      if (!refs || refs.success === false) {
+        throw stockRpcError('BATCH_REFERENCES_UNKNOWN', `This counter could not check which bills still use this batch (${(refs && refs.error) || 'local database unavailable'}). Nothing was deleted.`);
+      }
+      if (Array.isArray(refs.bills) && refs.bills.length > 0) {
+        throw stockRpcError('BATCH_IN_USE', `This batch is still used by ${refs.bills.length} bill(s) waiting for cloud sync or stock review (${refs.bills.slice(0, 5).join(', ')}${refs.bills.length > 5 ? ', ...' : ''}). It cannot be deleted now. Nothing was deleted.`, refs);
+      }
+    }
+    const reason = String(opts.reason || 'Batch removed from Inventory').trim();
+    const { data: del, error: delError } = await supabase.rpc('delete_stock_batch', {
+      payload: { request_key: opts.requestKey || newStockRequestKey(), stock_batch_id: id, reason },
+    });
+    if (delError && !isRpcMissing(delError)) throw delError;
+    if (!delError) {
+      const s = del && del.status;
+      if (s === 'CONFLICT_BATCH_NOT_EMPTY') {
+        throw stockRpcError(s, `This batch still holds ${del.current_qty} in stock. Nothing was deleted. Correct the stock to 0 with a reason first; the batch is then kept at zero.`, del);
+      }
+      if (s === 'CONFLICT_BATCH_HAS_HISTORY') {
+        throw stockRpcError(s, 'This batch has sales or stock history, so it is kept (closed at zero) instead of being deleted: bills from any counter can still find it. Nothing was deleted.', del);
+      }
+      if (s === 'CONFLICT_BATCH_REFERENCED') throw stockRpcError(s, 'This batch is referenced by a bill or return line, so it cannot be deleted. Nothing was deleted.', del);
+      if (s !== 'APPLIED' && s !== 'ALREADY_APPLIED') throw stockRpcError(s || 'UNKNOWN', describeStockStatus(del), del);
+      inventoryCache = inventoryCache.filter((i) => i.id !== id);
+      cacheSet('inventory', inventoryCache);
+      return { success: true, id, recorded: true };
+    }
+    // Server function not deployed yet: the older direct delete, but never for a batch that still holds stock.
+    if (current && Math.abs(Number(current.stock) || 0) > 0.0005) {
+      throw stockRpcError('CONFLICT_BATCH_NOT_EMPTY', `This batch still holds ${current.stock} in stock. Nothing was deleted. Correct the stock to 0 with a reason first.`);
+    }
+    const { error } = await supabase.from('stock_batches').delete().eq('id', id);
     if (error) throw error;
     inventoryCache = inventoryCache.filter((i) => i.id !== id);
-    cacheSet("inventory", inventoryCache);
+    cacheSet('inventory', inventoryCache);
+    // Callers gate their UI refresh on a truthy return value (same convention
+    // as every other write here) — returning nothing here made a successful
+    // delete look like a failure to Hr's deleteItem, so the list never
+    // refreshed and the deleted row kept showing until a manual reload.
     return { success: true, id };
   }
   var patientsCache = [];
@@ -21185,7 +21417,10 @@ ${suffix}`;
         expiry: it.expiry_date,
         qty: it.qty,
         mrp: it.mrp,
-        netRate: it.net_rate
+        netRate: it.net_rate,
+        // Unit snapshot (same columns VHC Mobile writes): qty is in Main Stock strips; see accept_pharmacy_transfer.
+        transferUnit: it.transfer_unit ?? null,
+        unitsPerPack: it.units_per_pack ?? null
       }))
     })));
     pendingTransfersCache = mapped;
@@ -21193,101 +21428,18 @@ ${suffix}`;
     return mapped;
   }
   async function acceptPharmacyTransfer(transferId) {
-    const pharmId = await ensurePharmacyLocation();
-    const mainId = await ensureMainWarehouseLocation();
-    const { data: t, error: readErr } = await supabase.from("transfer_orders").select("*, transfer_order_items(*)").eq("id", transferId).maybeSingle();
-    if (readErr) throw readErr;
-    if (!t) throw new Error("Request not found \u2014 refresh and try again.");
-    if (t.status !== "Pending") throw new Error(`This request is already "${t.status}".`);
-    const lines = (t.transfer_order_items || []).filter((l) => (l.qty || 0) > 0);
-    if (lines.length === 0) throw new Error("This request has no items to transfer.");
-    const plan = [];
-    for (const line of lines) {
-      const { data: src, error: srcErr } = await batchEq(
-        supabase.from("stock_batches").select("id, qty, gst, stockist, mrp, net_rate").eq("item_id", line.item_id).eq("location_id", mainId),
-        line.batch_no
-      ).maybeSingle();
-      if (srcErr) throw srcErr;
-      if (!src || (src.qty || 0) < line.qty) {
-        throw new Error(`Warehouse stock for "${line.name}" changed \u2014 only ${src && src.qty || 0} available (need ${line.qty}). Refresh and try again.`);
-      }
-      plan.push({ line, src });
+    // One server transaction (accept_pharmacy_transfer, SECURITY INVOKER so the caller's existing RLS applies):
+    // the order row is locked, every Main Stock batch is checked first, then the status change, both stock
+    // updates and both TRANSFER movements (with created_by) commit together — or nothing changes and the
+    // request stays Pending. A second accept (double click, another desktop, Mobile) sees it Completed.
+    const { data, error } = await supabase.rpc('accept_pharmacy_transfer', { payload: { transfer_id: transferId } });
+    if (error) {
+      if (isRpcMissing(error)) throw stockRpcError('RPC_MISSING', 'The transfer server update (accept_pharmacy_transfer) is not installed yet. Nothing was transferred.');
+      throw error;
     }
-    const { data: claimed, error: claimErr } = await supabase.from("transfer_orders").update({ status: "Completed" }).eq("id", transferId).eq("status", "Pending").select("id");
-    if (claimErr) throw claimErr;
-    if (!claimed || claimed.length === 0) {
-      throw new Error("This request was already accepted or rejected.");
-    }
-    const problems = [];
-    for (const { line, src } of plan) {
-      try {
-        const qty = line.qty;
-        const { data: srcUpd, error: srcUpdErr } = await supabase.from("stock_batches").update({ qty: Math.max(0, (src.qty || 0) - qty) }).eq("id", src.id).eq("qty", src.qty).select("id");
-        if (srcUpdErr) throw srcUpdErr;
-        if (!srcUpd || srcUpd.length === 0) throw new Error("Warehouse stock changed during accept \u2014 this line needs manual review.");
-        await supabase.from("stock_movements").insert({
-          item_id: line.item_id,
-          location_id: mainId,
-          batch_no: line.batch_no,
-          type: "TRANSFER",
-          qty: -qty,
-          opening: src.qty,
-          closing: Math.max(0, (src.qty || 0) - qty),
-          reason: `Pharmacy transfer ${t.transfer_number} accepted (out of Main Stock)`
-        });
-        const { data: destRow } = await batchEq(
-          supabase.from("stock_batches").select("id, qty").eq("item_id", line.item_id).eq("location_id", pharmId),
-          line.batch_no
-        ).maybeSingle();
-        if (destRow) {
-          const before = destRow.qty || 0;
-          const { data: bumped, error: bumpErr } = await supabase.from("stock_batches").update({ qty: before + qty }).eq("id", destRow.id).eq("qty", before).select("id");
-          if (bumpErr) throw bumpErr;
-          if (!bumped || bumped.length === 0) throw new Error("Pharmacy stock changed during accept \u2014 this line needs manual review.");
-          await supabase.from("stock_movements").insert({
-            item_id: line.item_id,
-            location_id: pharmId,
-            batch_no: line.batch_no,
-            type: "TRANSFER",
-            qty,
-            opening: before,
-            closing: before + qty,
-            reason: `Pharmacy transfer ${t.transfer_number} accepted (into Pharmacy)`
-          });
-        } else {
-          const { error: insErr } = await supabase.from("stock_batches").insert({
-            item_id: line.item_id,
-            location_id: pharmId,
-            batch_no: line.batch_no || null,
-            expiry_date: line.expiry_date || null,
-            mrp: line.mrp ?? null,
-            net_rate: line.net_rate ?? null,
-            gst: src.gst ?? null,
-            stockist: src.stockist ?? null,
-            qty
-          });
-          if (insErr) throw insErr;
-          await supabase.from("stock_movements").insert({
-            item_id: line.item_id,
-            location_id: pharmId,
-            batch_no: line.batch_no,
-            type: "TRANSFER",
-            qty,
-            opening: 0,
-            closing: qty,
-            reason: `Pharmacy transfer ${t.transfer_number} accepted (into Pharmacy, new batch)`
-          });
-        }
-      } catch (e) {
-        problems.push(`${line.name}: ${e.message || e}`);
-      }
-    }
+    if (!data || data.status !== 'APPLIED') throw stockRpcError((data && data.status) || 'UNKNOWN', describeStockStatus(data), data);
     await fetchInventory();
-    if (problems.length) {
-      throw new Error(`Request marked Completed, but some lines need checking:
-${problems.join("\n")}`);
-    }
-    return { ok: true, transferNumber: t.transfer_number };
+    return { ok: true, transferNumber: data.transfer_number };
   }
   async function rejectPharmacyTransfer(transferId, reason) {
     const { data: t } = await supabase.from("transfer_orders").select("id, status, notes").eq("id", transferId).maybeSingle();
@@ -21360,21 +21512,29 @@ ${problems.join("\n")}`);
   async function init() {
     installEnvironmentIndicator();
     await getSession();
-    if (!currentSession) return;
+    // No session is a failure the caller must see and retry. It used to return silently, so the app opened without the
+    // realtime subscription (the only thing that refreshes the screens when the cloud changes) and nothing retried.
+    if (!currentSession) throw Object.assign(new Error("No authenticated cloud session yet (caller must sign in, or retry)"), { code: "AUTH_SESSION_MISSING" });
     await ensurePharmacyLocation();
-    await Promise.all([
+    // Realtime must not depend on every initial fetch succeeding: it is started even when one of them fails, and that
+    // failure is reported afterwards so the caller retries. init() is safe to repeat (the fetches are reads; realtime and
+    // the transfer poll start only once).
+    const initial = await Promise.allSettled([
       fetchInventory(),
       fetchPatients(),
       fetchSalesHistory(),
       fetchPendingPharmacyTransfers().catch((e) => console.error("[VHC_CLOUD] initial fetchPendingPharmacyTransfers failed:", e?.message || e))
     ]);
-    await autoRecoverLocalInventoryIfNeeded();
+    // Only after a SUCCESSFUL inventory read: a failed read must never look like an empty cloud inventory.
+    if (initial[0].status === "fulfilled") await autoRecoverLocalInventoryIfNeeded();
     await startRealtime();
     if (!window.__vhcTransferPollTimer) {
       window.__vhcTransferPollTimer = setInterval(() => {
         fetchPendingPharmacyTransfers().then(() => emit("transfer_orders", "change", null)).catch((e) => console.error("[VHC_CLOUD] poll fetchPendingPharmacyTransfers failed:", e?.message || e));
       }, 45e3);
     }
+    const failedInitial = initial.find((r) => r.status === "rejected");
+    if (failedInitial) throw failedInitial.reason;
   }
   window.VHC_CLOUD = {
     getEnvironmentConfig: () => ({
@@ -21397,10 +21557,16 @@ ${problems.join("\n")}`);
     addInventoryItemsBulk: withErrorReport(addInventoryItemsBulk),
     restoreInventoryFromBackup: withErrorReport(restoreInventoryFromBackup),
     updateInventoryItem: withErrorReport(updateInventoryItem),
+    manualStockReasonProblem,
+    newStockRequestKey,
     adjustStockBulk: withErrorReport(adjustStockBulk),
     reconcileStockMovement: withErrorReport(reconcileStockMovement),
     reconcileStockMovementStrict: reconcileStockMovement,
     applyBillStockMovementStrict: applyBillStockMovement,
+    applyBillStockMovementsStrict: applyBillStockMovements,
+    findStockMovementsByKeysStrict: findStockMovementsByKeys,
+    restoreBillStock,
+    isCurrentUserAdmin,
     findStockMovementByKey: withErrorReport(findStockMovementByKey),
     findStockMovementByKeyStrict: findStockMovementByKey,
     deleteInventoryItem: withErrorReport(deleteInventoryItem),

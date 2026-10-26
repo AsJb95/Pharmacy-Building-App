@@ -1,7 +1,7 @@
 {
   "name": "vhc-pharmacy-pos",
   "private": true,
-  "version": "3.19.4",
+  "version": "3.19.7",
   "description": "VARNIKA HEALTH CARE POS Pharmacy Software",
   "author": "VHC Pharmacy",
   "type": "module",
@@ -44,6 +44,15 @@
       "public/**/*",
       "telegram-bot/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "config",
+        "to": ".",
+        "filter": [
+          "client_secret_vhc.json"
+        ]
+      }
     ],
     "asarUnpack": [
       "telegram-bot/**/*",

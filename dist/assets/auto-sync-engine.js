@@ -97,6 +97,11 @@
       if (cartStr) cartDraft = JSON.parse(cartStr);
     } catch (e) {}
 
+    if (settings && typeof settings === 'object' && 'adminPassword' in settings) {
+      settings = { ...settings };
+      delete settings.adminPassword; // v3.19.5: plain-text legacy backups never carry the admin secret
+    }
+
     return {
       appName: 'VHC Pharmacy POS',
       backupType: 'AutoBackup',
@@ -110,29 +115,29 @@
     };
   }
 
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQNSa8FMSV4RXwegDKFrUO-6JfLLkA40N91mHR9dsd7vA9CsxYZ6KTfUrRnVLDiSpvZw/exec';
+  // v3.19.5 SECURITY: no built-in Apps Script endpoint. The legacy Drive channel only runs when an admin has
+  // explicitly saved a valid Apps Script /exec URL in Settings (existing installs keep their saved URL). Fresh
+  // installs, QA/TEST profiles and new-PC restores therefore never transmit anything to a hard-coded endpoint.
+  const APPS_SCRIPT_URL_RE = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+  function configuredScriptUrl(settings) {
+    const v = String((settings && settings.gDriveScriptUrl) || '').trim();
+    return APPS_SCRIPT_URL_RE.test(v) ? v : '';
+  }
 
   function getScriptUrlAndFolder() {
     try {
       let settingsStr = localStorage.getItem('pos_settings');
       let settings = settingsStr ? JSON.parse(settingsStr) : {};
-      let scriptUrl = (settings.gDriveScriptUrl || '').trim() || DEFAULT_SCRIPT_URL;
-
-      if (!settings.gDriveScriptUrl) {
-        settings.gDriveScriptUrl = DEFAULT_SCRIPT_URL;
-        originalSetItem('pos_settings', JSON.stringify(settings));
-      }
-
+      let scriptUrl = configuredScriptUrl(settings);
       let driveUrl = settings.googleDriveUrl || settings.oneDriveUrl || '';
       let folderMatch = driveUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
       let folderId = folderMatch ? folderMatch[1] : '';
       return { scriptUrl, folderId };
     } catch (e) {
-      return { scriptUrl: DEFAULT_SCRIPT_URL, folderId: '' };
+      return { scriptUrl: '', folderId: '' };
     }
   }
 
-  // Execute backup upload
   async function performAutoSync(isClosing = false) {
     const { scriptUrl, folderId } = getScriptUrlAndFolder();
     const snapshot = getDatabaseSnapshot();
@@ -343,7 +348,16 @@
       }
 
       // Restore data to localStorage without triggering change events
-      if (backupData.settings) originalSetItem('pos_settings', JSON.stringify(backupData.settings));
+      if (backupData.settings) {
+        let restoredSettings = backupData.settings;
+        try {
+          const cur = JSON.parse(localStorage.getItem('pos_settings') || '{}') || {};
+          if (!(typeof restoredSettings.adminPassword === 'string' && restoredSettings.adminPassword) && typeof cur.adminPassword === 'string' && cur.adminPassword) {
+            restoredSettings = { ...restoredSettings, adminPassword: cur.adminPassword };
+          }
+        } catch (e) {}
+        originalSetItem('pos_settings', JSON.stringify(restoredSettings));
+      }
       if (backupData.patients) originalSetItem('custom_opd_patients', JSON.stringify(backupData.patients));
       if (backupData.salesHistory) {
         let beforeSales = [];
