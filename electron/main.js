@@ -658,6 +658,563 @@ ipcMain.handle('vhc-backup:read-header', async (event, { envelopeText } = {}) =>
   return out.ok ? { success: true, header: out.header } : { success: false, error: out.code };
 });
 
+// ─── Gemini AI & Scanner Configuration (Windows DPAPI via safeStorage) ───
+// Stores API credentials encrypted with Windows DPAPI (safeStorage). Raw keys are never
+// returned to the renderer or stored in plaintext. If DPAPI is unavailable, saving is
+// rejected rather than falling back to plaintext storage.
+function getAiConfigFilePath() {
+  return path.join(app.getPath('userData'), 'ai_config.enc');
+}
+function getAiMetaFilePath() {
+  return path.join(app.getPath('userData'), 'ai_config_meta.json');
+}
+
+function redactSecret(str) {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED_API_KEY]')
+    .replace(/([?&]key=)[^&\s]+/gi, '$1[REDACTED_API_KEY]')
+    .replace(/(key=)[0-9A-Za-z_-]{20,}/gi, '$1[REDACTED_API_KEY]');
+}
+
+function isMaskedKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  const trimmed = key.trim();
+  return (
+    trimmed.includes('...') ||
+    trimmed.includes('***') ||
+    /[\u2026\u2022\u25CF]|\*{2,}/.test(trimmed) ||
+    /^AIza[0-9A-Za-z_-]{2,8}[.…]/.test(trimmed)
+  );
+}
+
+function sanitizeApiKey(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  // 1. Remove invisible Unicode characters (BOM, zero-width spaces/joiners, non-breaking spaces, line separators)
+  let s = raw.replace(/[\u200B-\u200D\uFEFF\u00A0\u200E\u200F\u2028\u2029\u202F\u205F\u3000\u00AD]/g, '').trim();
+  // 2. Normalize Unicode hyphens and dashes (en-dash, em-dash, non-breaking hyphen) to ASCII '-'
+  s = s.replace(/[\u2010-\u2015\u2212]/g, '-');
+  // 3. Strip env/header prefixes (e.g. export GEMINI_API_KEY=, GOOGLE_API_KEY=, Bearer, Gemini API Key:, etc.)
+  s = s.replace(/^(?:export\s+)?(?:(?:GOOGLE_|GEMINI_)?API[-_]?KEY|TOKEN|BEARER|KEY)\s*(?:[:=]\s*|\s+)/i, '').trim();
+  s = s.replace(/^(?:Gemini|Google)\s+(?:API\s+)?Key\s*(?:[:=]\s*|\s+)/i, '').trim();
+  // 4. Extract key from URL query if user pasted full URL (e.g. ?key=... or &key=...)
+  const m = s.match(/[?&]key=([^&#\s]+)/i);
+  if (m) s = m[1].trim();
+  // 5. Strip straight quotes, backticks, smart quotes, and angle/square brackets or parentheses
+  s = s.replace(/^["'`“”‘’«»<(\[]+|["'`“”‘’«»>)\]]+$/g, '').trim();
+  // 6. Strip trailing code punctuation (semicolons, commas)
+  s = s.replace(/[;,]+$/, '').trim();
+  // 7. Secondary strip of quotes/brackets in case quotes enclosed prefix + key
+  s = s.replace(/^["'`“”‘’«»<(\[]+|["'`“”‘’«»>)\]]+$/g, '').trim();
+  return s;
+}
+
+const REVOKED_KEY_SHA256 = '7916db979ece22bff45a09e028e226057aaad904ee345d81a63d8cf502ae62d2';
+function isRevokedKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  try {
+    return crypto.createHash('sha256').update(key.trim()).digest('hex') === REVOKED_KEY_SHA256;
+  } catch (e) {
+    return false;
+  }
+}
+
+function isValidGoogleApiKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  const k = sanitizeApiKey(key);
+  if (!k) return false;
+  if (isMaskedKey(k)) return false;
+  // Reject keys from other AI providers (OpenAI, Anthropic)
+  if (/^sk[-_]/i.test(k)) return false;
+  // Support standard Google AI Studio keys (AIza...) and other valid Google/Gemini key formats (20-128 chars)
+  if (k.length < 20 || k.length > 128) return false;
+  if (!/^[0-9A-Za-z_\-+./=]+$/.test(k)) return false;
+  const upper = k.toUpperCase();
+  if (upper.includes('YOUR_') || upper.includes('TODO') || upper.includes('REPLACE_ME') || upper.includes('API_KEY')) return false;
+  return true;
+}
+
+function maskApiKey(key) {
+  if (!key || typeof key !== 'string') return '';
+  const trimmed = key.trim();
+  if (isMaskedKey(trimmed)) return trimmed;
+  if (trimmed.length <= 10) return '********';
+  return trimmed.slice(0, 6) + '...' + trimmed.slice(-4);
+}
+
+function readStoredAiKey() {
+  try {
+    const encFile = getAiConfigFilePath();
+    if (!fs.existsSync(encFile) || !safeStorage.isEncryptionAvailable()) return null;
+    const decrypted = safeStorage.decryptString(fs.readFileSync(encFile));
+    return decrypted.trim() || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function readAiMeta() {
+  try {
+    const metaFile = getAiMetaFilePath();
+    if (!fs.existsSync(metaFile)) return null;
+    return JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function validateAiIpcSender(event) {
+  if (!event || !event.sender) return false;
+  if (mainWindow && event.sender !== mainWindow.webContents) return false;
+  return true;
+}
+
+const SUPPORTED_GEMINI_MODELS = [
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Recommended: Fast & Multimodal)', recommended: true },
+  { id: 'gemini-flash-latest', name: 'Gemini Flash Latest (Auto-Updating)', recommended: false },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Legacy)', recommended: false },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Legacy)', recommended: false },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Legacy)', recommended: false },
+];
+
+function getActiveGeminiModel(overrideModel) {
+  if (overrideModel && typeof overrideModel === 'string' && overrideModel.trim()) {
+    return overrideModel.trim();
+  }
+  const meta = readAiMeta();
+  if (meta?.model && typeof meta.model === 'string' && meta.model.trim()) {
+    return meta.model.trim();
+  }
+  return 'gemini-2.5-flash';
+}
+
+ipcMain.handle('ai:get-config', async (event) => {
+  if (!validateAiIpcSender(event)) return { success: false, error: 'UNAUTHORIZED_SENDER' };
+  const key = readStoredAiKey();
+  const meta = readAiMeta();
+  const storageAvailable = safeStorage.isEncryptionAvailable();
+  return {
+    success: true,
+    configured: !!key,
+    provider: meta?.provider || 'gemini',
+    model: meta?.model || 'gemini-2.5-flash',
+    keyMask: key ? maskApiKey(key) : '',
+    updatedAt: meta?.updatedAt || null,
+    storageAvailable,
+    supportedModels: SUPPORTED_GEMINI_MODELS,
+  };
+});
+
+ipcMain.handle('ai:save-config', async (event, { provider = 'gemini', apiKey, model = 'gemini-2.5-flash' } = {}) => {
+  if (!validateAiIpcSender(event)) return { success: false, error: 'UNAUTHORIZED_SENDER' };
+  if (!safeStorage.isEncryptionAvailable()) {
+    return {
+      success: false,
+      error: 'SECURE_STORAGE_UNAVAILABLE',
+      details: 'Windows DPAPI (Electron safeStorage) is not available on this system. Plaintext fallback is prohibited.',
+    };
+  }
+  const cleanModel = (model && typeof model === 'string' && model.trim()) ? model.trim() : 'gemini-2.5-flash';
+  const rawKey = sanitizeApiKey(apiKey);
+
+  let keyToSave = rawKey;
+  // If user passed empty key or masked key string, check if we are updating model only
+  if (!keyToSave || isMaskedKey(keyToSave)) {
+    const existingKey = readStoredAiKey();
+    if (!existingKey) {
+      return {
+        success: false,
+        error: 'API_KEY_REQUIRED',
+        details: 'Please enter a valid Gemini API key.',
+      };
+    }
+    // Update model only while preserving existing key
+    const meta = {
+      provider: 'gemini',
+      model: cleanModel,
+      keyMask: maskApiKey(existingKey),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(getAiMetaFilePath(), JSON.stringify(meta, null, 2), 'utf8');
+    return { success: true, meta, modelUpdatedOnly: true };
+  }
+
+  // Reject the revoked leaked key
+  if (isRevokedKey(keyToSave)) {
+    return {
+      success: false,
+      error: 'REVOKED_KEY',
+      details: 'This API key was reported as leaked and revoked by Google. Please enter a fresh, valid API key from Google AI Studio.',
+    };
+  }
+
+  // Validate format
+  if (!isValidGoogleApiKey(keyToSave)) {
+    return {
+      success: false,
+      error: 'INVALID_KEY_FORMAT',
+      details: 'Invalid Gemini API key format (must be 20-128 characters).',
+    };
+  }
+
+  try {
+    // Encrypt new key with DPAPI
+    const encrypted = safeStorage.encryptString(keyToSave);
+    fs.writeFileSync(getAiConfigFilePath(), encrypted);
+    const meta = {
+      provider: 'gemini',
+      model: cleanModel,
+      keyMask: maskApiKey(keyToSave),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(getAiMetaFilePath(), JSON.stringify(meta, null, 2), 'utf8');
+    return { success: true, meta };
+  } catch (err) {
+    return { success: false, error: 'STORAGE_WRITE_FAILED', details: redactSecret(err.message) };
+  }
+});
+
+ipcMain.handle('ai:remove-config', async (event) => {
+  if (!validateAiIpcSender(event)) return { success: false, error: 'UNAUTHORIZED_SENDER' };
+  try {
+    if (fs.existsSync(getAiConfigFilePath())) fs.unlinkSync(getAiConfigFilePath());
+    if (fs.existsSync(getAiMetaFilePath())) fs.unlinkSync(getAiMetaFilePath());
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: 'STORAGE_DELETE_FAILED', details: redactSecret(err.message) };
+  }
+});
+
+ipcMain.handle('ai:test-connection', async (event, { apiKey, model } = {}) => {
+  if (!validateAiIpcSender(event)) return { success: false, error: 'UNAUTHORIZED_SENDER' };
+  let testKey = sanitizeApiKey(apiKey);
+  if (!testKey || isMaskedKey(testKey)) {
+    testKey = readStoredAiKey();
+  }
+  if (!testKey) {
+    return { success: false, error: 'NO_KEY_CONFIGURED', details: 'No API key provided or saved in secure storage.' };
+  }
+  if (isRevokedKey(testKey)) {
+    return {
+      success: false,
+      error: 'REVOKED_KEY',
+      details: 'This API key was reported as leaked and revoked by Google. Please enter a new key in Settings -> AI & Scanner Configuration.',
+    };
+  }
+  if (!isValidGoogleApiKey(testKey)) {
+    return {
+      success: false,
+      error: 'INVALID_KEY_FORMAT',
+      details: 'Invalid Gemini API key format (must be 20-128 characters).',
+    };
+  }
+  const targetModel = getActiveGeminiModel(model);
+
+  const startTime = Date.now();
+  try {
+    // Verify generateContent directly so that deprecated or unsupported models are accurately caught
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(testKey)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: 'Respond with OK' }],
+          },
+        ],
+      }),
+    });
+    clearTimeout(timeout);
+    const latencyMs = Date.now() - startTime;
+
+    if (resp.ok) {
+      return {
+        success: true,
+        model: targetModel,
+        displayName: targetModel,
+        latencyMs,
+      };
+    }
+
+    const errBody = await resp.json().catch(() => ({}));
+    const rawMsg = errBody.error?.message || resp.statusText;
+    const cleanMsg = redactSecret(rawMsg);
+
+    if (resp.status === 404) {
+      return {
+        success: false,
+        error: 'MODEL_NOT_FOUND',
+        code: 404,
+        details: `Model "${targetModel}" is not available or not supported for generateContent on this API endpoint (${cleanMsg}). Please select a supported model (such as gemini-2.5-flash) in Settings -> AI & Scanner Configuration.`,
+        latencyMs,
+      };
+    }
+    if (resp.status === 429) {
+      return { success: false, error: 'QUOTA_EXCEEDED', code: 429, details: cleanMsg, latencyMs };
+    }
+    if (resp.status === 400) {
+      return { success: false, error: 'INVALID_REQUEST', code: 400, details: cleanMsg, latencyMs };
+    }
+    if (resp.status === 403) {
+      return { success: false, error: 'PERMISSION_DENIED', code: 403, details: cleanMsg, latencyMs };
+    }
+    return { success: false, error: `HTTP_${resp.status}`, code: resp.status, details: cleanMsg, latencyMs };
+  } catch (err) {
+    const latencyMs = Date.now() - startTime;
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'TIMEOUT', details: 'Connection timed out after 15 seconds. Check your internet connection.', latencyMs };
+    }
+    return { success: false, error: 'NETWORK_ERROR', details: redactSecret(err.message), latencyMs };
+  }
+});
+
+ipcMain.handle('ai:analyze-invoice', async (event, payload = {}) => {
+  if (!validateAiIpcSender(event)) return { success: false, error: 'UNAUTHORIZED_SENDER' };
+  const { imageBase64, base64Image, mimeType, model } = payload;
+  const key = readStoredAiKey();
+  if (!key) {
+    return {
+      success: false,
+      error: 'NO_KEY_CONFIGURED',
+      details: 'Gemini API key is not configured. Please open Settings -> AI & Scanner Configuration to enter your key.',
+    };
+  }
+  if (isRevokedKey(key)) {
+    return {
+      success: false,
+      error: 'REVOKED_KEY',
+      details: 'The saved Gemini API key was reported as leaked and revoked by Google. Please enter a new key in Settings -> AI & Scanner Configuration.',
+    };
+  }
+  const cleanBase64 = String(imageBase64 || base64Image || '').replace(/^data:image\/[a-zA-Z]+;base64,/, '').trim();
+  if (!cleanBase64) {
+    return { success: false, error: 'INVALID_IMAGE', details: 'No image data was provided for analysis.' };
+  }
+
+  // Central model resolution: strictly use configured or requested model; never silently fall back to legacy models
+  const targetModel = getActiveGeminiModel(model);
+
+  const promptText = `
+You are an expert Indian pharmacy invoice & purchase bill AI. Read this supplier invoice or purchase bill image.
+Extract all listed medicines carefully.
+Pay close attention to packing codes and descriptions:
+- "15S", "15'S", "15 CAP", "15 TAB", "1X15" indicate a pack size of 15 ("unitsPerPack": 15).
+- "10S", "10'S", "10 TAB", "1X10" indicate a pack size of 10 ("unitsPerPack": 10).
+- Injections or liquids like "2ML", "1ML", "INJ", "AMP", "VIAL" indicate 1 unit per pack ("unitsPerPack": 1).
+- Strip MRP is the price per strip listed under MRP column (e.g., 219.00).
+- For QTY and FREE columns: extract "qtyStrips" (billed strips) and "freeStrips" (free bonus strips).
+- Calculate total strips = (qtyStrips + freeStrips).
+- Calculate "stock" = total_strips * unitsPerPack (e.g., 10 Qty + 10 Free = 20 Strips * 10 = 200 tablet units).
+
+Return the result STRICTLY as a JSON array of objects, where each object has:
+- "name": medicine name (e.g. "MNERWIN NT PLUS")
+- "batch": batch number (if found, else "")
+- "expiry": expiry date MM/YY (if found, else "")
+- "netRate": purchase rate per strip (number only, default 0)
+- "price": strip MRP listed on bill (number only, default 0)
+- "unitsPerPack": pack size / number of units in 1 strip (number only, default 10 or 15 or 1 based on packing)
+- "gst": GST percentage (number only, e.g. 5, 12, 18, default 12)
+- "stockist": supplier or stockist name (if found, else "")
+- "qtyStrips": billed quantity in strips (number only, e.g. 10)
+- "freeStrips": free bonus quantity in strips (number only, e.g. 10 or 200)
+- "stock": total tablet count = (qtyStrips + freeStrips) * unitsPerPack (number only)
+Do not include markdown blocks, output strictly raw JSON array.
+`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(key)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType: mimeType || 'image/jpeg',
+                  data: cleanBase64,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const errJson = await resp.json().catch(() => ({}));
+      const rawErr = errJson.error?.message || `HTTP ${resp.status}`;
+      const cleanErr = redactSecret(rawErr);
+      if (resp.status === 404) {
+        return {
+          success: false,
+          error: 'MODEL_NOT_SUPPORTED',
+          code: 404,
+          details: `Selected Gemini model "${targetModel}" is not available or not supported on this endpoint (${cleanErr}). Please choose a supported model (such as gemini-2.5-flash) in Settings -> AI & Scanner Configuration.`,
+        };
+      }
+      if (resp.status === 429) {
+        return {
+          success: false,
+          error: 'QUOTA_EXCEEDED',
+          code: 429,
+          details: `Gemini API quota exceeded: ${cleanErr}. Please retry later or check your Google AI Studio quota.`,
+        };
+      }
+      return {
+        success: false,
+        error: 'AI_CALL_FAILED',
+        code: resp.status,
+        details: cleanErr,
+      };
+    }
+
+    const result = await resp.json();
+    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\[.*\]/s);
+    if (!match) {
+      return { success: false, error: 'PARSE_ERROR', details: 'AI did not return a valid list of medicines. Please verify image clarity.' };
+    }
+
+    const items = JSON.parse(match[0]);
+    if (!Array.isArray(items)) {
+      return { success: false, error: 'PARSE_ERROR', details: 'AI response was not a valid array.' };
+    }
+
+    return { success: true, items, modelUsed: targetModel };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'TIMEOUT', details: 'Request timed out after 35 seconds. Please check your internet connection.', code: 0 };
+    }
+    return { success: false, error: 'AI_CALL_FAILED', details: redactSecret(err.message), code: 0 };
+  }
+});
+
+ipcMain.handle('ai:analyze-prescription', async (event, payload = {}) => {
+  if (!validateAiIpcSender(event)) return { success: false, error: 'UNAUTHORIZED_SENDER' };
+  const { imageBase64, base64Image, mimeType, model, currentStockNames, stockNames } = payload;
+  const key = readStoredAiKey();
+  if (!key) {
+    return {
+      success: false,
+      error: 'NO_KEY_CONFIGURED',
+      details: 'Gemini API key is not configured. Please open Settings -> AI & Scanner Configuration to enter your key.',
+    };
+  }
+  if (isRevokedKey(key)) {
+    return {
+      success: false,
+      error: 'REVOKED_KEY',
+      details: 'The saved Gemini API key was reported as leaked and revoked by Google. Please enter a new key in Settings -> AI & Scanner Configuration.',
+    };
+  }
+  const cleanBase64 = String(imageBase64 || base64Image || '').replace(/^data:image\/[a-zA-Z]+;base64,/, '').trim();
+  if (!cleanBase64) {
+    return { success: false, error: 'INVALID_IMAGE', details: 'No image data was provided.' };
+  }
+
+  // Central model resolution: strictly use configured or requested model; never silently fall back to legacy models
+  const targetModel = getActiveGeminiModel(model);
+
+  const stockList = Array.isArray(currentStockNames || stockNames) ? (currentStockNames || stockNames).slice(0, 300).join(', ') : '';
+  const promptText = `
+You are an expert pharmacist AI. Read this doctor's handwritten prescription.
+We have the following medicines in stock: ${stockList}.
+Extract ONLY the list of medicines. Try to match the handwritten names to our stock if they are similar. If it's a completely new medicine, extract it as best as you can.
+Also estimate the total quantity needed based on the dosage instructions (e.g. "1-0-1 for 3 days" = 6).
+Return the result STRICTLY as a JSON array of objects, where each object has:
+- "name": the medicine name
+- "qty": the estimated number of units/tablets (number)
+Do not include markdown blocks, just the JSON array. Example: [{"name": "Inj. Voveran 1 Amp", "qty": 1}, {"name": "Pantoprazole 40mg (Pan 40)", "qty": 3}]
+`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(key)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType: mimeType || 'image/jpeg',
+                  data: cleanBase64,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const errJson = await resp.json().catch(() => ({}));
+      const rawErr = errJson.error?.message || `HTTP ${resp.status}`;
+      const cleanErr = redactSecret(rawErr);
+      if (resp.status === 404) {
+        return {
+          success: false,
+          error: 'MODEL_NOT_SUPPORTED',
+          code: 404,
+          details: `Selected Gemini model "${targetModel}" is not available or not supported on this endpoint (${cleanErr}). Please choose a supported model (such as gemini-2.5-flash) in Settings -> AI & Scanner Configuration.`,
+        };
+      }
+      if (resp.status === 429) {
+        return {
+          success: false,
+          error: 'QUOTA_EXCEEDED',
+          code: 429,
+          details: `Gemini API quota exceeded: ${cleanErr}. Please retry later or check your Google AI Studio quota.`,
+        };
+      }
+      return {
+        success: false,
+        error: 'AI_CALL_FAILED',
+        code: resp.status,
+        details: cleanErr,
+      };
+    }
+
+    const result = await resp.json();
+    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\[.*\]/s);
+    if (!match) {
+      return { success: false, error: 'PARSE_ERROR', details: 'Could not extract medicines from prescription.' };
+    }
+
+    const items = JSON.parse(match[0]);
+    return { success: true, medicines: items, modelUsed: targetModel };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'TIMEOUT', details: 'Request timed out after 35 seconds. Please check your internet connection.', code: 0 };
+    }
+    return { success: false, error: 'AI_CALL_FAILED', details: redactSecret(err.message), code: 0 };
+  }
+});
+
+
 // ─── Telegram bot integration ───
 // The bot (unpacked_app/telegram-bot/bot.js) ships INSIDE the app package and is started
 // automatically as a managed child process — see startTelegramBot() in the app.whenReady()
@@ -1171,27 +1728,6 @@ ipcMain.handle('database:mark-financial-sync-review-required', async (event, pay
   const mod = await initLocalDatabase();
   if (!mod) return DB_UNAVAILABLE();
   try { return mod.markFinancialSyncReviewRequired(payload && payload.billId, payload && payload.status, payload && payload.detail, payload && payload.cloudSaleId); } catch (e) { return { success: false, error: e.message }; }
-});
-// Stock-sync remediation: review workflow + batch-reference guard (narrow, named calls; no SQL passthrough).
-ipcMain.handle('database:get-financial-sync-review-items', async () => {
-  const mod = await initLocalDatabase();
-  if (!mod) return [];
-  try { return mod.getFinancialSyncReviewItems(); } catch (e) { return []; }
-});
-ipcMain.handle('database:mark-financial-sync-review-resolved', async (event, payload) => {
-  const mod = await initLocalDatabase();
-  if (!mod) return DB_UNAVAILABLE();
-  try { return mod.markFinancialSyncReviewResolved(payload && payload.billId, (payload && payload.options) || {}); } catch (e) { return { success: false, error: e.message }; }
-});
-ipcMain.handle('database:mark-financial-sync-review-acknowledged', async (event, payload) => {
-  const mod = await initLocalDatabase();
-  if (!mod) return DB_UNAVAILABLE();
-  try { return mod.markFinancialSyncReviewAcknowledged(payload && payload.billId, (payload && payload.options) || {}); } catch (e) { return { success: false, error: e.message }; }
-});
-ipcMain.handle('database:get-stock-batch-references', async (event, payload) => {
-  const mod = await initLocalDatabase();
-  if (!mod) return DB_UNAVAILABLE();
-  try { return mod.getStockBatchReferences(payload || {}); } catch (e) { return { success: false, error: e.message, bills: [] }; }
 });
 
 // Administrative clears. Each is one explicit, transactional database operation (no SQL from the

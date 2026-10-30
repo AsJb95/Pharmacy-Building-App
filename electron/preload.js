@@ -61,10 +61,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   markFinancialSyncSaleConfirmed: (billId, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-sale-confirmed', { billId, cloudSaleId }),
   markFinancialSyncStockPending: (billId, error) => ipcRenderer.invoke('database:mark-financial-sync-stock-pending', { billId, error }),
   markFinancialSyncReviewRequired: (billId, status, detail, cloudSaleId) => ipcRenderer.invoke('database:mark-financial-sync-review-required', { billId, status, detail, cloudSaleId }),
-  getFinancialSyncReviewItems: () => ipcRenderer.invoke('database:get-financial-sync-review-items'),
-  markFinancialSyncReviewResolved: (billId, options) => ipcRenderer.invoke('database:mark-financial-sync-review-resolved', { billId, options }),
-  markFinancialSyncReviewAcknowledged: (billId, options) => ipcRenderer.invoke('database:mark-financial-sync-review-acknowledged', { billId, options }),
-  getStockBatchReferences: (ref) => ipcRenderer.invoke('database:get-stock-batch-references', ref),
   // Administrative clears used by Clear Sales History / Reset / Factory Reset / Restore.
   adminClearLocalSalesHistory: () => ipcRenderer.invoke('database:admin-clear-sales-history'),
   adminClearLocalSalesAndLedger: () => ipcRenderer.invoke('database:admin-clear-sales-and-ledger'),
@@ -94,6 +90,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   backupEncrypt: (plaintext, kind, counts) => ipcRenderer.invoke('vhc-backup:encrypt', { plaintext, kind, counts }),
   backupDecrypt: (envelopeText, recoveryKey) => ipcRenderer.invoke('vhc-backup:decrypt', { envelopeText, recoveryKey }),
   backupReadHeader: (envelopeText) => ipcRenderer.invoke('vhc-backup:read-header', { envelopeText }),
+  // Gemini AI Scanner Configuration (DPAPI encrypted, main-process handled)
+  aiGetConfig: () => ipcRenderer.invoke('ai:get-config'),
+  aiSaveConfig: (payload) => ipcRenderer.invoke('ai:save-config', payload),
+  aiRemoveConfig: () => ipcRenderer.invoke('ai:remove-config'),
+  aiTestConnection: (payload) => ipcRenderer.invoke('ai:test-connection', payload),
+  aiAnalyzeInvoice: (payload) => ipcRenderer.invoke('ai:analyze-invoice', payload),
+  aiAnalyzePrescription: (payload) => ipcRenderer.invoke('ai:analyze-prescription', payload),
   // Telegram bot integration — the bot now ships inside the app and is run by the main
   // process as a managed child process (see electron/main.js). These calls read/write only
   // the non-secret scheduling fields, and read its notification log for display in the

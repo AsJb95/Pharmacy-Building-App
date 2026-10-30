@@ -20,3 +20,19 @@ config/client_secret_*.json
 config/google-oauth-client*.json
 *.oauth.json
 gdrive_oauth_token*
+
+# Build and test caches / temp files
+.*-cache*/
+.validation/
+.qa-*/
+.ai-handoff/
+*.db-shm
+*.db-wal
+evidence_*/
+next-version/
+tools/
+zz_RUN_*.cmd
+scratch_*
+forensic-*
+runtime-audit.json
+

@@ -16401,26 +16401,7 @@ function Pr({ telegramStatus: e, pendingCount: t = 0, expiryAlertCount: expiryAl
               e ? `nav-link active` : `nav-link`,
             children: [(0, J.jsx)(br, { size: 19 }), `Settings & Sync`],
           }),
-          // v3.19.5: Appearance shortcut (replaces the Dark Mode toggle) — opens Settings at the theme cards.
-          (0, J.jsxs)(`button`, {
-            type: `button`,
-            className: `theme-toggle-btn vhc-appearance-shortcut`,
-            onClick: () => {
-              window.location.hash = `#/settings`;
-              let tries = 0,
-                go = () => {
-                  let el = document.getElementById(`vhc-appearance`);
-                  el ? el.scrollIntoView({ behavior: `smooth`, block: `start` }) : ++tries < 20 && setTimeout(go, 100);
-                };
-              setTimeout(go, 60);
-            },
-            title: `Appearance — choose a theme`,
-            children: [
-              (0, J.jsx)(`span`, { style: { fontSize: `1rem`, lineHeight: 1 }, children: `🎨` }),
-              (0, J.jsx)(`span`, { children: `Appearance` }),
-              (0, J.jsx)(`span`, { className: `vhc-appearance-current`, children: vhcThemeLabel(themeChoice) }),
-            ],
-          }),
+          // v3.19.8: the sidebar Appearance shortcut was removed; themes are chosen in Settings → Appearance.
         ],
       }),
     ],
@@ -17325,8 +17306,8 @@ function ModernDashboard() {
     recent = sales.filter((sale) => String(sale.status || sale.paymentStatus || `Paid`).toLowerCase() !== `cancelled`).slice(0, 5),
     greeting = (() => { let hour = new Date().getHours(); return hour < 12 ? `Good Morning` : hour < 17 ? `Good Afternoon` : `Good Evening`; })(),
     dateLabel = new Date().toLocaleString([], { weekday: `long`, day: `numeric`, month: `short`, year: `numeric`, hour: `numeric`, minute: `2-digit` });
-  let card = (title, value, subtitle, icon, tone) => (0, J.jsxs)(`div`, { className: `dashboard-kpi`, style: { borderTop: `3px solid ${tone}` }, children: [(0, J.jsxs)(`div`, { className: `dashboard-kpi-head`, children: [(0, J.jsx)(`span`, { children: title }), (0, J.jsx)(`span`, { className: `dashboard-kpi-icon`, style: { color: tone }, children: icon })] }), (0, J.jsx)(`strong`, { children: value }), (0, J.jsx)(`small`, { children: subtitle })] });
-  let quick = (label, path, tone, icon) => (0, J.jsxs)(`button`, { type: `button`, className: `dashboard-quick-action`, onClick: () => navigate(path), children: [(0, J.jsx)(`span`, { className: `dashboard-quick-icon`, style: { color: tone, background: `${tone}18` }, children: icon }), (0, J.jsx)(`span`, { children: label })] });
+  let card = (title, value, subtitle, icon, tone) => (0, J.jsxs)(`div`, { className: `dashboard-kpi`, style: { borderTop: `3px solid ${tone}` }, children: [(0, J.jsxs)(`div`, { className: `dashboard-kpi-head`, children: [(0, J.jsx)(`span`, { children: title }), (0, J.jsx)(`span`, { className: `dashboard-kpi-icon`, style: { "--tone": tone }, children: icon })] }), (0, J.jsx)(`strong`, { children: value }), (0, J.jsx)(`small`, { children: subtitle })] });
+  let quick = (label, path, tone, icon) => (0, J.jsxs)(`button`, { type: `button`, className: `dashboard-quick-action`, onClick: () => navigate(path), children: [(0, J.jsx)(`span`, { className: `dashboard-quick-icon`, style: { "--tone": tone, background: `${tone}18` }, children: icon }), (0, J.jsx)(`span`, { children: label })] });
   let recentPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Recent Bills` }), (0, J.jsx)(`p`, { children: `Latest completed billing activity` })] }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-link`, onClick: () => navigate(`/reports`), children: `View Reports` })] }), (0, J.jsx)(`div`, { className: `dashboard-table-wrap`, children: recent.length ? recent.map((sale) => (0, J.jsxs)(`div`, { className: `dashboard-bill-row`, children: [(0, J.jsx)(`strong`, { children: sale.billId || sale.bill_id || sale.id }), (0, J.jsx)(`span`, { children: sale.patientName || sale.patient || `Walk-in Patient` }), (0, J.jsx)(`span`, { children: ((n) => `${n} item${n === 1 ? `` : `s`}`)((sale.particulars || sale.items || sale.sale_items || []).length) }), (0, J.jsx)(`span`, { children: sale.status || sale.paymentStatus || `Completed` }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-open`, onClick: () => navigate(`/reports`), children: `Open` })] }, sale.billId || sale.bill_id || sale.id)) : (0, J.jsx)(`div`, { className: `dashboard-empty`, children: `No completed bills yet` }) })] });
   let expiryPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel dashboard-expiry-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Expiring Soon` }), (0, J.jsx)(`p`, { children: `Earliest inventory expiry batches` })] }), (0, J.jsx)(`button`, { type: `button`, className: `dashboard-link`, onClick: () => navigate(`/inventory`), children: `View All` })] }), expiring.length ? expiring.map(({ item, expiryInfo }) => { let meta = getExpiryStatusMeta(expiryInfo.status); return (0, J.jsxs)(`div`, { className: `dashboard-expiry-row`, children: [(0, J.jsx)(`strong`, { children: item.name }), (0, J.jsx)(`span`, { children: item.batch || `—` }), (0, J.jsx)(`span`, { children: item.expiry || `—` }), (0, J.jsx)(`span`, { style: { color: meta.color, fontWeight: 800 }, children: expiryInfo.daysRemaining == null ? `—` : expiryInfo.daysRemaining < 0 ? `Expired` : `${expiryInfo.daysRemaining}d` })] }, item.id); }) : (0, J.jsx)(`div`, { className: `dashboard-empty`, children: `No upcoming expiries` })] });
   let quickPanel = (0, J.jsxs)(`section`, { className: `dashboard-panel`, children: [(0, J.jsxs)(`div`, { className: `dashboard-panel-title`, children: [(0, J.jsx)(`div`, { children: [(0, J.jsx)(`h2`, { children: `Quick Actions` }), (0, J.jsx)(`p`, { children: `Common pharmacy workflows` })] })] }), (0, J.jsx)(`div`, { className: `dashboard-quick-grid`, children: [quick(`New Bill`, `/billing`, `#2563eb`, `+`), quick(`Stock Receive`, `/inventory`, `#16a34a`, `+`), quick(`Stock Transfer`, `/inventory`, `#9333ea`, `↔`), quick(`View Reports`, `/reports`, `#ea580c`, `▤`)] })] });
@@ -19574,7 +19555,7 @@ var so = class {
       return new so(this.apiKey, r, n);
     }
   },
-  lo = new co(`AIzaSyDopFsJDRRH6eLL3xVMP6EUiRAAkHa3pyk`);
+  lo = null;
 function uo({ isOpen: e, onClose: t, onMedicinesFound: n }) {
   let { inventory: r } = Vr(),
     [i, a] = (0, _.useState)(!1),
@@ -19596,43 +19577,19 @@ function uo({ isOpen: e, onClose: t, onMedicinesFound: n }) {
       (a(!0), d(``), l([]));
       try {
         let n = e.split(`,`)[1],
-          i = `
-        You are an expert pharmacist AI. Read this doctor's handwritten prescription.
-        We have the following medicines in stock: ${r.map((e) => e.name).join(`, `)}.
-        Extract ONLY the list of medicines. Try to match the handwritten names to our stock if they are similar. If it's a completely new medicine, extract it as best as you can.
-        Also estimate the total quantity needed based on the dosage instructions (e.g. "1-0-1 for 3 days" = 6).
-        Return the result STRICTLY as a JSON array of objects, where each object has:
-        - "name": the medicine name
-        - "qty": the estimated number of units/tablets (number)
-        Do not include markdown blocks, just the JSON array. Example: [{"name": "Inj. Voveran 1 Amp", "qty": 1}, {"name": "Pantoprazole 40mg (Pan 40)", "qty": 3}]
-      `,
-          a = { inlineData: { data: n, mimeType: t } },
-          o = [`gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-flash-latest`],
-          s = null,
-          c = null;
-        for (let e of o)
-          try {
-            if (
-              ((s = await lo
-                .getGenerativeModel({ model: e })
-                .generateContent([i, a])),
-              s)
-            )
-              break;
-          } catch (t) {
-            (console.warn(`Model ${e} failed:`, t.message), (c = t));
+          stockNames = r.map((e) => e.name);
+        if (!window.electronAPI || !window.electronAPI.aiAnalyzePrescription) {
+          throw new Error('AI Prescription scanning is only supported in desktop mode.');
+        }
+        let res = await window.electronAPI.aiAnalyzePrescription({ base64Image: n, mimeType: t, stockNames });
+        if (!res || !res.success) {
+          let errMsg = (res && (res.details || res.error)) || 'Failed to analyze prescription';
+          if (res && res.error === 'NO_API_KEY') {
+            errMsg = 'Gemini API key is not configured. Please go to Settings -> AI & Scanner Configuration to set your API key.';
           }
-        if (!s) throw c;
-        let u = (await s.response).text();
-        console.log(`Raw Gemini Response:`, u);
-        let f = u
-            .replace(/```json/gi, ``)
-            .replace(/```/g, ``)
-            .trim()
-            .match(/\[.*\]/s),
-          p = [];
-        if (f) p = JSON.parse(f[0]);
-        else throw Error(`Could not parse JSON from Gemini response.`);
+          throw new Error(errMsg);
+        }
+        let p = res.medicines || [];
         let m = [],
           h = Date.now();
         (p.forEach((e) => {
@@ -19663,9 +19620,7 @@ function uo({ isOpen: e, onClose: t, onMedicinesFound: n }) {
           m.length === 0 && d(`No medicines were identified from this image.`));
       } catch (e) {
         (console.error(e),
-          d(
-            `An error occurred while analyzing the image with Gemini AI. Check the console for details.`,
-          ));
+          d(e.message || `An error occurred while analyzing the image with Gemini AI.`));
       } finally {
         a(!1);
       }
@@ -51146,6 +51101,131 @@ function Th() {
 function Eh() {
   return (0, _.useContext)(bh);
 }
+// ── v3.19.8 A4 invoice ──────────────────────────────────────────────────────────────────────────────────────
+// A separate, full-page invoice layout (210 × 297 mm). The thermal receipt (Dh's printable block, silent print,
+// PDF) is unchanged; this is only used when the A4 format is chosen for a print. Every figure comes from the
+// same bill data and the same formulas the thermal receipt prints — nothing is recalculated or invented.
+// Same per-line figures as the thermal receipt's item rows (rate, quantity, amount, batch, expiry).
+function vhcReceiptLine(e) {
+  let n = parseFloat(e.unitsPerPack || e.units_per_pack) || 1,
+    r = (parseFloat(e.mrp ?? e.price) || 0) / n,
+    i =
+      e.customUnitPrice !== void 0 &&
+      e.customUnitPrice !== `` &&
+      !isNaN(parseFloat(e.customUnitPrice))
+        ? parseFloat(e.customUnitPrice)
+        : e.rate !== void 0 && e.rate !== null
+          ? parseFloat(e.rate)
+          : r,
+    a = parseInt(e.qty || e.quantity, 10) || 1,
+    o = i * a;
+  return {
+    name: e.name || e.drugName || `Medicine Item`,
+    detail: String(e.composition || e.genericName || e.strength || ``).trim(),
+    batch: e.batch || e.batch_no || e.batchNo || `N/A`,
+    expiry: e.expiry || e.expiry_date || e.expiryDate || `N/A`,
+    gst: e.gst !== void 0 && e.gst !== null && e.gst !== `` ? String(e.gst) : ``,
+    qty: a,
+    rate: i,
+    amount: o,
+  };
+}
+function vhcHtmlEscape(v) {
+  return String(v === null || v === void 0 ? `` : v).replace(/[&<>"']/g, (ch) => ({ "&": `&amp;`, "<": `&lt;`, ">": `&gt;`, '"': `&quot;`, "'": `&#39;` })[ch]);
+}
+// Builds the complete A4 invoice document (HTML). `d` holds only values the receipt already has.
+function vhcA4InvoiceHtml(d) {
+  let esc = vhcHtmlEscape,
+    money = (n) => (Number(n) || 0).toFixed(2),
+    st = d.store || {},
+    composition = d.gstMode === `composition`,
+    date = d.date instanceof Date && !isNaN(d.date) ? d.date : new Date(),
+    lines = (d.items || []).map(vhcReceiptLine),
+    showGst = !composition && lines.some((l) => l.gst !== ``),
+    head = [`#`, `Medicine`, `Batch`, `Expiry`, `Qty`, `Rate (₹)`].concat(showGst ? [`GST %`] : []).concat([`Amount (₹)`]),
+    rows = lines
+      .map(
+        (l, idx) =>
+          `<tr><td class="c-n">${idx + 1}</td><td class="c-item"><div class="nm">${esc(l.name)}</div>${l.detail ? `<div class="dt">${esc(l.detail)}</div>` : ``}</td>` +
+          `<td>${esc(l.batch)}</td><td>${esc(l.expiry)}</td><td class="r">${l.qty}</td><td class="r">${money(l.rate)}</td>` +
+          (showGst ? `<td class="r">${esc(l.gst)}</td>` : ``) +
+          `<td class="r b">${money(l.amount)}</td></tr>`,
+      )
+      .join(``),
+    extra = (title, list, render) =>
+      list && list.length
+        ? `<h3 class="sec">${title}</h3><table class="items small"><tbody>${list.map(render).join(``)}</tbody></table>`
+        : ``,
+    injections = extra(`Injections`, d.injections, (it) =>
+      `<tr><td class="c-item"><div class="nm">${esc(it.medicineName)} × ${esc(it.qty)}</div><div class="dt">Syringe ₹${money(it.syringeCharge)} · Injection ₹${money(it.injectionCharge)}${it.optionalCharges ? ` · Optional ₹${money(it.optionalCharges)}` : ``}${it.discount ? ` · Discount −₹${money(it.discount)}` : ``}</div></td><td class="r b">${money(it.total)}</td></tr>`),
+    procedures = extra(`Procedures`, d.procedures, (it) =>
+      `<tr><td class="c-item"><div class="nm">${esc(it.procedureName)}</div><div class="dt">Charge ₹${money(it.procedureCharge)}${(it.materials || []).length ? ` · Materials: ${esc((it.materials || []).map((m) => `${m.materialName} ×${m.qty}`).join(`, `))}` : ``}</div></td><td class="r b">${money(it.total)}</td></tr>`),
+    charges = extra(`Other charges`, d.customCharges, (it) => `<tr><td class="c-item"><div class="nm">${esc(it.label)}</div></td><td class="r b">${money(parseFloat(it.amount) || 0)}</td></tr>`),
+    t = d.totals || {},
+    totalRows =
+      (composition
+        ? ``
+        : `<tr><th>Base amount (excl. tax)</th><td>₹ ${money(t.base)}</td></tr><tr><th>CGST (2.5%)</th><td>₹ ${money(t.cgst)}</td></tr><tr><th>SGST (2.5%)</th><td>₹ ${money(t.sgst)}</td></tr><tr><th>Total GST (5%)</th><td>₹ ${money(t.gst)}</td></tr>`) +
+      (Number(t.discount) > 0 ? `<tr><th>Discount${Number(t.discountPercent) > 0 ? ` (${Number(t.discountPercent).toFixed(1)}%)` : ``}</th><td>− ₹ ${money(t.discount)}</td></tr>` : ``) +
+      `<tr class="net"><th>Net amount payable</th><td>₹ ${money(t.net)}</td></tr>`,
+    contact = [st.address, st.contact ? `Phone: ${st.contact}` : ``].filter(Boolean).map(esc).join(` · `),
+    ids = [st.gstNumber ? `GSTIN: ${st.gstNumber}` : ``, st.drugLicense ? `Drug Licence: ${st.drugLicense}` : ``].filter(Boolean).map(esc).join(` · `);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${esc(d.billId)}</title><style>
+@page { size: A4 portrait; margin: 12mm 12mm 14mm; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #ffffff; }
+body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; font-size: 10.5pt; color: #111827; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page { width: 186mm; margin: 0 auto; }
+.hdr { display: flex; align-items: center; gap: 5mm; background: #13294b; color: #ffffff; padding: 5mm 6mm; border-radius: 2mm; border-bottom: 1.2mm solid #0f766e; }
+.hdr img { height: 16mm; width: auto; background: #ffffff; border-radius: 1.5mm; padding: 1mm; }
+.hdr .nm { font-size: 18pt; font-weight: 800; letter-spacing: .02em; line-height: 1.15; }
+.hdr .tg { font-size: 9pt; opacity: .92; margin-top: .6mm; }
+.hdr .ct { font-size: 9pt; margin-top: 1mm; }
+.hdr .doc { margin-left: auto; text-align: right; }
+.hdr .doc .ty { font-size: 13pt; font-weight: 800; letter-spacing: .08em; border: .4mm solid #ffffff; padding: 1mm 3mm; border-radius: 1mm; display: inline-block; }
+.ids { font-size: 8.5pt; color: #374151; margin: 2mm 1mm 0; }
+.meta { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin: 4mm 0; }
+.box { border: .3mm solid #9ca3af; border-left: 1.2mm solid #0f766e; border-radius: 1.5mm; padding: 2.5mm 3.5mm; }
+.box h4 { margin: 0 0 1mm; font-size: 8pt; text-transform: uppercase; letter-spacing: .08em; color: #13294b; }
+.box .v { font-size: 11.5pt; font-weight: 700; }
+.box .kv { display: flex; justify-content: space-between; gap: 3mm; font-size: 9.5pt; padding: .4mm 0; }
+.box .kv span:first-child { color: #4b5563; }
+table.items { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.items thead { display: table-header-group; }
+table.items th { background: #13294b; color: #ffffff; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 2mm 2mm; border: .3mm solid #13294b; }
+table.items td { padding: 1.8mm 2mm; border-bottom: .3mm solid #d1d5db; vertical-align: top; font-size: 9.5pt; overflow-wrap: anywhere; word-break: break-word; }
+table.items tbody tr { break-inside: avoid; page-break-inside: avoid; }
+table.items tbody tr:nth-child(even) td { background: #f3f6f9; }
+table.items .r { text-align: right; white-space: nowrap; }
+table.items .b { font-weight: 700; }
+table.items .c-n { width: 10mm; color: #4b5563; white-space: nowrap; padding-left: 1.5mm; padding-right: 1mm; }
+table.items .nm { font-weight: 700; }
+table.items .dt { font-size: 8.3pt; color: #4b5563; margin-top: .5mm; }
+table.items.small td:last-child { width: 32mm; }
+col.w-item { width: auto; }
+h3.sec { font-size: 9pt; text-transform: uppercase; letter-spacing: .08em; color: #13294b; margin: 4mm 0 1.5mm; border-bottom: .5mm solid #0f766e; padding-bottom: .8mm; }
+.sum { display: flex; justify-content: flex-end; margin-top: 4mm; break-inside: avoid; page-break-inside: avoid; }
+.sum table { border-collapse: collapse; min-width: 80mm; }
+.sum th { text-align: left; font-weight: 600; color: #374151; padding: 1.2mm 3mm; font-size: 10pt; }
+.sum td { text-align: right; padding: 1.2mm 3mm; font-size: 10pt; white-space: nowrap; }
+.sum tr.net th, .sum tr.net td { font-size: 12.5pt; font-weight: 800; color: #ffffff; background: #0f766e; border: .4mm solid #0b5c56; }
+.decl { margin-top: 3mm; font-size: 8.5pt; font-weight: 700; border: .3mm dashed #6b7280; padding: 2mm 3mm; border-radius: 1mm; }
+.foot { margin-top: 6mm; padding-top: 2.5mm; border-top: .5mm solid #13294b; display: flex; justify-content: space-between; gap: 4mm; font-size: 8.5pt; color: #374151; break-inside: avoid; }
+.foot .sig { text-align: right; min-width: 50mm; }
+.foot .sig .ln { margin-top: 10mm; border-top: .3mm solid #374151; padding-top: 1mm; }
+</style></head><body><div class="page">
+<div class="hdr">${d.logoUrl ? `<img src="${esc(d.logoUrl)}" alt="" onerror="this.style.display='none'">` : ``}<div><div class="nm">${esc(st.name || `VARNIKA HEALTH CARE`)}</div>${st.tagline ? `<div class="tg">${esc(st.tagline)}</div>` : ``}${contact ? `<div class="ct">${contact}</div>` : ``}</div>
+<div class="doc"><div class="ty">${composition ? `BILL OF SUPPLY` : `TAX INVOICE`}</div></div></div>
+${ids ? `<div class="ids">${ids}</div>` : ``}
+<div class="meta"><div class="box"><h4>Billed to</h4><div class="v">${esc(d.patientName || `Walk-in Patient`)}</div></div>
+<div class="box"><h4>Invoice details</h4><div class="kv"><span>Bill No.</span><strong>${esc(d.billId || `—`)}</strong></div><div class="kv"><span>Date</span><strong>${esc(date.toLocaleDateString(`en-IN`))} ${esc(date.toLocaleTimeString(`en-IN`, { hour: `2-digit`, minute: `2-digit` }))}</strong></div><div class="kv"><span>Payment mode</span><strong>${esc(String(d.paymentMode || `Cash`).toUpperCase())}</strong></div></div></div>
+${lines.length ? `<table class="items"><colgroup><col style="width:10mm"><col class="w-item"><col style="width:24mm"><col style="width:20mm"><col style="width:13mm"><col style="width:22mm">${showGst ? `<col style="width:14mm">` : ``}<col style="width:26mm"></colgroup><thead><tr>${head.map((h, i) => `<th${i >= 4 ? ` class="r"` : ``}>${h}</th>`).join(``)}</tr></thead><tbody>${rows}</tbody></table>` : ``}
+${injections}${procedures}${charges}
+<div class="sum"><table><tbody>${totalRows}</tbody></table></div>
+${composition ? `<div class="decl">Composition Taxable Person, Not Eligible to Collect Tax on Supplies</div>` : ``}
+<div class="foot"><div>Wishing You Good Health and a Speedy Recovery!<br>This is a computer-generated invoice.</div><div class="sig"><div class="ln">Authorised signatory</div></div></div>
+</div></body></html>`;
+}
 function Dh({
   isOpen: e,
   onClose: t,
@@ -51178,6 +51258,27 @@ function Dh({
   (0, _.useEffect)(() => {
     e && setCommittedThisOpen(!1);
   }, [e]);
+  // v3.19.8 paper format: thermal stays the default. The saved default (Settings → Printing, settings.defaultBillPaper)
+  // only sets where each preview starts; switching here affects this print only and is never written back.
+  let receiptSettingsCtx = Ir(),
+    receiptSettings = (receiptSettingsCtx && receiptSettingsCtx.settings) || {},
+    receiptDefaultPaper = receiptSettings.defaultBillPaper === `a4` ? `a4` : `thermal`,
+    [paperFormat, setPaperFormat] = (0, _.useState)(receiptDefaultPaper),
+    a4PrintingRef = (0, _.useRef)(!1),
+    [a4Printing, setA4Printing] = (0, _.useState)(!1);
+  (0, _.useEffect)(() => {
+    e && setPaperFormat(receiptDefaultPaper);
+  }, [e]);
+  // The A4 header shows the clinic's existing logo file only if it actually loads (no placeholder logo).
+  let [a4LogoOk, setA4LogoOk] = (0, _.useState)(!1);
+  (0, _.useEffect)(() => {
+    if (!e || hiddenRender) return;
+    let img = new Image();
+    img.onload = () => setA4LogoOk(!0);
+    img.onerror = () => setA4LogoOk(!1);
+    img.src = `/logo.png`;
+  }, [e]);
+  let isA4 = !hiddenRender && paperFormat === `a4`;
   let ensureCommitted = async () => {
     if (!receiptOnCommit || committedThisOpen) return !0;
     let result = await receiptOnCommit();
@@ -51340,6 +51441,55 @@ function Dh({
         window.focus(),
         t && t());
     };
+  let a4Html = isA4
+    ? vhcA4InvoiceHtml({
+        store: { name: receiptSettings.storeName, tagline: receiptSettings.tagline, address: receiptSettings.address, contact: receiptSettings.contact, gstNumber: receiptSettings.gstNumber, drugLicense: receiptSettings.drugLicense },
+        gstMode: receiptGstMode,
+        billId: s,
+        date: receiptDate,
+        patientName: c,
+        paymentMode: l,
+        items: h,
+        injections: receiptInjectionItems,
+        procedures: receiptProcedureItems,
+        customCharges: receiptCustomCharges,
+        totals: { base: y, cgst: x, sgst: S, gst: b, discount: receiptDiscount, discountPercent: receiptDiscountPercent, net: v },
+        logoUrl: a4LogoOk ? `/logo.png` : ``,
+      })
+    : ``;
+  // Prints the A4 document through the normal printer dialog (the user picks the printer there). One job per
+  // click: a second click while the dialog is being prepared is ignored. Printing never changes the bill.
+  let printA4 = async () => {
+    if (a4PrintingRef.current) return;
+    if (!(await ensureCommitted())) return;
+    a4PrintingRef.current = !0;
+    setA4Printing(!0);
+    let frame = document.createElement(`iframe`);
+    ((frame.style.position = `fixed`), (frame.style.right = `0`), (frame.style.bottom = `0`), (frame.style.width = `0px`), (frame.style.height = `0px`), (frame.style.border = `none`));
+    let cleanup = () => {
+      (document.body.contains(frame) && document.body.removeChild(frame),
+        (document.body.style.pointerEvents = `auto`),
+        (document.body.style.userSelect = `auto`),
+        window.focus(),
+        (a4PrintingRef.current = !1),
+        setA4Printing(!1));
+    };
+    try {
+      document.body.appendChild(frame);
+      let doc = frame.contentWindow.document;
+      (doc.open(), doc.write(a4Html), doc.close());
+      setTimeout(() => {
+        try {
+          (frame.contentWindow.focus(), frame.contentWindow.print());
+        } catch (err) {
+          f && f(`Could not open the printer dialog: ${(err && err.message) || err}`, `error`);
+        }
+        setTimeout(cleanup, 500);
+      }, 400);
+    } catch (err) {
+      (f && f(`Could not prepare the A4 invoice: ${(err && err.message) || err}`, `error`), cleanup());
+    }
+  };
   return (0, J.jsx)(`div`, {
     className: hiddenRender ? `` : `modal-overlay`,
     onClick: hiddenRender ? void 0 : C,
@@ -51350,7 +51500,7 @@ function Dh({
       className: `modal-content glass-panel animate-fade-in`,
       onClick: (e) => e.stopPropagation(),
       style: {
-        maxWidth: `460px`,
+        maxWidth: isA4 ? `920px` : `460px`,
         padding: `1.5rem`,
         background: `var(--surface)`,
         color: `var(--text-primary)`,
@@ -51374,7 +51524,7 @@ function Dh({
               },
               children: [
                 (0, J.jsx)(hr, { size: 22, className: `text-accent` }),
-                `Thermal Receipt Preview`,
+                isA4 ? `A4 Invoice Preview` : `Thermal Receipt Preview`,
               ],
             }),
             (0, J.jsx)(`button`, {
@@ -51384,9 +51534,26 @@ function Dh({
             }),
           ],
         }),
+        !hiddenRender &&
+          (0, J.jsxs)(`div`, {
+            className: `vhc-paper-switch`,
+            role: `radiogroup`,
+            "aria-label": `Paper format for this print`,
+            children: [
+              (0, J.jsx)(`button`, { type: `button`, role: `radio`, "aria-checked": !isA4 ? `true` : `false`, className: `vhc-paper-opt${!isA4 ? ` is-active` : ``}`, onClick: () => setPaperFormat(`thermal`), children: `🧾 Thermal receipt` }),
+              (0, J.jsx)(`button`, { type: `button`, role: `radio`, "aria-checked": isA4 ? `true` : `false`, className: `vhc-paper-opt${isA4 ? ` is-active` : ``}`, onClick: () => setPaperFormat(`a4`), children: `📄 A4 invoice` }),
+              (0, J.jsx)(`span`, { className: `vhc-paper-note`, children: `This print only · default: ${receiptDefaultPaper === `a4` ? `A4` : `Thermal`}` }),
+            ],
+          }),
+        isA4 &&
+          (0, J.jsx)(`div`, {
+            className: `vhc-a4-preview`,
+            children: (0, J.jsx)(`iframe`, { title: `A4 invoice preview`, className: `vhc-a4-frame`, srcDoc: a4Html, sandbox: `allow-same-origin` }),
+          }),
         (0, J.jsxs)(`div`, {
           id: printableIdProp,
           style: {
+            display: isA4 ? `none` : `block`,
             height: `420px`,
             background: `#ffffff`,
             borderRadius: `10px`,
@@ -51749,7 +51916,7 @@ function Dh({
               style: { flex: 1 },
               children: `Close`,
             }),
-            (0, J.jsxs)(`button`, {
+            !isA4 && (0, J.jsxs)(`button`, {
               type: `button`,
               className: `btn btn-outline`,
               onClick: p,
@@ -51772,7 +51939,8 @@ function Dh({
             }),
             (0, J.jsxs)(`button`, {
               className: `btn btn-success`,
-              onClick: m,
+              onClick: isA4 ? printA4 : m,
+              disabled: isA4 && a4Printing,
               style: {
                 flex: 2,
                 padding: `0.8rem`,
@@ -51787,7 +51955,7 @@ function Dh({
               },
               children: [
                 (0, J.jsx)(hr, { size: 19 }),
-                `Print (Select Printer)`,
+                isA4 ? (a4Printing ? `Preparing…` : `Print A4 (Select Printer)`) : `Print (Select Printer)`,
               ],
             }),
           ],
@@ -55032,7 +55200,7 @@ function ProcedureModal({ isOpen, onClose, inventory, notify, onConfirm }) {
     }),
   });
 }
-var Ph = new co(`AIzaSyDopFsJDRRH6eLL3xVMP6EUiRAAkHa3pyk`);
+var Ph = null;
 function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
   let [r, i] = (0, _.useState)(!1),
     [a, o] = (0, _.useState)(null),
@@ -55052,59 +55220,19 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
     p = async (e, t) => {
       (i(!0), u(``), c([]));
       try {
-        let n = { inlineData: { data: e.split(`,`)[1], mimeType: t } },
-          r = [`gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-flash-latest`],
-          i = null,
-          a = null;
-        for (let e of r)
-          try {
-            if (
-              ((i = await Ph.getGenerativeModel({ model: e }).generateContent([
-                `
-        You are an expert Indian pharmacy invoice & purchase bill AI. Read this supplier invoice or purchase bill image.
-        Extract all listed medicines carefully.
-        Pay close attention to packing codes and descriptions:
-        - "15S", "15'S", "15 CAP", "15 TAB", "1X15" indicate a pack size of 15 ("unitsPerPack": 15).
-        - "10S", "10'S", "10 TAB", "1X10" indicate a pack size of 10 ("unitsPerPack": 10).
-        - Injections or liquids like "2ML", "1ML", "INJ", "AMP", "VIAL" indicate 1 unit per pack ("unitsPerPack": 1).
-        - Strip MRP is the price per strip listed under MRP column (e.g., 219.00).
-        - For QTY and FREE columns: extract "qtyStrips" (billed strips) and "freeStrips" (free bonus strips).
-        - Calculate total strips = (qtyStrips + freeStrips).
-        - Calculate "stock" = total_strips * unitsPerPack (e.g., 10 Qty + 10 Free = 20 Strips * 10 = 200 tablet units).
-        
-        Return the result STRICTLY as a JSON array of objects, where each object has:
-        - "name": medicine name (e.g. "MNERWIN NT PLUS")
-        - "batch": batch number (if found, else "")
-        - "expiry": expiry date MM/YY (if found, else "")
-        - "netRate": purchase rate per strip (number only, default 0)
-        - "price": strip MRP listed on bill (number only, default 0)
-        - "unitsPerPack": pack size / number of units in 1 strip (number only, default 10 or 15 or 1 based on packing)
-        - "gst": GST percentage (number only, e.g. 5, 12, 18, default 12)
-        - "stockist": supplier or stockist name (if found, else "")
-        - "qtyStrips": billed quantity in strips (number only, e.g. 10)
-        - "freeStrips": free bonus quantity in strips (number only, e.g. 10 or 200)
-        - "stock": total tablet count = (qtyStrips + freeStrips) * unitsPerPack (number only)
-        Do not include markdown blocks, output strictly raw JSON array. Example:
-        [{"name": "MNERWIN NT PLUS", "batch": "VT260597", "expiry": "05/28", "netRate": 175.20, "price": 219.00, "unitsPerPack": 10, "gst": 5, "stockist": "TRIPLE-M HEALTH CARE", "qtyStrips": 10, "freeStrips": 10, "stock": 200}]
-      `,
-                n,
-              ])),
-              i)
-            )
-              break;
-          } catch (t) {
-            (console.warn(`Model ${e} failed:`, t.message), (a = t));
+        let base64Data = e.split(`,`)[1];
+        if (!window.electronAPI || !window.electronAPI.aiAnalyzeInvoice) {
+          throw new Error('AI Invoice scanning is only supported in desktop mode.');
+        }
+        let res = await window.electronAPI.aiAnalyzeInvoice({ base64Image: base64Data, mimeType: t });
+        if (!res || !res.success) {
+          let errMsg = (res && (res.details || res.error)) || 'Failed to analyze invoice';
+          if (res && res.error === 'NO_API_KEY') {
+            errMsg = 'Gemini API key is not configured. Please go to Settings -> AI & Scanner Configuration to set your API key.';
           }
-        if (!i) throw a;
-        let o = (await i.response).text();
-        o = o
-          .replace(/```json/gi, ``)
-          .replace(/```/g, ``)
-          .trim();
-        let s = o.match(/\[.*\]/s),
-          l = [];
-        if (s) l = JSON.parse(s[0]);
-        else throw Error(`Could not parse JSON from Gemini response.`);
+          throw new Error(errMsg);
+        }
+        let l = res.items || [];
         let d = Date.now(),
           f = l.map((e) => {
             let t = typeof e == `string` ? e : e.name || `Unknown Item`,
@@ -55153,9 +55281,7 @@ function Fh({ isOpen: e, onClose: t, onItemsExtracted: n }) {
           f.length === 0 && u(`No items could be extracted from this image.`));
       } catch (e) {
         (console.error(e),
-          u(
-            `An error occurred while analyzing the image. Please verify image clarity and try again.`,
-          ));
+          u(e.message || `An error occurred while analyzing the image.`));
       } finally {
         i(!1);
       }
@@ -55807,6 +55933,386 @@ const CATEGORY_FIELD_CONFIG = {
   consumable: { defaultUnitsPerPack: 1, showPackFields: false, showStripBilling: false, priceLabel: `Selling Price (₹)` },
 };
 const DEFAULT_CATEGORY = `medicine`;
+// ── Inventory Main Stock view ──────────────────────────────────────────────────────────────────────────────
+// Pure functions (no hooks, no DOM, no writes) behind the Main Stock screen; tested directly in
+// test/inventory-main-stock.test.cjs. Every figure uses the SAME formulas as the previous inventory table:
+//   units per strip = unitsPerPack || 10, unit price = MRP / units per strip, value = stock × unit price,
+//   strips = stock / units per strip (fractional stock kept, parseFloat — never parseInt).
+// Stock-status thresholds are the EXISTING ones (the old table's badge colours and its Critical / Low / Healthy
+// counts): Critical < 50 units, Low 50–199 units, Healthy ≥ 200 units. "Out of Stock" (≤ 0 units) is a new
+// tab and a subset of Critical. Expiry statuses come from the existing getExpiryInfo (expired < 0 days,
+// expiring ≤ 90 days — the same set getInventoryExpiryAlertItems() returns).
+const VHC_INV_CRITICAL_BELOW = 50;
+const VHC_INV_LOW_BELOW = 200;
+const VHC_INV_TABS = [
+  { id: `all`, label: `All`, hint: `Every batch` },
+  { id: `critical`, label: `Critical`, hint: `Under ${VHC_INV_CRITICAL_BELOW} units (includes out of stock)` },
+  { id: `low`, label: `Low Stock`, hint: `${VHC_INV_CRITICAL_BELOW}–${VHC_INV_LOW_BELOW - 1} units` },
+  { id: `out`, label: `Out of Stock`, hint: `0 units or less` },
+  { id: `expiring`, label: `Expiring`, hint: `Expires within 90 days` },
+  { id: `expired`, label: `Expired`, hint: `Past its expiry date` },
+];
+const VHC_INV_SORTS = [
+  { id: `default`, label: `Default order` },
+  { id: `name-asc`, label: `Name A–Z` },
+  { id: `name-desc`, label: `Name Z–A` },
+  { id: `expiry-asc`, label: `Expiry: soonest first` },
+  { id: `stock-asc`, label: `Stock: lowest first` },
+  { id: `stock-desc`, label: `Stock: highest first` },
+  { id: `value-desc`, label: `Value: highest first` },
+];
+const VHC_INV_EMPTY_FILTERS = { query: ``, category: ``, stockist: ``, sort: `default`, tab: `all` };
+function vhcInvMetrics(item) {
+  let unitsPerStrip = parseFloat(item && (item.unitsPerPack || item.units_per_pack)) || 10,
+    mrp = parseFloat(item && (item.mrp ?? item.price)) || 0,
+    unitPrice = mrp / unitsPerStrip,
+    units = parseFloat(item && item.stock) || 0;
+  return { unitsPerStrip, mrp, unitPrice, units, strips: units / unitsPerStrip, value: units * unitPrice };
+}
+function vhcInvStockStatus(item) {
+  let units = parseFloat(item && item.stock) || 0;
+  if (units <= 0) return `out`;
+  if (units < VHC_INV_CRITICAL_BELOW) return `critical`;
+  if (units < VHC_INV_LOW_BELOW) return `low`;
+  return `ok`;
+}
+function vhcInvInTab(item, tab, expiryOf) {
+  let units = parseFloat(item && item.stock) || 0;
+  switch (tab) {
+    case `critical`: return units < VHC_INV_CRITICAL_BELOW;
+    case `low`: return units >= VHC_INV_CRITICAL_BELOW && units < VHC_INV_LOW_BELOW;
+    case `out`: return units <= 0;
+    case `expiring`: { let s = expiryOf(item).status; return s === `critical` || s === `warning`; }
+    case `expired`: return expiryOf(item).status === `expired`;
+    default: return !0;
+  }
+}
+function vhcInvText(v) {
+  return String(v == null ? `` : v).toLowerCase();
+}
+function vhcInvMatchesQuery(item, query) {
+  let q = vhcInvText(query).trim();
+  if (!q) return !0;
+  return [item.name, item.batch, item.stockist, item.category, item.hsnCode, item.composition].some((f) => vhcInvText(f).includes(q));
+}
+function vhcInvOptions(inventory, key) {
+  let seen = new Map();
+  for (let it of inventory || []) {
+    let raw = String((it && it[key]) || ``).trim();
+    if (raw && !seen.has(raw.toLowerCase())) seen.set(raw.toLowerCase(), raw);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+function vhcInvSortRows(rows, sort, expiryOf) {
+  let out = rows.slice();
+  let byName = (a, b) => String(a.name || ``).localeCompare(String(b.name || ``));
+  let expiryTime = (it) => { let d = expiryOf(it).expiryDate; return d ? d.getTime() : Infinity; };
+  switch (sort) {
+    case `name-asc`: out.sort(byName); break;
+    case `name-desc`: out.sort((a, b) => byName(b, a)); break;
+    case `expiry-asc`: out.sort((a, b) => expiryTime(a) - expiryTime(b) || byName(a, b)); break;
+    case `stock-asc`: out.sort((a, b) => vhcInvMetrics(a).units - vhcInvMetrics(b).units || byName(a, b)); break;
+    case `stock-desc`: out.sort((a, b) => vhcInvMetrics(b).units - vhcInvMetrics(a).units || byName(a, b)); break;
+    case `value-desc`: out.sort((a, b) => vhcInvMetrics(b).value - vhcInvMetrics(a).value || byName(a, b)); break;
+    default: break; // default = the inventory's own order, unchanged
+  }
+  return out;
+}
+// Search + category + stockist apply first (the tab counts reflect them); then the tab; then the sort.
+function vhcInvView(inventory, filters, expiryOf) {
+  let f = { ...VHC_INV_EMPTY_FILTERS, ...(filters || {}) };
+  let base = (inventory || []).filter((it) =>
+    it &&
+    vhcInvMatchesQuery(it, f.query) &&
+    (!f.category || vhcInvText(it.category).trim() === vhcInvText(f.category).trim()) &&
+    (!f.stockist || vhcInvText(it.stockist).trim() === vhcInvText(f.stockist).trim()));
+  let counts = {};
+  for (let t of VHC_INV_TABS) counts[t.id] = base.filter((it) => vhcInvInTab(it, t.id, expiryOf)).length;
+  let rows = vhcInvSortRows(base.filter((it) => vhcInvInTab(it, f.tab, expiryOf)), f.sort, expiryOf);
+  return { rows, counts };
+}
+function vhcInvIsFiltered(filters) {
+  let f = { ...VHC_INV_EMPTY_FILTERS, ...(filters || {}) };
+  return !!(f.query.trim() || f.category || f.stockist || f.sort !== `default` || f.tab !== `all`);
+}
+const VHC_INV_STOCK_LABEL = { out: `Out of Stock`, critical: `Critical`, low: `Low Stock`, ok: `In Stock` };
+const VHC_INV_EXPIRY_LABEL = { expired: `Expired`, critical: `Expiring ≤30d`, warning: `Expiring ≤90d`, ok: ``, unknown: `` };
+// Export rows = exactly the rows on screen (same filters, tab and order).
+function vhcInvExportRows(rows, expiryOf) {
+  return (rows || []).map((it) => {
+    let m = vhcInvMetrics(it);
+    return {
+      item: String(it.name || ``),
+      composition: String(it.composition || ``),
+      category: String(it.category || ``),
+      hsn: String(it.hsnCode || ``),
+      batch: String(it.batch || ``),
+      expiry: String(it.expiry || ``),
+      mrp: m.mrp.toFixed(2),
+      strips: m.strips.toFixed(1),
+      unitsPerStrip: String(m.unitsPerStrip),
+      totalUnits: String(m.units),
+      unitPrice: m.unitPrice.toFixed(2),
+      value: m.value.toFixed(2),
+      netRate: (parseFloat(it.netRate) || 0).toFixed(2),
+      gst: it.gst !== void 0 && it.gst !== null && it.gst !== `` ? String(it.gst) : `5`,
+      stockist: String(it.stockist || ``),
+      stockStatus: VHC_INV_STOCK_LABEL[vhcInvStockStatus(it)],
+      expiryStatus: VHC_INV_EXPIRY_LABEL[expiryOf(it).status] || ``,
+    };
+  });
+}
+const VHC_INV_EXPORT_COLUMNS = [
+  [`item`, `Item`], [`composition`, `Composition`], [`category`, `Category`], [`hsn`, `HSN`], [`batch`, `Batch`],
+  [`expiry`, `Expiry`], [`mrp`, `MRP per strip (Rs)`], [`strips`, `Stock (strips)`], [`unitsPerStrip`, `Units/Strip`],
+  [`totalUnits`, `Total Units`], [`unitPrice`, `Unit price (Rs)`], [`value`, `Value (Rs)`], [`netRate`, `Net rate (Rs)`],
+  [`gst`, `GST %`], [`stockist`, `Stockist`], [`stockStatus`, `Stock status`], [`expiryStatus`, `Expiry status`],
+];
+// CSV for Excel: UTF-8 BOM, CRLF, every field quoted; text that a spreadsheet would run as a formula
+// (= + - @, tab, CR at the start) is prefixed with ' so it stays text.
+function vhcInvCsv(rows, expiryOf) {
+  let numeric = new Set([`mrp`, `strips`, `unitsPerStrip`, `totalUnits`, `unitPrice`, `value`, `netRate`, `gst`]);
+  let cell = (key, v) => {
+    let s = String(v == null ? `` : v);
+    if (!numeric.has(key) && /^[=+\-@\t\r]/.test(s)) s = `'` + s;
+    return `"` + s.replace(/"/g, `""`) + `"`;
+  };
+  let lines = [VHC_INV_EXPORT_COLUMNS.map(([, label]) => cell(``, label)).join(`,`)];
+  for (let r of vhcInvExportRows(rows, expiryOf)) lines.push(VHC_INV_EXPORT_COLUMNS.map(([key]) => cell(key, r[key])).join(`,`));
+  return `﻿` + lines.join(`\r\n`) + `\r\n`;
+}
+// PDF-only: jsPDF's built-in Helvetica cannot draw ≤ (it prints as garbage), so the PDF spells it out.
+// CSV and the on-screen pills keep their own labels unchanged.
+function vhcInvPdfLabel(text) {
+  return String(text == null ? `` : text).replace(/\s*≤\s*/g, ` within `);
+}
+function vhcInvExportFileName(ext, now = new Date()) {
+  let pad = (n) => String(n).padStart(2, `0`);
+  return `Inventory_Main_Stock_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.${ext}`;
+}
+// Main Stock screen body: summary, search + filters, status tabs, table, PDF/CSV export of what is on screen.
+// Read-only view: Edit / Delete / Add / Scan call the EXISTING Inventory handlers passed in by Ih(), unchanged.
+function VhcInventoryMainStock({ inventory, totalBatches, totalValue, onEdit, onDelete, onScan, onAdd }) {
+  let { settings: invSettings } = Ir(),
+    invToast = Th(),
+    [filters, setFilters] = (0, _.useState)(VHC_INV_EMPTY_FILTERS),
+    setFilter = (key) => (value) => setFilters((prev) => ({ ...prev, [key]: value })),
+    view = vhcInvView(inventory, filters, getExpiryInfo),
+    categories = vhcInvOptions(inventory, `category`),
+    stockists = vhcInvOptions(inventory, `stockist`),
+    filtered = vhcInvIsFiltered(filters),
+    money = (n) => n.toLocaleString(`en-IN`, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let exportCsv = () => {
+    try {
+      let blob = new Blob([vhcInvCsv(view.rows, getExpiryInfo)], { type: `text/csv;charset=utf-8;` }),
+        url = URL.createObjectURL(blob),
+        link = document.createElement(`a`);
+      link.href = url;
+      link.download = vhcInvExportFileName(`csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1e3);
+      invToast(`Exported ${view.rows.length} batch(es) to CSV.`, `success`);
+    } catch (err) {
+      invToast(`CSV export failed: ${(err && err.message) || err}`, `error`);
+    }
+  };
+  let exportPdf = () => {
+    try {
+      let doc = new Q({ orientation: `landscape` }),
+        rows = vhcInvExportRows(view.rows, getExpiryInfo),
+        shownValue = view.rows.reduce((s, it) => s + vhcInvMetrics(it).value, 0),
+        tabLabel = (VHC_INV_TABS.find((t) => t.id === filters.tab) || VHC_INV_TABS[0]).label;
+      doc.setFontSize(16);
+      doc.text(invSettings.storeName || `VARNIKA HEALTH CARE`, 14, 16);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Inventory — Main Stock (${tabLabel})   Generated: ${new Date().toLocaleString()}`, 14, 23);
+      let parts = [filters.query.trim() && `Search "${filters.query.trim()}"`, filters.category && `Category ${filters.category}`, filters.stockist && `Stockist ${filters.stockist}`].filter(Boolean);
+      doc.text(`${rows.length} batch(es), value Rs. ${money(shownValue)}${parts.length ? `   Filters: ${parts.join(`, `)}` : ``}`, 14, 29);
+      e_(doc, {
+        head: [[`Item`, `Batch / Expiry`, `MRP (Rs)`, `Stock (strips)`, `Units/Strip`, `Total Units`, `Value (Rs)`, `Status`]],
+        body: rows.map((r) => [
+          r.composition ? `${r.item}\n${r.composition}` : r.item,
+          `${r.batch || `-`}\nExp: ${r.expiry || `-`}`,
+          r.mrp, r.strips, r.unitsPerStrip, r.totalUnits, r.value,
+          [r.stockStatus, vhcInvPdfLabel(r.expiryStatus)].filter(Boolean).join(`\n`),
+        ]),
+        startY: 34,
+        theme: `grid`,
+        styles: { fontSize: 8, cellPadding: 1.6 },
+        headStyles: { fillColor: [37, 99, 235] },
+        columnStyles: { 2: { halign: `right` }, 3: { halign: `right` }, 4: { halign: `right` }, 5: { halign: `right` }, 6: { halign: `right` } },
+      });
+      doc.save(vhcInvExportFileName(`pdf`));
+      invToast(`Exported ${rows.length} batch(es) to PDF.`, `success`);
+    } catch (err) {
+      console.error(`Inventory PDF export failed:`, err);
+      invToast(`PDF export failed: ${(err && err.message) || err}`, `error`);
+    }
+  };
+  let pill = (cls, text, title) => (0, J.jsx)(`span`, { className: `vhc-ms-pill ${cls}`, title, children: text });
+  let stockPill = (it) => {
+    let s = vhcInvStockStatus(it);
+    return pill(`vhc-ms-pill-${s}`, VHC_INV_STOCK_LABEL[s]);
+  };
+  let expiryPill = (it) => {
+    let info = getExpiryInfo(it);
+    if (info.status === `expired`) return pill(`vhc-ms-pill-expired`, `Expired`, `${-info.daysRemaining} day(s) ago`);
+    if (info.status === `critical` || info.status === `warning`) return pill(`vhc-ms-pill-expiring`, `Exp. ${info.daysRemaining}d`, `${info.daysRemaining} day(s) left`);
+    return null;
+  };
+  let selectBox = (value, onChange, first, options, label) =>
+    (0, J.jsxs)(`select`, {
+      className: `vhc-ms-select`, value, "aria-label": label,
+      onChange: (e) => onChange(e.target.value),
+      children: [
+        (0, J.jsx)(`option`, { value: ``, children: first }),
+        ...options.map((o) => (0, J.jsx)(`option`, { value: o, children: o }, o)),
+      ],
+    });
+  return (0, J.jsxs)(`div`, {
+    className: `vhc-ms`,
+    children: [
+      (0, J.jsxs)(`div`, {
+        className: `vhc-ms-head`,
+        children: [
+          (0, J.jsxs)(`div`, {
+            children: [
+              (0, J.jsx)(`h1`, { className: `vhc-ms-title`, children: `Inventory Management` }),
+              (0, J.jsx)(`div`, { className: `vhc-ms-sub`, children: `Main Stock · Pharmacy counter` }),
+            ],
+          }),
+          (0, J.jsxs)(`div`, {
+            className: `vhc-ms-actions`,
+            children: [
+              (0, J.jsxs)(`button`, { type: `button`, className: `vhc-ms-btn`, onClick: exportPdf, disabled: !view.rows.length, title: `Export the batches shown below`, children: [(0, J.jsx)($n, { size: 16 }), `Export PDF`] }),
+              (0, J.jsxs)(`button`, { type: `button`, className: `vhc-ms-btn`, onClick: exportCsv, disabled: !view.rows.length, title: `Export the batches shown below (opens in Excel)`, children: [(0, J.jsx)($n, { size: 16 }), `Export CSV`] }),
+              (0, J.jsxs)(`button`, { type: `button`, className: `vhc-ms-btn`, onClick: onScan, children: [(0, J.jsx)(Un, { size: 16 }), `AI Scan Bill`] }),
+              (0, J.jsxs)(`button`, { type: `button`, className: `vhc-ms-btn vhc-ms-btn-primary`, onClick: onAdd, children: [(0, J.jsx)(mr, { size: 16 }), `Add Item`] }),
+            ],
+          }),
+        ],
+      }),
+      (0, J.jsxs)(`div`, {
+        className: `vhc-ms-summary`, role: `group`, "aria-label": `Inventory status`,
+        // Six status cards = the same counts and the same tab filter as the status tabs below (view.counts,
+        // VHC_INV_TABS, filters.tab); no new thresholds or calculations. Clicking a card selects that filter.
+        children: VHC_INV_TABS.map((t) => (0, J.jsxs)(`button`, {
+          type: `button`, "aria-pressed": filters.tab === t.id, title: t.hint,
+          className: `vhc-ms-stat vhc-ms-stat-${t.id}${filters.tab === t.id ? ` is-active` : ``}`,
+          onClick: () => setFilter(`tab`)(t.id),
+          children: [
+            (0, J.jsx)(`span`, { className: `vhc-ms-stat-label`, children: t.label }),
+            (0, J.jsx)(`span`, { className: `vhc-ms-stat-value`, children: view.counts[t.id] }),
+            (0, J.jsx)(`span`, { className: `vhc-ms-stat-hint`, children: t.hint }),
+          ],
+        }, t.id)),
+      }),
+      (0, J.jsxs)(`div`, {
+        className: `vhc-ms-panel`,
+        children: [
+          (0, J.jsxs)(`div`, {
+            className: `vhc-ms-filters`,
+            children: [
+              (0, J.jsxs)(`div`, {
+                className: `vhc-ms-search`,
+                children: [
+                  (0, J.jsx)(yr, { size: 18 }),
+                  (0, J.jsx)(`input`, {
+                    type: `text`, value: filters.query, "aria-label": `Search inventory`,
+                    placeholder: `Search name, composition, batch…`, title: `Searches trade name, generic composition, batch, stockist, category and HSN`,
+                    onChange: (e) => setFilter(`query`)(e.target.value),
+                  }),
+                ],
+              }),
+              selectBox(filters.category, setFilter(`category`), `All categories`, categories, `Category`),
+              selectBox(filters.stockist, setFilter(`stockist`), `All stockists`, stockists, `Stockist`),
+              (0, J.jsx)(`select`, {
+                className: `vhc-ms-select`, value: filters.sort, "aria-label": `Sort`,
+                onChange: (e) => setFilter(`sort`)(e.target.value),
+                children: VHC_INV_SORTS.map((s) => (0, J.jsx)(`option`, { value: s.id, children: s.label }, s.id)),
+              }),
+              (0, J.jsx)(`button`, { type: `button`, className: `vhc-ms-btn vhc-ms-clear`, disabled: !filtered, onClick: () => setFilters(VHC_INV_EMPTY_FILTERS), children: `Clear` }),
+            ],
+          }),
+          (0, J.jsxs)(`div`, {
+            className: `vhc-ms-showing`,
+            children: [`Showing `, view.rows.length, ` of `, inventory.length, ` batches`],
+          }),
+          (0, J.jsx)(`div`, {
+            className: `vhc-ms-table-wrap`,
+            children: (0, J.jsxs)(`table`, {
+              className: `vhc-ms-table`,
+              children: [
+                (0, J.jsx)(`thead`, {
+                  children: (0, J.jsx)(`tr`, {
+                    children: [`Item`, `Batch / Expiry`, `MRP`, `Stock (strips)`, `Units / Strip`, `Total Units`, `Value`, `Status`, `Actions`].map((h, i) =>
+                      (0, J.jsx)(`th`, { className: i >= 2 && i <= 6 ? `num` : i === 8 ? `act` : ``, children: h }, h)),
+                  }),
+                }),
+                (0, J.jsxs)(`tbody`, {
+                  children: [
+                    view.rows.map((it) => {
+                      let m = vhcInvMetrics(it);
+                      return (0, J.jsxs)(`tr`, {
+                        children: [
+                          (0, J.jsxs)(`td`, {
+                            className: `item`,
+                            children: [
+                              (0, J.jsx)(`div`, { className: `vhc-ms-name`, children: it.name }),
+                              it.composition && (0, J.jsx)(`div`, { className: `vhc-ms-comp`, children: it.composition }),
+                              (0, J.jsx)(`div`, { className: `vhc-ms-meta`, children: [it.category, it.stockist || `General Stock`, it.hsnCode && `HSN ${it.hsnCode}`].filter(Boolean).join(` · `) }),
+                            ],
+                          }),
+                          (0, J.jsxs)(`td`, {
+                            children: [
+                              (0, J.jsx)(`div`, { className: `vhc-ms-batch`, children: it.batch || `-` }),
+                              (0, J.jsxs)(`div`, { className: `vhc-ms-meta`, children: [`Exp: `, it.expiry || `-`] }),
+                            ],
+                          }),
+                          (0, J.jsxs)(`td`, {
+                            className: `num`,
+                            children: [
+                              (0, J.jsxs)(`div`, { className: `vhc-ms-strong`, children: [`₹`, m.mrp.toFixed(2)] }),
+                              (0, J.jsxs)(`div`, { className: `vhc-ms-meta`, children: [`₹`, m.unitPrice.toFixed(2), `/unit · cost ₹`, (parseFloat(it.netRate) || 0).toFixed(2), ` · GST `, it.gst !== void 0 && it.gst !== null && it.gst !== `` ? it.gst : 5, `%`] }),
+                            ],
+                          }),
+                          (0, J.jsx)(`td`, { className: `num vhc-ms-strong`, children: m.strips.toFixed(1) }),
+                          (0, J.jsx)(`td`, { className: `num`, children: m.unitsPerStrip }),
+                          (0, J.jsx)(`td`, { className: `num`, children: it.stock }),
+                          (0, J.jsxs)(`td`, { className: `num vhc-ms-strong vhc-ms-accent`, children: [`₹`, money(m.value)] }),
+                          (0, J.jsxs)(`td`, { children: [stockPill(it), expiryPill(it)] }),
+                          (0, J.jsx)(`td`, {
+                            className: `act`,
+                            children: (0, J.jsxs)(`div`, {
+                              className: `vhc-ms-row-actions`,
+                              children: [
+                                (0, J.jsxs)(`button`, { type: `button`, className: `vhc-ms-icon vhc-ms-edit`, title: `Edit Item`, onClick: () => onEdit(it), children: [(0, J.jsx)(wr, { size: 14 }), `Edit`] }),
+                                (0, J.jsx)(`button`, { type: `button`, className: `vhc-ms-icon vhc-ms-delete`, title: `Delete Item`, "aria-label": `Delete ${it.name}`, onClick: () => onDelete(it.id), children: (0, J.jsx)(Dr, { size: 14 }) }),
+                              ],
+                            }),
+                          }),
+                        ],
+                      }, it.id);
+                    }),
+                    view.rows.length === 0 && (0, J.jsx)(`tr`, {
+                      children: (0, J.jsx)(`td`, {
+                        colSpan: 9, className: `vhc-ms-empty`,
+                        children: inventory.length ? `No batches match these filters.` : `No inventory yet. Use Add Item or AI Scan Bill.`,
+                      }),
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          }),
+        ],
+      }),
+    ],
+  });
+}
 function Ih() {
   let {
       inventory: e,
@@ -55821,7 +56327,6 @@ function Ih() {
     [savingEdit, setSavingEdit] = (0, _.useState)(!1),
     editSaveRef = (0, _.useRef)({ inFlight: !1, key: null, fingerprint: null }),
     [a, o] = (0, _.useState)(``),
-    [s, c] = (0, _.useState)(!1),
     [l, u] = (0, _.useState)(!1),
     [d, f] = (0, _.useState)(!1),
     [p, m] = (0, _.useState)(!1),
@@ -55840,40 +56345,6 @@ function Ih() {
       category: DEFAULT_CATEGORY,
     }),
     [S, C] = (0, _.useState)(null),
-    [expiryAlertOpen, setExpiryAlertOpen] = (0, _.useState)(!1),
-    [selectedExpiryMedicine, setSelectedExpiryMedicine] = (0, _.useState)(null),
-    [, forceExpiryAckRerender] = (0, _.useState)(0),
-    [lowStockViewAllOpen, setLowStockViewAllOpen] = (0, _.useState)(!1),
-    [expiryViewAllOpen, setExpiryViewAllOpen] = (0, _.useState)(!1),
-    expiryAlertData = getInventoryExpiryAlertItems(e),
-    expiryAlertByMedicine = (() => {
-      let map = new Map();
-      expiryAlertData.forEach(({ item, expiryInfo }) => {
-        let key = (item.name || `Unknown`).trim();
-        if (!map.has(key)) map.set(key, { name: key, batches: [], soonestDays: expiryInfo.daysRemaining, soonestStatus: expiryInfo.status });
-        let group = map.get(key);
-        (group.batches.push({ item, expiryInfo }),
-          (expiryInfo.daysRemaining ?? Infinity) < (group.soonestDays ?? Infinity) &&
-            ((group.soonestDays = expiryInfo.daysRemaining), (group.soonestStatus = expiryInfo.status)));
-      });
-      return Array.from(map.values()).sort((a, b) => (a.soonestDays ?? 0) - (b.soonestDays ?? 0));
-    })(),
-    expiryAckedIds = (() => {
-      try {
-        return new Set(JSON.parse(localStorage.getItem(`pos_expiry_ack_ids`) || `[]`));
-      } catch {
-        return new Set();
-      }
-    })(),
-    unacknowledgedExpiryCount = expiryAlertData.filter((it) => !expiryAckedIds.has(it.item.id)).length,
-    acknowledgeExpiryAlerts = () => {
-      try {
-        let ids = expiryAlertData.map((it) => it.item.id);
-        localStorage.setItem(`pos_expiry_ack_ids`, JSON.stringify(ids));
-      } catch {}
-      (forceExpiryAckRerender((n) => n + 1),
-        window.dispatchEvent(new Event(`vhc-expiry-ack-changed`)));
-    },
     w = e.filter((e) => e.name.toLowerCase().includes(a.toLowerCase())),
     T = e.length,
     E = e.filter((e) => (parseFloat(e.stock) || 0) < 50),
@@ -55883,7 +56354,6 @@ function Ih() {
         (parseFloat(e.stock) || 0) < 200,
     ),
     O = e.filter((e) => (parseFloat(e.stock) || 0) >= 200),
-    k = e.filter((e) => (parseFloat(e.stock) || 0) < 200),
     A = e.reduce(
       (e, t) => {
         let n = parseFloat(t.unitsPerPack || t.units_per_pack) || 10,
@@ -56043,816 +56513,19 @@ function Ih() {
   return (0, J.jsxs)(`div`, {
     className: `animate-fade-in`,
     children: [
-      (0, J.jsxs)(`div`, {
-        className: `flex-between mb-4`,
-        children: [
-          (0, J.jsx)(`h1`, { children: `Inventory Management` }),
-          (0, J.jsxs)(`div`, {
-            className: `flex-center gap-2`,
-            children: [
-              (0, J.jsxs)(`button`, {
-                className: `btn btn-outline`,
-                onClick: () => m(!0),
-                children: [(0, J.jsx)(Un, { size: 20 }), `Scan to Add`],
-              }),
-              (0, J.jsxs)(`button`, {
-                className: `btn btn-primary`,
-                onClick: j,
-                children: [(0, J.jsx)(mr, { size: 20 }), `Add Manually`],
-              }),
-            ],
-          }),
-        ],
+      // Inventory Main Stock: summary, search + filters, status tabs, table and exports. Replaces the old header,
+      // summary cards and search/table; Edit (M), Delete (P), Scan (m) and Add (j) are the existing handlers, unchanged.
+      (0, J.jsx)(VhcInventoryMainStock, {
+        inventory: e,
+        totalBatches: T,
+        totalValue: A.totalSellingValue,
+        onEdit: M,
+        onDelete: P,
+        onScan: () => m(!0),
+        onAdd: j,
       }),
-      (0, J.jsxs)(`div`, {
-        style: {
-          display: `grid`,
-          gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))`,
-          gap: `1rem`,
-          marginBottom: `1.5rem`,
-        },
-        children: [
-          (0, J.jsxs)(`div`, {
-            style: {
-              background: `linear-gradient(135deg, #0f172a 0%, #1e293b 100%)`,
-              color: `#ffffff`,
-              padding: `1.25rem`,
-              borderRadius: `14px`,
-              boxShadow: `0 4px 12px rgba(15,23,42,0.12)`,
-            },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.8rem`, fontWeight: `600`, opacity: 0.85 },
-                children: `Total Items`,
-              }),
-              (0, J.jsx)(`div`, {
-                style: {
-                  fontSize: `2rem`,
-                  fontWeight: `800`,
-                  marginTop: `0.25rem`,
-                },
-                children: T,
-              }),
-            ],
-          }),
-          (0, J.jsxs)(`div`, {
-            style: {
-              background: `linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)`,
-              color: `#ffffff`,
-              padding: `1.25rem`,
-              borderRadius: `14px`,
-              boxShadow: `0 4px 12px rgba(127,29,29,0.12)`,
-            },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.8rem`, fontWeight: `600`, opacity: 0.85 },
-                children: `Critical (<5 units)`,
-              }),
-              (0, J.jsx)(`div`, {
-                style: {
-                  fontSize: `2rem`,
-                  fontWeight: `800`,
-                  marginTop: `0.25rem`,
-                },
-                children: E.length,
-              }),
-            ],
-          }),
-          (0, J.jsxs)(`div`, {
-            style: {
-              background: `linear-gradient(135deg, #78350f 0%, #92400e 100%)`,
-              color: `#ffffff`,
-              padding: `1.25rem`,
-              borderRadius: `14px`,
-              boxShadow: `0 4px 12px rgba(120,53,15,0.12)`,
-            },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.8rem`, fontWeight: `600`, opacity: 0.85 },
-                children: `Low (5-10 units)`,
-              }),
-              (0, J.jsx)(`div`, {
-                style: {
-                  fontSize: `2rem`,
-                  fontWeight: `800`,
-                  marginTop: `0.25rem`,
-                },
-                children: D.length,
-              }),
-            ],
-          }),
-          (0, J.jsxs)(`div`, {
-            style: {
-              background: `linear-gradient(135deg, #14532d 0%, #166534 100%)`,
-              color: `#ffffff`,
-              padding: `1.25rem`,
-              borderRadius: `14px`,
-              boxShadow: `0 4px 12px rgba(20,83,45,0.12)`,
-            },
-            children: [
-              (0, J.jsx)(`div`, {
-                style: { fontSize: `0.8rem`, fontWeight: `600`, opacity: 0.85 },
-                children: `Healthy (>10 units)`,
-              }),
-              (0, J.jsx)(`div`, {
-                style: {
-                  fontSize: `2rem`,
-                  fontWeight: `800`,
-                  marginTop: `0.25rem`,
-                },
-                children: O.length,
-              }),
-            ],
-          }),
-        ],
-      }),
-      (0, J.jsxs)(`div`, {
-        className: `glass-panel`,
-        style: {
-          padding: `1.25rem 1.5rem`,
-          marginBottom: `1.25rem`,
-          background: `var(--surface)`,
-          borderRadius: `16px`,
-        },
-        children: [
-          (0, J.jsxs)(`div`, {
-            onClick: () => c((e) => !e),
-            style: {
-              display: `flex`,
-              justifyContent: `space-between`,
-              alignItems: `center`,
-              cursor: `pointer`,
-              userSelect: `none`,
-            },
-            children: [
-              (0, J.jsxs)(`div`, {
-                style: {
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.65rem`,
-                },
-                children: [
-                  (0, J.jsxs)(`h3`, {
-                    style: {
-                      margin: 0,
-                      fontSize: `1.1rem`,
-                      color: `var(--text-primary)`,
-                      display: `flex`,
-                      alignItems: `center`,
-                      gap: `0.5rem`,
-                    },
-                    children: [
-                      (0, J.jsx)(kr, { size: 20, color: `#eab308` }),
-                      ` Low Stock Alert`,
-                    ],
-                  }),
-                  k.length > 0 &&
-                    (0, J.jsxs)(`span`, {
-                      style: {
-                        background: `var(--warning-light)`,
-                        color: `var(--warning-strong)`,
-                        padding: `0.2rem 0.65rem`,
-                        borderRadius: `20px`,
-                        fontSize: `0.8rem`,
-                        fontWeight: `800`,
-                        border: `1px solid var(--warning-border)`,
-                      },
-                      children: [k.length, ` items low`],
-                    }),
-                ],
-              }),
-              (0, J.jsxs)(`button`, {
-                type: `button`,
-                className: `btn-icon`,
-                style: {
-                  background: `var(--surface-raised)`,
-                  padding: `0.35rem 0.65rem`,
-                  borderRadius: `8px`,
-                  border: `1.5px solid var(--border-strong)`,
-                  color: `var(--text-heading)`,
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.3rem`,
-                  cursor: `pointer`,
-                },
-                onClick: (e) => {
-                  (e.stopPropagation(), c((e) => !e));
-                },
-                title: s
-                  ? `Minimize Low Stock Alert`
-                  : `Maximize Low Stock Alert`,
-                children: [
-                  (0, J.jsx)(`span`, {
-                    style: { fontSize: `0.78rem`, fontWeight: `700` },
-                    children: s ? `Minimize` : `Expand`,
-                  }),
-                  s
-                    ? (0, J.jsx)(Kn, { size: 18 })
-                    : (0, J.jsx)(Gn, { size: 18 }),
-                ],
-              }),
-            ],
-          }),
-          s &&
-            (0, J.jsx)(`div`, {
-              className: `animate-fade-in`,
-              style: {
-                marginTop: `1rem`,
-                paddingTop: `1rem`,
-                borderTop: `1px solid var(--border)`,
-              },
-              children:
-                k.length === 0
-                  ? (0, J.jsx)(`div`, {
-                      style: { fontSize: `0.9rem`, color: `var(--text-soft)` },
-                      children: `All items have healthy stock levels!`,
-                    })
-                  : (() => {
-                      let sortedLow = [...k].sort((a, b) => (parseFloat(a.stock) || 0) - (parseFloat(b.stock) || 0)),
-                        maxRef = Math.max(200, ...sortedLow.map((it) => parseFloat(it.stock) || 0)),
-                        shown = sortedLow.slice(0, 10);
-                      return (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, {
-                            style: { display: `flex`, flexDirection: `column`, gap: `0.65rem` },
-                            children: shown.map((it) => {
-                              let stockVal = parseFloat(it.stock) || 0,
-                                pct = Math.max(2, Math.min(100, (stockVal / maxRef) * 100)),
-                                isCritical = stockVal < 5;
-                              return (0, J.jsxs)(
-                                `div`,
-                                {
-                                  style: { display: `flex`, alignItems: `center`, gap: `0.75rem` },
-                                  children: [
-                                    (0, J.jsx)(`div`, {
-                                      style: {
-                                        width: `170px`,
-                                        flexShrink: 0,
-                                        fontSize: `0.8rem`,
-                                        fontWeight: `700`,
-                                        color: `var(--text-heading)`,
-                                        whiteSpace: `nowrap`,
-                                        overflow: `hidden`,
-                                        textOverflow: `ellipsis`,
-                                      },
-                                      title: it.name,
-                                      children: it.name,
-                                    }),
-                                    (0, J.jsx)(`div`, {
-                                      style: {
-                                        flex: 1,
-                                        background: `var(--surface-sunken)`,
-                                        borderRadius: `6px`,
-                                        height: `18px`,
-                                        overflow: `hidden`,
-                                      },
-                                      children: (0, J.jsx)(`div`, {
-                                        style: {
-                                          width: `${pct}%`,
-                                          height: `100%`,
-                                          borderRadius: `6px`,
-                                          background: isCritical ? `var(--danger-hover)` : `var(--warning-strong)`,
-                                        },
-                                      }),
-                                    }),
-                                    (0, J.jsxs)(`div`, {
-                                      style: {
-                                        width: `70px`,
-                                        flexShrink: 0,
-                                        textAlign: `right`,
-                                        fontSize: `0.8rem`,
-                                        fontWeight: `800`,
-                                        color: isCritical ? `var(--danger-strong)` : `var(--warning-strong)`,
-                                      },
-                                      children: [stockVal, ` Nos`],
-                                    }),
-                                  ],
-                                },
-                                it.id,
-                              );
-                            }),
-                          }),
-                          k.length > shown.length &&
-                            (0, J.jsxs)(`button`, {
-                              type: `button`,
-                              className: `btn btn-outline`,
-                              style: { marginTop: `0.9rem`, fontSize: `0.8rem`, padding: `0.45rem 0.9rem` },
-                              onClick: (evt) => {
-                                (evt.stopPropagation(), setLowStockViewAllOpen(!0));
-                              },
-                              children: [`View All (`, k.length, ` items low)`],
-                            }),
-                        ],
-                      });
-                    })(),
-            }),
-        ],
-      }),
-      (0, J.jsxs)(`div`, {
-        className: `glass-panel`,
-        style: {
-          padding: `1.25rem 1.5rem`,
-          marginBottom: `1.25rem`,
-          background: `var(--surface)`,
-          borderRadius: `16px`,
-        },
-        children: [
-          (0, J.jsxs)(`div`, {
-            onClick: () => setExpiryAlertOpen((v) => !v),
-            style: {
-              display: `flex`,
-              justifyContent: `space-between`,
-              alignItems: `center`,
-              cursor: `pointer`,
-              userSelect: `none`,
-            },
-            children: [
-              (0, J.jsxs)(`div`, {
-                style: { display: `flex`, alignItems: `center`, gap: `0.65rem`, flexWrap: `wrap` },
-                children: [
-                  (0, J.jsx)(`h3`, {
-                    style: {
-                      margin: 0,
-                      fontSize: `1.1rem`,
-                      color: `var(--text-primary)`,
-                      display: `flex`,
-                      alignItems: `center`,
-                      gap: `0.5rem`,
-                    },
-                    children: `⏰ Expiry Alert`,
-                  }),
-                  expiryAlertByMedicine.length > 0 &&
-                    (0, J.jsxs)(`span`, {
-                      style: {
-                        background: `var(--danger-light)`,
-                        color: `var(--danger-strong)`,
-                        padding: `0.2rem 0.65rem`,
-                        borderRadius: `20px`,
-                        fontSize: `0.8rem`,
-                        fontWeight: `800`,
-                        border: `1px solid var(--danger-border)`,
-                      },
-                      children: [expiryAlertByMedicine.length, expiryAlertByMedicine.length === 1 ? ` medicine` : ` medicines`],
-                    }),
-                  unacknowledgedExpiryCount > 0 &&
-                    (0, J.jsxs)(`span`, {
-                      style: {
-                        background: `#dc2626`,
-                        color: `#ffffff`,
-                        padding: `0.2rem 0.6rem`,
-                        borderRadius: `20px`,
-                        fontSize: `0.75rem`,
-                        fontWeight: `800`,
-                      },
-                      children: [unacknowledgedExpiryCount, ` new`],
-                    }),
-                ],
-              }),
-              (0, J.jsxs)(`button`, {
-                type: `button`,
-                className: `btn-icon`,
-                style: {
-                  background: `var(--surface-raised)`,
-                  padding: `0.35rem 0.65rem`,
-                  borderRadius: `8px`,
-                  border: `1.5px solid var(--border-strong)`,
-                  color: `var(--text-heading)`,
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.3rem`,
-                  cursor: `pointer`,
-                },
-                onClick: (e) => {
-                  (e.stopPropagation(), setExpiryAlertOpen((v) => !v));
-                },
-                title: expiryAlertOpen ? `Minimize Expiry Alert` : `Maximize Expiry Alert`,
-                children: [
-                  (0, J.jsx)(`span`, {
-                    style: { fontSize: `0.78rem`, fontWeight: `700` },
-                    children: expiryAlertOpen ? `Minimize` : `Expand`,
-                  }),
-                  expiryAlertOpen ? (0, J.jsx)(Kn, { size: 18 }) : (0, J.jsx)(Gn, { size: 18 }),
-                ],
-              }),
-            ],
-          }),
-          expiryAlertOpen &&
-            (0, J.jsxs)(`div`, {
-              className: `animate-fade-in`,
-              style: { marginTop: `1rem`, paddingTop: `1rem`, borderTop: `1px solid var(--border)` },
-              children: [
-                expiryAlertByMedicine.length > 0 &&
-                  (0, J.jsx)(`div`, {
-                    style: { marginBottom: `0.75rem`, display: `flex`, justifyContent: `flex-end` },
-                    children: (0, J.jsx)(`button`, {
-                      type: `button`,
-                      className: `btn btn-outline`,
-                      style: { fontSize: `0.78rem`, padding: `0.35rem 0.75rem` },
-                      onClick: acknowledgeExpiryAlerts,
-                      disabled: unacknowledgedExpiryCount === 0,
-                      children: unacknowledgedExpiryCount === 0 ? `Acknowledged` : `Acknowledge All`,
-                    }),
-                  }),
-                expiryAlertByMedicine.length === 0
-                  ? (0, J.jsx)(`div`, {
-                      style: { fontSize: `0.9rem`, color: `var(--text-soft)` },
-                      children: `No medicines expiring within 90 days.`,
-                    })
-                  : (() => {
-                      let shownExpiryGroups = expiryAlertByMedicine.slice(0, 10);
-                      return (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, {
-                      style: { display: `flex`, flexDirection: `column`, gap: `0.5rem` },
-                      children: shownExpiryGroups.map((group) => {
-                        let meta = getExpiryStatusMeta(group.soonestStatus),
-                          urgencyPct =
-                            group.soonestDays == null
-                              ? 100
-                              : Math.max(4, Math.min(100, 100 - (Math.max(0, group.soonestDays) / 90) * 100));
-                        return (0, J.jsxs)(
-                          `div`,
-                          {
-                            onClick: () => setSelectedExpiryMedicine(group.name),
-                            style: {
-                              display: `flex`,
-                              justifyContent: `space-between`,
-                              alignItems: `center`,
-                              padding: `0.65rem 0.9rem`,
-                              borderRadius: `10px`,
-                              background: meta.bg,
-                              border: `1px solid ${meta.border}`,
-                              cursor: `pointer`,
-                            },
-                            children: [
-                              (0, J.jsxs)(`div`, {
-                                style: { flex: 1, minWidth: 0, marginRight: `0.75rem` },
-                                children: [
-                                  (0, J.jsx)(`div`, {
-                                    style: { fontWeight: `800`, fontSize: `0.9rem`, color: `var(--text-primary)` },
-                                    children: group.name,
-                                  }),
-                                  (0, J.jsxs)(`div`, {
-                                    style: { fontSize: `0.75rem`, color: `var(--text-soft)`, marginTop: `0.15rem`, marginBottom: `0.4rem` },
-                                    children: [group.batches.length, group.batches.length === 1 ? ` batch` : ` batches`, ` — click for full details`],
-                                  }),
-                                  (0, J.jsx)(`div`, {
-                                    style: { background: `rgba(255,255,255,0.6)`, borderRadius: `6px`, height: `8px`, overflow: `hidden` },
-                                    children: (0, J.jsx)(`div`, {
-                                      style: { width: `${urgencyPct}%`, height: `100%`, borderRadius: `6px`, background: meta.color },
-                                    }),
-                                  }),
-                                ],
-                              }),
-                              (0, J.jsxs)(`div`, {
-                                style: { textAlign: `right`, flexShrink: 0 },
-                                children: [
-                                  (0, J.jsx)(`span`, {
-                                    style: {
-                                      background: meta.color,
-                                      color: `#ffffff`,
-                                      padding: `0.2rem 0.55rem`,
-                                      borderRadius: `6px`,
-                                      fontSize: `0.75rem`,
-                                      fontWeight: `700`,
-                                    },
-                                    children: meta.label,
-                                  }),
-                                  (0, J.jsx)(`div`, {
-                                    style: { fontSize: `0.72rem`, color: meta.color, marginTop: `0.25rem`, fontWeight: `700` },
-                                    children:
-                                      group.soonestDays == null
-                                        ? `Unknown`
-                                        : group.soonestDays < 0
-                                          ? `Expired ${Math.abs(group.soonestDays)}d ago`
-                                          : `${group.soonestDays}d left`,
-                                  }),
-                                ],
-                              }),
-                            ],
-                          },
-                          group.name,
-                        );
-                      }),
-                          }),
-                          expiryAlertByMedicine.length > shownExpiryGroups.length &&
-                            (0, J.jsxs)(`button`, {
-                              type: `button`,
-                              className: `btn btn-outline`,
-                              style: { marginTop: `0.9rem`, fontSize: `0.8rem`, padding: `0.45rem 0.9rem` },
-                              onClick: (evt) => {
-                                (evt.stopPropagation(), setExpiryViewAllOpen(!0));
-                              },
-                              children: [`View All (`, expiryAlertByMedicine.length, ` medicines)`],
-                            }),
-                        ],
-                      });
-                    })(),
-              ],
-            }),
-        ],
-      }),
-      (0, J.jsxs)(`div`, {
-        className: `glass-panel`,
-        children: [
-          (0, J.jsx)(`div`, {
-            className: `flex-between`,
-            style: {
-              padding: `1.5rem`,
-              borderBottom: `1px solid var(--panel-border)`,
-            },
-            children: (0, J.jsxs)(`div`, {
-              className: `search-bar`,
-              style: { width: `300px` },
-              children: [
-                (0, J.jsx)(yr, { size: 20, className: `text-secondary` }),
-                (0, J.jsx)(`input`, {
-                  type: `text`,
-                  placeholder: `Search inventory...`,
-                  value: a,
-                  onChange: (e) => o(e.target.value),
-                  className: `input-field`,
-                  style: { border: `none`, background: `transparent` },
-                }),
-              ],
-            }),
-          }),
-          (0, J.jsx)(`div`, {
-            className: `table-container`,
-            style: { minHeight: `300px`, overflowX: `auto` },
-            children: (0, J.jsxs)(`table`, {
-              style: { minWidth: `100%` },
-              children: [
-                (0, J.jsx)(`thead`, {
-                  children: (0, J.jsxs)(`tr`, {
-                    children: [
-                      (0, J.jsx)(`th`, {
-                        className: `sticky-col-left`,
-                        style: { minWidth: `180px` },
-                        children: `Item Name`,
-                      }),
-                      (0, J.jsx)(`th`, { children: `Batch & Expiry` }),
-                      (0, J.jsx)(`th`, { children: `Price & MRP` }),
-                      (0, J.jsx)(`th`, { children: `Stock (Qty)` }),
-                      (0, J.jsx)(`th`, { children: `Stock Value` }),
-                      (0, J.jsx)(`th`, { children: `Net Amount` }),
-                      (0, J.jsx)(`th`, {
-                        className: `sticky-col-right`,
-                        style: {
-                          textAlign: `center`,
-                          width: `130px`,
-                          minWidth: `130px`,
-                        },
-                        children: `Actions`,
-                      }),
-                    ],
-                  }),
-                }),
-                (0, J.jsxs)(`tbody`, {
-                  children: [
-                    w.map((e) => {
-                      // Stock may be fractional (e.g. 20.5 units after a correction): parseFloat, never parseInt, for every displayed
-                      // quantity and value (20.5 units x Rs 10 = Rs 205.00). Stored stock is not touched here.
-                      let t =
-                          parseFloat(e.unitsPerPack || e.units_per_pack) || 10,
-                        n = (parseFloat(e.mrp ?? e.price) || 0) / t,
-                        r = (e.stock / t).toFixed(1),
-                        i = (parseFloat(e.stock) || 0) * n;
-                      return (0, J.jsxs)(
-                        `tr`,
-                        {
-                          children: [
-                            (0, J.jsxs)(`td`, {
-                              className: `sticky-col-left`,
-                              children: [
-                                (0, J.jsx)(`strong`, {
-                                  style: {
-                                    fontSize: `0.95rem`,
-                                    color: `var(--text-primary)`,
-                                    display: `block`,
-                                  },
-                                  children: e.name,
-                                }),
-                                (0, J.jsx)(`span`, {
-                                  style: {
-                                    fontSize: `0.75rem`,
-                                    color: `var(--text-soft)`,
-                                  },
-                                  children: e.stockist || `General Stock`,
-                                }),
-                              ],
-                            }),
-                            (0, J.jsxs)(`td`, {
-                              children: [
-                                (0, J.jsx)(`div`, {
-                                  style: {
-                                    fontWeight: `600`,
-                                    color: `var(--text-heading)`,
-                                  },
-                                  children: e.batch || `-`,
-                                }),
-                                (0, J.jsxs)(`span`, {
-                                  style: {
-                                    fontSize: `0.75rem`,
-                                    color: `var(--text-soft)`,
-                                    display: `block`,
-                                  },
-                                  children: [`Exp: `, e.expiry || `-`],
-                                }),
-                              ],
-                            }),
-                            (0, J.jsxs)(`td`, {
-                              children: [
-                                (0, J.jsxs)(`div`, {
-                                  style: {
-                                    fontSize: `0.95rem`,
-                                    fontWeight: `800`,
-                                    color: `var(--info-strong)`,
-                                  },
-                                  children: [
-                                    `₹`,
-                                    n.toFixed(2),
-                                    ` `,
-                                    (0, J.jsx)(`span`, {
-                                      style: {
-                                        fontSize: `0.72rem`,
-                                        fontWeight: `600`,
-                                        color: `var(--text-soft)`,
-                                      },
-                                      children: `/unit`,
-                                    }),
-                                  ],
-                                }),
-                                (0, J.jsxs)(`span`, {
-                                  style: {
-                                    fontSize: `0.75rem`,
-                                    color: `var(--text-secondary)`,
-                                    display: `block`,
-                                  },
-                                  children: [
-                                    `MRP: ₹`,
-                                    (parseFloat(e.mrp ?? e.price) || 0).toFixed(2),
-                                    ` (`,
-                                    t,
-                                    `/strip)`,
-                                  ],
-                                }),
-                              ],
-                            }),
-                            (0, J.jsxs)(`td`, {
-                              children: [
-                                (0, J.jsxs)(`span`, {
-                                  className: `badge ${e.stock >= 200 ? `badge-success` : e.stock < 50 ? `badge-danger` : `badge-warning`}`,
-                                  style: {
-                                    fontSize: `0.85rem`,
-                                    fontWeight: `800`,
-                                  },
-                                  children: [e.stock, ` Nos`],
-                                }),
-                                (0, J.jsxs)(`span`, {
-                                  style: {
-                                    fontSize: `0.72rem`,
-                                    color: `var(--text-soft)`,
-                                    display: `block`,
-                                    marginTop: `0.1rem`,
-                                  },
-                                  children: [`(`, r, ` strips)`],
-                                }),
-                              ],
-                            }),
-                            (0, J.jsxs)(`td`, {
-                              children: [
-                                (0, J.jsxs)(`div`, {
-                                  style: {
-                                    fontSize: `0.95rem`,
-                                    fontWeight: `800`,
-                                    color: `var(--info-strong)`,
-                                  },
-                                  children: [
-                                    `₹`,
-                                    i.toLocaleString(`en-IN`, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    }),
-                                  ],
-                                }),
-                                (0, J.jsx)(`span`, {
-                                  style: {
-                                    fontSize: `0.72rem`,
-                                    color: `var(--text-soft)`,
-                                    display: `block`,
-                                  },
-                                  children: `Total Value`,
-                                }),
-                              ],
-                            }),
-                            (0, J.jsxs)(`td`, {
-                              children: [
-                                (0, J.jsxs)(`div`, {
-                                  style: { fontWeight: `600` },
-                                  children: [
-                                    `₹`,
-                                    (parseFloat(e.netRate) || 0).toFixed(2),
-                                  ],
-                                }),
-                                (0, J.jsxs)(`span`, {
-                                  style: {
-                                    fontSize: `0.75rem`,
-                                    color: `var(--text-soft)`,
-                                    display: `block`,
-                                  },
-                                  children: [
-                                    `GST: `,
-                                    e.gst !== void 0 &&
-                                    e.gst !== null &&
-                                    e.gst !== ``
-                                      ? e.gst
-                                      : 5,
-                                    `%`,
-                                  ],
-                                }),
-                              ],
-                            }),
-                            (0, J.jsx)(`td`, {
-                              className: `sticky-col-right`,
-                              style: { textAlign: `center` },
-                              children: (0, J.jsxs)(`div`, {
-                                style: {
-                                  display: `flex`,
-                                  alignItems: `center`,
-                                  justifyContent: `center`,
-                                  gap: `0.4rem`,
-                                },
-                                children: [
-                                  (0, J.jsxs)(`button`, {
-                                    className: `btn-icon`,
-                                    onClick: () => M(e),
-                                    title: `Edit Item`,
-                                    style: {
-                                      padding: `0.35rem 0.65rem`,
-                                      borderRadius: `8px`,
-                                      background: `var(--accent-light)`,
-                                      color: `var(--accent)`,
-                                      border: `1px solid var(--accent-border)`,
-                                      display: `flex`,
-                                      alignItems: `center`,
-                                      gap: `0.25rem`,
-                                      cursor: `pointer`,
-                                    },
-                                    children: [
-                                      (0, J.jsx)(wr, { size: 14 }),
-                                      (0, J.jsx)(`span`, {
-                                        style: {
-                                          fontSize: `0.78rem`,
-                                          fontWeight: `700`,
-                                        },
-                                        children: `Edit`,
-                                      }),
-                                    ],
-                                  }),
-                                  (0, J.jsx)(`button`, {
-                                    className: `btn-icon`,
-                                    onClick: () => P(e.id),
-                                    title: `Delete Item`,
-                                    style: {
-                                      padding: `0.35rem 0.5rem`,
-                                      borderRadius: `8px`,
-                                      background: `var(--danger-light)`,
-                                      color: `var(--danger-hover)`,
-                                      border: `1px solid var(--danger-border)`,
-                                      display: `flex`,
-                                      alignItems: `center`,
-                                      cursor: `pointer`,
-                                    },
-                                    children: (0, J.jsx)(Dr, { size: 14 }),
-                                  }),
-                                ],
-                              }),
-                            }),
-                          ],
-                        },
-                        e.id,
-                      );
-                    }),
-                    w.length === 0 &&
-                      (0, J.jsx)(`tr`, {
-                        children: (0, J.jsxs)(`td`, {
-                          colSpan: `7`,
-                          style: {
-                            textAlign: `center`,
-                            padding: `2rem`,
-                            color: `var(--text-secondary)`,
-                          },
-                          children: [`No items found matching "`, a, `"`],
-                        }),
-                      }),
-                  ],
-                }),
-              ],
-            }),
-          }),
-        ],
-      }),
+      // v3.19.8: the Low Stock Alert and Expiry Alert panels (and the expiry-detail / View All pop-ups they opened)
+      // were removed from this screen; the six status cards above cover Low Stock / Critical / Expiring / Expired.
       d &&
         (0, J.jsx)(`div`, {
           className: `modal-overlay`,
@@ -57371,335 +57044,7 @@ function Ih() {
           n(e);
         },
       }),
-      (0, J.jsx)(MedicineExpiryDetailModal, {
-        medicineName: selectedExpiryMedicine,
-        inventory: e,
-        onClose: () => setSelectedExpiryMedicine(null),
-      }),
-      (0, J.jsx)(AlertFullListModal, {
-        isOpen: lowStockViewAllOpen,
-        onClose: () => setLowStockViewAllOpen(!1),
-        title: `Low Stock Alert — Full List`,
-        rows: [...k]
-          .sort((a, b) => (parseFloat(a.stock) || 0) - (parseFloat(b.stock) || 0))
-          .map((it) => {
-            let info = getExpiryInfo(it);
-            return { id: it.id, name: it.name, batch: it.batch, qty: parseFloat(it.stock) || 0, expiry: it.expiry, daysRemaining: info.daysRemaining, status: info.status };
-          }),
-      }),
-      (0, J.jsx)(AlertFullListModal, {
-        isOpen: expiryViewAllOpen,
-        onClose: () => setExpiryViewAllOpen(!1),
-        title: `Expiry Alert — Full List`,
-        rows: expiryAlertData.map(({ item, expiryInfo }) => ({
-          id: item.id,
-          name: item.name,
-          batch: item.batch,
-          qty: parseFloat(item.stock) || 0,
-          expiry: item.expiry,
-          daysRemaining: expiryInfo.daysRemaining,
-          status: expiryInfo.status,
-        })),
-      }),
     ],
-  });
-}
-function MedicineExpiryDetailModal({ medicineName, inventory, onClose }) {
-  if (!medicineName) return null;
-  let batches = (inventory || [])
-    .filter((it) => (it.name || ``).trim() === medicineName)
-    .map((it) => ({ item: it, expiryInfo: getExpiryInfo(it) }))
-    .sort((a, b) => (a.expiryInfo.daysRemaining ?? Infinity) - (b.expiryInfo.daysRemaining ?? Infinity));
-  let soonestId = batches.length > 0 ? batches[0].item.id : null;
-  let totalStock = batches.reduce((sum, b) => sum + (parseFloat(b.item.stock) || 0), 0);
-  return (0, J.jsx)(`div`, {
-    className: `modal-overlay`,
-    onClick: onClose,
-    children: (0, J.jsxs)(`div`, {
-      className: `modal-content glass-panel animate-fade-in`,
-      onClick: (e) => e.stopPropagation(),
-      style: {
-        maxWidth: `620px`,
-        padding: `1.5rem`,
-        background: `var(--surface)`,
-        color: `var(--text-primary)`,
-        borderRadius: `16px`,
-        maxHeight: `88vh`,
-        overflowY: `auto`,
-      },
-      children: [
-        (0, J.jsxs)(`div`, {
-          className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem` },
-          children: [
-            (0, J.jsxs)(`div`, {
-              children: [
-                (0, J.jsx)(`h3`, { style: { margin: 0 }, children: medicineName }),
-                (0, J.jsxs)(`p`, {
-                  style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `var(--text-soft)` },
-                  children: [
-                    batches.length, batches.length === 1 ? ` batch` : ` batches`,
-                    ` · `, totalStock, ` units total in stock`,
-                  ],
-                }),
-              ],
-            }),
-            (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, children: `✕` }),
-          ],
-        }),
-        (0, J.jsx)(`div`, {
-          style: { display: `flex`, flexDirection: `column`, gap: `0.75rem` },
-          children: batches.map(({ item, expiryInfo }) => {
-            let meta = getExpiryStatusMeta(expiryInfo.status),
-              isSoonest = item.id === soonestId,
-              unitsPerPack = parseFloat(item.unitsPerPack || item.units_per_pack) || 10,
-              unitPrice = (parseFloat(item.mrp ?? item.price) || 0) / unitsPerPack;
-            return (0, J.jsxs)(
-              `div`,
-              {
-                style: {
-                  padding: `1rem`,
-                  borderRadius: `12px`,
-                  background: meta.bg,
-                  border: isSoonest ? `2.5px solid ${meta.color}` : `1px solid ${meta.border}`,
-                  position: `relative`,
-                },
-                children: [
-                  isSoonest &&
-                    (0, J.jsx)(`div`, {
-                      style: {
-                        position: `absolute`,
-                        top: `-10px`,
-                        left: `1rem`,
-                        background: meta.color,
-                        color: `#ffffff`,
-                        padding: `0.15rem 0.6rem`,
-                        borderRadius: `20px`,
-                        fontSize: `0.68rem`,
-                        fontWeight: `800`,
-                        letterSpacing: `0.02em`,
-                      },
-                      children: `⚠ EXPIRING SOONEST`,
-                    }),
-                  (0, J.jsxs)(`div`, {
-                    style: {
-                      display: `grid`,
-                      gridTemplateColumns: `repeat(auto-fit, minmax(140px, 1fr))`,
-                      gap: `0.75rem`,
-                      marginTop: isSoonest ? `0.4rem` : 0,
-                    },
-                    children: [
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `BATCH NUMBER` }),
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: item.batch || `N/A` }),
-                        ],
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `QUANTITY` }),
-                          (0, J.jsxs)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: [item.stock ?? 0, ` units`] }),
-                        ],
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `EXPIRY DATE` }),
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: item.expiry || `N/A` }),
-                        ],
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `REMAINING DAYS` }),
-                          (0, J.jsx)(`div`, {
-                            style: { fontSize: `0.95rem`, fontWeight: `800`, color: meta.color },
-                            children:
-                              expiryInfo.daysRemaining == null
-                                ? `Unknown`
-                                : expiryInfo.daysRemaining < 0
-                                  ? `${Math.abs(expiryInfo.daysRemaining)}d overdue`
-                                  : `${expiryInfo.daysRemaining}d`,
-                          }),
-                        ],
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `STATUS` }),
-                          (0, J.jsx)(`span`, {
-                            style: {
-                              display: `inline-block`,
-                              marginTop: `0.15rem`,
-                              background: meta.color,
-                              color: `#ffffff`,
-                              padding: `0.15rem 0.55rem`,
-                              borderRadius: `6px`,
-                              fontSize: `0.75rem`,
-                              fontWeight: `700`,
-                            },
-                            children: meta.label,
-                          }),
-                        ],
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `UNIT PRICE` }),
-                          (0, J.jsxs)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: [`₹`, unitPrice.toFixed(2)] }),
-                        ],
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        children: [
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.7rem`, color: `var(--text-soft)`, fontWeight: `700` }, children: `STOCKIST` }),
-                          (0, J.jsx)(`div`, { style: { fontSize: `0.95rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: item.stockist || `N/A` }),
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              },
-              item.id,
-            );
-          }),
-        }),
-      ],
-    }),
-  });
-}
-function AlertFullListModal({ isOpen, onClose, title, rows }) {
-  let [page, setPage] = (0, _.useState)(0);
-  (0, _.useEffect)(() => {
-    isOpen && setPage(0);
-  }, [isOpen]);
-  if (!isOpen) return null;
-  let pageSize = 25,
-    totalPages = Math.max(1, Math.ceil((rows || []).length / pageSize)),
-    safePage = Math.min(page, totalPages - 1),
-    pageRows = (rows || []).slice(safePage * pageSize, safePage * pageSize + pageSize);
-  return (0, J.jsx)(`div`, {
-    className: `modal-overlay`,
-    onClick: onClose,
-    children: (0, J.jsxs)(`div`, {
-      className: `modal-content glass-panel animate-fade-in`,
-      onClick: (e) => e.stopPropagation(),
-      style: {
-        maxWidth: `760px`,
-        padding: `1.5rem`,
-        background: `var(--surface)`,
-        color: `var(--text-primary)`,
-        borderRadius: `16px`,
-        maxHeight: `88vh`,
-        display: `flex`,
-        flexDirection: `column`,
-      },
-      children: [
-        (0, J.jsxs)(`div`, {
-          className: `flex-between mb-4`,
-          style: { borderBottom: `1px solid var(--border)`, paddingBottom: `0.75rem`, flexShrink: 0 },
-          children: [
-            (0, J.jsxs)(`div`, {
-              children: [
-                (0, J.jsx)(`h3`, { style: { margin: 0 }, children: title }),
-                (0, J.jsxs)(`p`, {
-                  style: { margin: `0.25rem 0 0`, fontSize: `0.8rem`, color: `var(--text-soft)` },
-                  children: [(rows || []).length, ` record`, (rows || []).length === 1 ? `` : `s`, ` total`],
-                }),
-              ],
-            }),
-            (0, J.jsx)(`button`, { className: `btn-icon`, onClick: onClose, children: `✕` }),
-          ],
-        }),
-        (0, J.jsx)(`div`, {
-          style: { overflowY: `auto`, flex: 1 },
-          children: (0, J.jsxs)(`table`, {
-            style: { minWidth: `100%`, borderCollapse: `collapse` },
-            children: [
-              (0, J.jsx)(`thead`, {
-                children: (0, J.jsxs)(`tr`, {
-                  children: [
-                    (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.5rem` }, children: `Medicine Name` }),
-                    (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.5rem` }, children: `Batch No.` }),
-                    (0, J.jsx)(`th`, { style: { textAlign: `right`, padding: `0.5rem` }, children: `Available Qty` }),
-                    (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.5rem` }, children: `Expiry Date` }),
-                    (0, J.jsx)(`th`, { style: { textAlign: `right`, padding: `0.5rem` }, children: `Days Left` }),
-                  ],
-                }),
-              }),
-              (0, J.jsx)(`tbody`, {
-                children: pageRows.map((row) => {
-                  let meta = getExpiryStatusMeta(row.status);
-                  return (0, J.jsxs)(
-                    `tr`,
-                    {
-                      style: { borderTop: `1px solid var(--border)` },
-                      children: [
-                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, fontWeight: `700` }, children: row.name }),
-                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, color: `var(--text-secondary)` }, children: row.batch || `N/A` }),
-                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, textAlign: `right` }, children: row.qty }),
-                        (0, J.jsx)(`td`, { style: { padding: `0.5rem`, color: `var(--text-secondary)` }, children: row.expiry || `N/A` }),
-                        (0, J.jsx)(`td`, {
-                          style: { padding: `0.5rem`, textAlign: `right`, fontWeight: `700`, color: meta.color },
-                          children:
-                            row.daysRemaining == null
-                              ? `Unknown`
-                              : row.daysRemaining < 0
-                                ? `${Math.abs(row.daysRemaining)}d overdue`
-                                : `${row.daysRemaining}d`,
-                        }),
-                      ],
-                    },
-                    row.id,
-                  );
-                }),
-              }),
-            ],
-          }),
-        }),
-        totalPages > 1 &&
-          (0, J.jsxs)(`div`, {
-            style: {
-              display: `flex`,
-              justifyContent: `space-between`,
-              alignItems: `center`,
-              paddingTop: `0.9rem`,
-              marginTop: `0.5rem`,
-              borderTop: `1px solid var(--border)`,
-              flexShrink: 0,
-            },
-            children: [
-              (0, J.jsxs)(`span`, {
-                style: { fontSize: `0.8rem`, color: `var(--text-soft)` },
-                children: [
-                  `Showing `, safePage * pageSize + 1, `–`, Math.min((safePage + 1) * pageSize, (rows || []).length),
-                  ` of `, (rows || []).length,
-                ],
-              }),
-              (0, J.jsxs)(`div`, {
-                style: { display: `flex`, gap: `0.5rem`, alignItems: `center` },
-                children: [
-                  (0, J.jsx)(`button`, {
-                    type: `button`,
-                    className: `btn btn-outline`,
-                    style: { fontSize: `0.8rem`, padding: `0.35rem 0.75rem` },
-                    disabled: safePage === 0,
-                    onClick: () => setPage((p) => Math.max(0, p - 1)),
-                    children: `Prev`,
-                  }),
-                  (0, J.jsxs)(`span`, {
-                    style: { fontSize: `0.8rem`, color: `var(--text-soft)` },
-                    children: [`Page `, safePage + 1, ` of `, totalPages],
-                  }),
-                  (0, J.jsx)(`button`, {
-                    type: `button`,
-                    className: `btn btn-outline`,
-                    style: { fontSize: `0.8rem`, padding: `0.35rem 0.75rem` },
-                    disabled: safePage >= totalPages - 1,
-                    onClick: () => setPage((p) => Math.min(totalPages - 1, p + 1)),
-                    children: `Next`,
-                  }),
-                ],
-              }),
-            ],
-          }),
-      ],
-    }),
   });
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -58335,6 +57680,47 @@ function AdminAuthModal({ isOpen, onClose, onSuccess, title, subtitle }) {
     }),
   });
 }
+// v3.19.8: inline version of AdminAuthModal for Settings (no popup). Same checks: the admin password must be
+// configured and must verify through vhcVerifyAdminPassword(); nothing is unlocked until onSuccess() is called.
+function VhcInlineAdminAuth({ onSuccess, onCancel, purpose }) {
+  let { settings: authSettings } = Ir(),
+    [authPwd, setAuthPwd] = (0, _.useState)(``),
+    [authErr, setAuthErr] = (0, _.useState)(``);
+  let verifyAuth = () => {
+    if (!vhcAdminPasswordConfigured(authSettings)) {
+      setAuthErr(VHC_ADMIN_PASSWORD_NOT_SET_MESSAGE);
+      return;
+    }
+    vhcVerifyAdminPassword(authSettings, authPwd)
+      ? (setAuthPwd(``), setAuthErr(``), onSuccess())
+      : setAuthErr(`Incorrect password.`);
+  };
+  return (0, J.jsxs)(`div`, {
+    className: `vhc-admin-auth`,
+    children: [
+      (0, J.jsx)(`p`, { className: `vhc-admin-auth-hint`, children: `Enter the admin password to open ${purpose || `admin controls`}. The controls stay hidden until the password is verified.` }),
+      (0, J.jsxs)(`div`, {
+        className: `vhc-admin-auth-row`,
+        children: [
+          (0, J.jsx)(`input`, {
+            type: `password`,
+            className: `input-field`,
+            placeholder: `Enter Admin Password`,
+            "aria-label": `Admin password`,
+            value: authPwd,
+            autoFocus: !0,
+            autoComplete: `current-password`,
+            onChange: (evt) => setAuthPwd(evt.target.value),
+            onKeyDown: (evt) => evt.key === `Enter` && verifyAuth(),
+          }),
+          (0, J.jsx)(`button`, { type: `button`, className: `btn btn-primary`, onClick: verifyAuth, children: `Verify` }),
+          (0, J.jsx)(`button`, { type: `button`, className: `btn btn-outline`, onClick: onCancel, children: `Cancel` }),
+        ],
+      }),
+      authErr && (0, J.jsx)(`div`, { className: `vhc-admin-auth-error`, role: `alert`, children: authErr }),
+    ],
+  });
+}
 function TypedConfirmModal({ isOpen, onClose, onConfirm, title, message, requiredText }) {
   let [typedText, setTypedText] = (0, _.useState)(``);
   (0, _.useEffect)(() => {
@@ -58462,12 +57848,21 @@ function vhcKeepCurrentAdminPassword(restored) {
 // ('light'|'dark') that all existing [data-theme="dark"] rules use; <html data-vhc-theme> carries the
 // specific palette. The no-flash bootstrap in index.html applies the same mapping before first paint.
 var VHC_THEMES = [
-  { id: `system`, label: `System Default`, description: `Follows the Windows light/dark setting`, base: null, preview: { sidebar: `#0f172a`, bg: `#f8fafc`, card: `#ffffff`, accent: `#2563eb`, text: `#0f172a`, split: `#0f131a` } },
-  { id: `modern-light`, label: `Modern Light`, description: `Bright, clean default look`, base: `light`, preview: { sidebar: `#0f172a`, bg: `#f8fafc`, card: `#ffffff`, accent: `#2563eb`, text: `#0f172a` } },
-  { id: `modern-dark`, label: `Modern Dark`, description: `Dimmed, easier for long shifts`, base: `dark`, preview: { sidebar: `#0b0e14`, bg: `#0f131a`, card: `#1a1f27`, accent: `#4d8dff`, text: `#e8ebf1` } },
-  { id: `midnight`, label: `Midnight`, description: `Deep navy with indigo accents`, base: `dark`, preview: { sidebar: `#050811`, bg: `#070b14`, card: `#0e1424`, accent: `#7c8cff`, text: `#e6ecff` } },
-  { id: `classic-light`, label: `Classic Light`, description: `Traditional grey desktop style`, base: `light`, preview: { sidebar: `#1f2d3d`, bg: `#e9edf2`, card: `#ffffff`, accent: `#1f5fbf`, text: `#1b2430` } },
-  { id: `high-contrast`, label: `High Contrast`, description: `Black on white, strong borders`, base: `light`, preview: { sidebar: `#000000`, bg: `#ffffff`, card: `#ffffff`, accent: `#0033cc`, text: `#000000`, border: `#000000` } },
+  // v3.19.8: 12-theme gallery. `base` is the light/dark scheme every existing [data-theme="dark"] rule keys on;
+  // the palette itself (CSS tokens) is selected by <html data-vhc-theme>. System Default has its own Windows-style
+  // palettes (system-light / system-dark) so it never looks identical to Modern Light or Modern Dark.
+  { id: `system`, label: `System Default`, description: `Follows the Windows light/dark setting`, base: null },
+  { id: `modern-light`, label: `Modern Light`, description: `Bright, clean default look`, base: `light` },
+  { id: `modern-dark`, label: `Modern Dark`, description: `Dimmed, easier for long shifts`, base: `dark` },
+  { id: `midnight`, label: `Midnight AMOLED`, description: `True black with crisp borders`, base: `dark` },
+  { id: `classic-light`, label: `Classic Light`, description: `Traditional grey desktop style`, base: `light` },
+  { id: `high-contrast`, label: `High Contrast`, description: `Black on white, strong borders`, base: `light` },
+  { id: `ocean-blue`, label: `Ocean Blue`, description: `Professional deep-sea blues`, base: `light` },
+  { id: `glassmorphism`, label: `Glassmorphism`, description: `Frosted panels on a deep gradient`, base: `dark` },
+  { id: `emerald`, label: `Emerald Green`, description: `Refined greens, calm clinical feel`, base: `light` },
+  { id: `soft-lavender`, label: `Soft Lavender`, description: `Muted lavender, gentle contrast`, base: `light` },
+  { id: `nordic`, label: `Nordic`, description: `Cool, restrained arctic greys`, base: `dark` },
+  { id: `warm-sand`, label: `Warm Sand`, description: `Warm beige and neutral tones`, base: `light` },
 ];
 function vhcNormalizeThemeChoice(value) {
   if (value === `dark`) return `modern-dark`;
@@ -58481,12 +57876,15 @@ function vhcSystemPrefersDark() {
     return !1;
   }
 }
-// Concrete palette for a choice: System Default resolves to Modern Light / Modern Dark.
+// Concrete palette for a choice: System Default resolves to its own Windows-style light or dark palette.
 function vhcResolveTheme(choice) {
   let c = vhcNormalizeThemeChoice(choice);
-  if (c === `system`) c = vhcSystemPrefersDark() ? `modern-dark` : `modern-light`;
+  if (c === `system`) {
+    let dark = vhcSystemPrefersDark();
+    return { choice: c, id: dark ? `system-dark` : `system-light`, base: dark ? `dark` : `light` };
+  }
   let t = VHC_THEMES.find((x) => x.id === c);
-  return { choice: vhcNormalizeThemeChoice(choice), id: c, base: (t && t.base) || `light` };
+  return { choice: c, id: c, base: (t && t.base) || `light` };
 }
 function vhcReadThemeChoice() {
   try {
@@ -58525,6 +57923,18 @@ function vhcApplyTheme(mode) {
     mq && (mq.addEventListener ? mq.addEventListener(`change`, onChange) : mq.addListener && mq.addListener(onChange));
   } catch {}
 })();
+// v3.19.8 Reduce motion (Settings → Shortcuts & Accessibility). UI-only, own localStorage key, applied at load.
+function vhcReadReduceMotion() {
+  try { return localStorage.getItem(`vhc_reduce_motion`) === `1`; } catch { return !1; }
+}
+function vhcApplyReduceMotion(on) {
+  try { document.documentElement.classList.toggle(`vhc-reduce-motion`, !!on); } catch {}
+  try { localStorage.setItem(`vhc_reduce_motion`, on ? `1` : `0`); } catch {}
+  return !!on;
+}
+(function vhcInitReduceMotion() {
+  try { vhcReadReduceMotion() && document.documentElement.classList.add(`vhc-reduce-motion`); } catch {}
+})();
 function vhcUseTheme() {
   let [theme, setTheme] = (0, _.useState)(vhcReadTheme()),
     [choice, setChoice] = (0, _.useState)(vhcReadThemeChoice());
@@ -58547,55 +57957,495 @@ function vhcUseTheme() {
     ]
   );
 }
-// Settings -> Appearance: one preview card per theme; applies instantly and persists.
-function VhcThemePicker() {
-  let [, applyTheme, , choice] = vhcUseTheme();
-  let mini = (p) =>
-    (0, J.jsxs)(`div`, {
-      className: `vhc-theme-mini`,
-      "aria-hidden": `true`,
-      style: { background: p.split ? `linear-gradient(135deg, ${p.bg} 50%, ${p.split} 50%)` : p.bg, borderColor: p.border || `rgba(15,23,42,.12)` },
-      children: [
-        (0, J.jsx)(`span`, { className: `vhc-theme-mini-side`, style: { background: p.sidebar } }),
-        (0, J.jsxs)(`span`, {
-          className: `vhc-theme-mini-main`,
-          children: [
-            (0, J.jsx)(`span`, { className: `vhc-theme-mini-bar`, style: { background: p.accent } }),
-            (0, J.jsx)(`span`, { className: `vhc-theme-mini-card`, style: { background: p.card, borderColor: p.border || `transparent` }, children: (0, J.jsx)(`i`, { style: { background: p.text } }) }),
-            (0, J.jsx)(`span`, { className: `vhc-theme-mini-card`, style: { background: p.card, borderColor: p.border || `transparent` }, children: (0, J.jsx)(`i`, { style: { background: p.accent } }) }),
-          ],
+// Miniature of the real POS screen (sidebar, header, status cards, search, stock table) drawn with the theme's
+// own CSS tokens via .vhc-pv[data-pv]. Pure markup + CSS: no app instance, no theme change while browsing.
+function VhcThemeMiniPreview({ palette, half }) {
+  let row = (name, stock, cls, label, key) =>
+    (0, J.jsxs)(`span`, { className: `vhc-pv-row`, children: [(0, J.jsx)(`span`, { children: name }), (0, J.jsx)(`span`, { children: stock }), (0, J.jsx)(`span`, { className: `vhc-pv-pill ${cls}`, children: label })] }, key);
+  return (0, J.jsxs)(`span`, {
+    className: `vhc-pv${half ? ` vhc-pv-half-${half}` : ``}`,
+    "data-pv": palette,
+    children: [
+      (0, J.jsxs)(`span`, {
+        className: `vhc-pv-side`,
+        children: [
+          (0, J.jsxs)(`span`, { className: `vhc-pv-brand`, children: [(0, J.jsx)(`i`, {}), `VARNIKA`] }),
+          (0, J.jsx)(`span`, { className: `vhc-pv-nav`, children: `Dashboard` }),
+          (0, J.jsx)(`span`, { className: `vhc-pv-nav`, children: `POS Billing` }),
+          (0, J.jsx)(`span`, { className: `vhc-pv-nav is-active`, children: `Inventory` }),
+          (0, J.jsx)(`span`, { className: `vhc-pv-nav`, children: `Reports` }),
+        ],
+      }),
+      (0, J.jsxs)(`span`, {
+        className: `vhc-pv-main`,
+        children: [
+          (0, J.jsxs)(`span`, { className: `vhc-pv-head`, children: [(0, J.jsx)(`b`, { children: `Inventory` }), (0, J.jsx)(`span`, { className: `vhc-pv-btn`, children: `+ Add Item` })] }),
+          (0, J.jsxs)(`span`, {
+            className: `vhc-pv-cards`,
+            children: [
+              (0, J.jsxs)(`span`, { className: `vhc-pv-card`, children: [(0, J.jsx)(`em`, { children: `All` }), (0, J.jsx)(`strong`, { children: `128` })] }),
+              (0, J.jsxs)(`span`, { className: `vhc-pv-card is-danger`, children: [(0, J.jsx)(`em`, { children: `Critical` }), (0, J.jsx)(`strong`, { children: `6` })] }),
+              (0, J.jsxs)(`span`, { className: `vhc-pv-card is-warning`, children: [(0, J.jsx)(`em`, { children: `Expiring` }), (0, J.jsx)(`strong`, { children: `9` })] }),
+            ],
+          }),
+          (0, J.jsx)(`span`, { className: `vhc-pv-input`, children: `Search name, batch…` }),
+          (0, J.jsxs)(`span`, {
+            className: `vhc-pv-table`,
+            children: [
+              (0, J.jsxs)(`span`, { className: `vhc-pv-row is-head`, children: [(0, J.jsx)(`span`, { children: `Item` }), (0, J.jsx)(`span`, { children: `Stock` }), (0, J.jsx)(`span`, { children: `Status` })] }),
+              row(`Dolo 650`, `340`, `is-ok`, `In Stock`, `r1`),
+              row(`Pan 40`, `120`, `is-low`, `Low`, `r2`),
+              row(`Azithral 500`, `0`, `is-out`, `Out`, `r3`),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+// Settings -> Appearance: all 12 themes shown by default (6 per row on wide screens), each with a live miniature;
+// clicking a card applies + remembers the theme (same vhc_pos_theme key as before). The gallery can be collapsed.
+function VhcAiScannerSettings() {
+  let [config, setConfig] = (0, _.useState)({ configured: false, keyMask: '', model: 'gemini-2.5-flash', storageBackend: '' }),
+    [inputKey, setInputKey] = (0, _.useState)(''),
+    [selectedModel, setSelectedModel] = (0, _.useState)('gemini-2.5-flash'),
+    [showKey, setShowKey] = (0, _.useState)(false),
+    [loading, setLoading] = (0, _.useState)(true),
+    [saving, setSaving] = (0, _.useState)(false),
+    [testing, setTesting] = (0, _.useState)(false),
+    [removing, setRemoving] = (0, _.useState)(false),
+    [status, setStatus] = (0, _.useState)(null);
+
+  let isMaskedKey = (val) => {
+    if (!val || typeof val !== 'string') return false;
+    let t = val.trim();
+    return t.includes('...') || t.includes('***') || /[\u2026\u2022\u25CF]|\*{2,}/.test(t) || /^AIza[0-9A-Za-z_-]{2,8}[.…\u2022\u25CF]/.test(t);
+  };
+
+  let sanitizeInput = (val) => {
+    if (!val || typeof val !== 'string') return '';
+    let s = val.replace(/[\u200B-\u200D\uFEFF\u00A0\u200E\u200F\u2028\u2029\u202F\u205F\u3000\u00AD]/g, '').trim();
+    s = s.replace(/[\u2010-\u2015\u2212]/g, '-');
+    s = s.replace(/^(?:export\s+)?(?:(?:GOOGLE_|GEMINI_)?API[-_]?KEY|TOKEN|BEARER|KEY)\s*(?:[:=]\s*|\s+)/i, '').trim();
+    s = s.replace(/^(?:Gemini|Google)\s+(?:API\s+)?Key\s*(?:[:=]\s*|\s+)/i, '').trim();
+    const urlM = s.match(/[?&]key=([^&#\s]+)/i);
+    if (urlM) s = urlM[1].trim();
+    s = s.replace(/^["'`“”‘’«»<(\[]+|["'`“”‘’«»>)\]]+$/g, '').trim();
+    s = s.replace(/[;,]+$/, '').trim();
+    s = s.replace(/^["'`“”‘’«»<(\[]+|["'`“”‘’«»>)\]]+$/g, '').trim();
+    return s;
+  };
+
+  let loadConfig = async () => {
+    if (!window.electronAPI || !window.electronAPI.aiGetConfig) {
+      setLoading(false);
+      return;
+    }
+    try {
+      let c = await window.electronAPI.aiGetConfig();
+      if (c) {
+        setConfig(c);
+        if (c.model) setSelectedModel(c.model);
+      }
+    } catch (err) {
+      console.error('Failed to load AI config:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  (0, _.useEffect)(() => {
+    loadConfig();
+  }, []);
+
+  let handleSave = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!window.electronAPI || !window.electronAPI.aiSaveConfig) return;
+
+    let cleanKey = sanitizeInput(inputKey);
+
+    if (isMaskedKey(cleanKey) || isMaskedKey(inputKey)) {
+      setStatus({
+        text: 'You entered a masked key preview (contains bullets, asterisks, or "..."). Please copy and enter your complete, unmasked Gemini API key from Google AI Studio.',
+        type: 'warning'
+      });
+      return;
+    }
+
+    if (cleanKey) {
+      if (cleanKey.length < 20 || cleanKey.length > 128) {
+        setStatus({
+          text: `API key length looks invalid (${cleanKey.length} characters). Google Gemini keys are typically 39 characters (20-128 required).`,
+          type: 'error'
+        });
+        return;
+      }
+      if (!/^[0-9A-Za-z_\-+./=]+$/.test(cleanKey)) {
+        setStatus({
+          text: 'API key format looks invalid. Key must contain only alphanumeric characters, hyphens, and underscores (e.g. "AIzaSy...").',
+          type: 'error'
+        });
+        return;
+      }
+    } else if (!config.configured) {
+      setStatus({ text: 'Please enter a valid Gemini API key.', type: 'warning' });
+      return;
+    }
+
+    setSaving(true);
+    setStatus(null);
+    try {
+      let res = await window.electronAPI.aiSaveConfig({ apiKey: cleanKey || undefined, model: selectedModel });
+      if (res && res.success) {
+        setInputKey('');
+        await loadConfig();
+        if (cleanKey) {
+          setStatus({ text: 'New Gemini API key encrypted & saved securely via Windows DPAPI.', type: 'success' });
+        } else {
+          setStatus({ text: `AI settings updated (model set to "${selectedModel}").`, type: 'success' });
+        }
+      } else {
+        let errDetail = (res && (res.details || res.error)) || 'Failed to save';
+        setStatus({ text: errDetail, type: 'error' });
+      }
+    } catch (err) {
+      setStatus({ text: 'Error: ' + err.message, type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  let handleTest = async () => {
+    if (!window.electronAPI || !window.electronAPI.aiTestConnection) return;
+    let cleanKey = sanitizeInput(inputKey);
+    let keyToTest = (cleanKey && !isMaskedKey(cleanKey)) ? cleanKey : undefined;
+
+    if (!keyToTest && !config.configured) {
+      setStatus({ text: 'Please enter or save an API key before testing connection.', type: 'warning' });
+      return;
+    }
+    setTesting(true);
+    setStatus({ text: 'Testing connection to Google Gemini API...', type: 'info' });
+    try {
+      let res = await window.electronAPI.aiTestConnection({ apiKey: keyToTest, model: selectedModel });
+      if (res && res.success) {
+        setStatus({
+          text: `Connection verified! Model "${res.model}" connected successfully (${res.latencyMs}ms).`,
+          type: 'success',
+        });
+      } else {
+        let errText = (res && (res.details || res.error)) || 'Connection failed';
+        setStatus({ text: errText, type: 'error' });
+      }
+    } catch (err) {
+      setStatus({ text: 'Connection error: ' + err.message, type: 'error' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  let handleRemove = async () => {
+    if (!window.electronAPI || !window.electronAPI.aiRemoveConfig) return;
+    if (!confirm('Are you sure you want to remove the saved Gemini API key from this computer?')) return;
+    setRemoving(true);
+    setStatus(null);
+    try {
+      let res = await window.electronAPI.aiRemoveConfig();
+      if (res && res.success) {
+        setInputKey('');
+        await loadConfig();
+        setStatus({ text: 'Gemini API key removed from this computer.', type: 'info' });
+      } else {
+        setStatus({ text: 'Failed to remove key.', type: 'error' });
+      }
+    } catch (err) {
+      setStatus({ text: 'Error: ' + err.message, type: 'error' });
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (0, J.jsxs)('div', {
+    className: 'glass-panel mb-4 vhc-settings-ai',
+    style: {
+      padding: '1.25rem 1.5rem',
+      background: 'var(--surface)',
+      borderRadius: '16px',
+      border: '1.5px solid var(--border-strong)',
+    },
+    children: [
+      (0, J.jsxs)('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' },
+        children: [
+          (0, J.jsxs)('h3', {
+            style: { margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' },
+            children: ['AI & Scanner Configuration (Gemini)'],
+          }),
+          config.configured
+            ? (0, J.jsx)('span', {
+                style: {
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  background: 'var(--success-light, #e6f4ea)',
+                  color: 'var(--success-strong, #137333)',
+                  border: '1px solid var(--success-border, #ceead6)',
+                },
+                children: 'DPAPI Encrypted',
+              })
+            : (0, J.jsx)('span', {
+                style: {
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  background: 'var(--warning-light, #fef7e0)',
+                  color: 'var(--warning-strong, #b06000)',
+                  border: '1px solid var(--warning-border, #feefc3)',
+                },
+                children: 'Not Configured',
+              }),
+        ],
+      }),
+      (0, J.jsx)('p', {
+        style: { margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)' },
+        children: 'Configure Google Gemini AI for "Scan to Add" purchase bills and prescription OCR. The API key is stored securely using Windows DPAPI safeStorage in the main process and is never exposed in plain text.',
+      }),
+      status &&
+        (0, J.jsx)('div', {
+          style: {
+            padding: '0.75rem 1rem',
+            borderRadius: '8px',
+            marginBottom: '1rem',
+            fontSize: '0.88rem',
+            lineHeight: 1.4,
+            background:
+              status.type === 'success'
+                ? 'var(--success-light, #e6f4ea)'
+                : status.type === 'error'
+                ? 'var(--danger-light, #fce8e6)'
+                : status.type === 'warning'
+                ? 'var(--warning-light, #fef7e0)'
+                : 'var(--info-light, #e8f0fe)',
+            color:
+              status.type === 'success'
+                ? 'var(--success-strong, #137333)'
+                : status.type === 'error'
+                ? 'var(--danger-strong, #c5221f)'
+                : status.type === 'warning'
+                ? 'var(--warning-strong, #b06000)'
+                : 'var(--info-strong, #1a73e8)',
+            border: `1px solid ${
+              status.type === 'success'
+                ? 'var(--success-border, #ceead6)'
+                : status.type === 'error'
+                ? 'var(--danger-border, #fad2cf)'
+                : status.type === 'warning'
+                ? 'var(--warning-border, #feefc3)'
+                : 'var(--info-border, #d2e3fc)'
+            }`,
+          },
+          children: status.text,
         }),
-      ],
-    });
-  return (0, J.jsx)(`div`, {
-    className: `vhc-theme-grid`,
-    role: `radiogroup`,
-    "aria-label": `Theme`,
-    children: VHC_THEMES.map((t) => {
-      let active = choice === t.id;
-      return (0, J.jsxs)(
-        `button`,
-        {
-          type: `button`,
-          role: `radio`,
-          "aria-checked": active ? `true` : `false`,
-          "data-theme-id": t.id,
-          className: `vhc-theme-card${active ? ` is-active` : ``}`,
-          onClick: () => applyTheme(t.id),
-          children: [
-            mini(t.preview),
-            (0, J.jsxs)(`span`, {
-              className: `vhc-theme-card-text`,
-              children: [
-                (0, J.jsx)(`strong`, { children: t.label }),
-                (0, J.jsx)(`small`, { children: active ? `Currently active` : t.description }),
-              ],
+      (0, J.jsxs)('div', {
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' },
+        children: [
+          (0, J.jsxs)('div', {
+            children: [
+              (0, J.jsx)('label', {
+                style: { display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem' },
+                children: 'Gemini Model',
+              }),
+              (0, J.jsxs)('select', {
+                value: selectedModel,
+                onChange: (e) => setSelectedModel(e.target.value),
+                style: {
+                  width: '100%',
+                  padding: '0.55rem 0.75rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color, #ccc)',
+                  background: 'var(--bg-input, #fff)',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.88rem',
+                },
+                children: [
+                  (0, J.jsx)('option', { value: 'gemini-2.5-flash', children: 'gemini-2.5-flash (Recommended: Fast Vision)' }),
+                  (0, J.jsx)('option', { value: 'gemini-flash-latest', children: 'gemini-flash-latest (Auto-Updating)' }),
+                  (0, J.jsx)('option', { value: 'gemini-2.0-flash', children: 'gemini-2.0-flash (Legacy)' }),
+                  (0, J.jsx)('option', { value: 'gemini-1.5-flash', children: 'gemini-1.5-flash (Legacy)' }),
+                  (0, J.jsx)('option', { value: 'gemini-1.5-pro', children: 'gemini-1.5-pro (Legacy)' }),
+                ],
+              }),
+              (0, J.jsx)('div', {
+                style: { fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' },
+                children: 'Verified multimodal models supported by Google Gemini v1beta endpoint.',
+              }),
+            ],
+          }),
+          (0, J.jsxs)('div', {
+            children: [
+              (0, J.jsx)('label', {
+                style: { display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem' },
+                children: config.configured ? `API Key (Saved: ${config.keyMask})` : 'Gemini API Key',
+              }),
+              (0, J.jsxs)('div', {
+                style: { display: 'flex', gap: '0.5rem' },
+                children: [
+                  (0, J.jsx)('input', {
+                    type: showKey ? 'text' : 'password',
+                    placeholder: config.configured ? 'Enter new key to replace saved key...' : 'Enter Gemini API key...',
+                    value: inputKey,
+                    onChange: (e) => setInputKey(e.target.value),
+                    autoComplete: 'new-password',
+                    autoCorrect: 'off',
+                    autoCapitalize: 'off',
+                    spellCheck: false,
+                    style: {
+                      flex: 1,
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color, #ccc)',
+                      background: 'var(--bg-input, #fff)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.88rem',
+                    },
+                  }),
+                  (0, J.jsx)('button', {
+                    type: 'button',
+                    onClick: () => setShowKey(!showKey),
+                    className: 'btn',
+                    style: {
+                      padding: '0.55rem 0.85rem',
+                      background: 'var(--surface-hover, #eee)',
+                      border: '1px solid var(--border-color, #ccc)',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                    },
+                    children: showKey ? 'Hide' : 'Show',
+                  }),
+                ],
+              }),
+              (0, J.jsx)('div', {
+                style: { fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' },
+                children: 'Get an API key from Google AI Studio (aistudio.google.com). Never shared or stored unencrypted.',
+              }),
+            ],
+          }),
+        ],
+      }),
+      (0, J.jsxs)('div', {
+        style: { display: 'flex', gap: '0.75rem', flexWrap: 'wrap' },
+        children: [
+          (0, J.jsx)('button', {
+            type: 'button',
+            onClick: handleSave,
+            disabled: saving,
+            className: 'btn btn-primary',
+            style: {
+              padding: '0.55rem 1.1rem',
+              fontWeight: 700,
+              borderRadius: '8px',
+              cursor: saving ? 'not-allowed' : 'pointer',
+            },
+            children: saving ? 'Saving...' : 'Save Settings',
+          }),
+          (0, J.jsx)('button', {
+            type: 'button',
+            onClick: handleTest,
+            disabled: testing,
+            className: 'btn',
+            style: {
+              padding: '0.55rem 1.1rem',
+              fontWeight: 700,
+              borderRadius: '8px',
+              border: '1px solid var(--border-color, #ccc)',
+              background: 'var(--surface-hover, #eee)',
+              cursor: testing ? 'not-allowed' : 'pointer',
+            },
+            children: testing ? 'Testing...' : 'Test Connection',
+          }),
+          config.configured &&
+            (0, J.jsx)('button', {
+              type: 'button',
+              onClick: handleRemove,
+              disabled: removing,
+              className: 'btn',
+              style: {
+                padding: '0.55rem 1.1rem',
+                fontWeight: 700,
+                borderRadius: '8px',
+                border: '1px solid var(--danger-border, #fad2cf)',
+                background: 'var(--danger-light, #fce8e6)',
+                color: 'var(--danger-strong, #c5221f)',
+                cursor: removing ? 'not-allowed' : 'pointer',
+              },
+              children: removing ? 'Removing...' : 'Remove Key',
             }),
-          ],
-        },
-        t.id,
-      );
-    }),
+        ],
+      }),
+    ],
+  });
+}
+function VhcThemePicker() {
+  let [, applyTheme, , choice] = vhcUseTheme(),
+    [galleryOpen, setGalleryOpen] = (0, _.useState)(!0);
+  return (0, J.jsxs)(`div`, {
+    className: `vhc-theme-gallery`,
+    children: [
+      (0, J.jsxs)(`div`, {
+        className: `vhc-theme-gallery-head`,
+        children: [
+          (0, J.jsxs)(`p`, { children: [VHC_THEMES.length, ` themes · active: `, (0, J.jsx)(`strong`, { children: vhcThemeLabel(choice) })] }),
+          (0, J.jsx)(`button`, {
+            type: `button`,
+            className: `vhc-theme-gallery-toggle`,
+            "aria-expanded": galleryOpen ? `true` : `false`,
+            "aria-controls": `vhc-theme-grid`,
+            onClick: () => setGalleryOpen((v) => !v),
+            children: galleryOpen ? `▴ Collapse gallery` : `▾ Show all ${VHC_THEMES.length} themes`,
+          }),
+        ],
+      }),
+      galleryOpen &&
+        (0, J.jsx)(`div`, {
+          className: `vhc-theme-grid`,
+          id: `vhc-theme-grid`,
+          role: `radiogroup`,
+          "aria-label": `Theme`,
+          children: VHC_THEMES.map((t) => {
+            let active = choice === t.id;
+            return (0, J.jsxs)(
+              `button`,
+              {
+                type: `button`,
+                role: `radio`,
+                "aria-checked": active ? `true` : `false`,
+                "data-theme-id": t.id,
+                title: t.description,
+                className: `vhc-theme-card${active ? ` is-active` : ``}`,
+                onClick: () => applyTheme(t.id),
+                children: [
+                  (0, J.jsx)(`span`, {
+                    className: `vhc-pv-frame`,
+                    "aria-hidden": `true`,
+                    children:
+                      t.id === `system`
+                        ? [(0, J.jsx)(VhcThemeMiniPreview, { palette: `system-light`, half: `l` }, `l`), (0, J.jsx)(VhcThemeMiniPreview, { palette: `system-dark`, half: `r` }, `r`)]
+                        : (0, J.jsx)(VhcThemeMiniPreview, { palette: t.id }),
+                  }),
+                  (0, J.jsxs)(`span`, {
+                    className: `vhc-theme-card-text`,
+                    children: [(0, J.jsx)(`strong`, { children: t.label }), active && (0, J.jsx)(`span`, { className: `vhc-theme-check`, children: `✓ Active` })],
+                  }),
+                ],
+              },
+              t.id,
+            );
+          }),
+        }),
+    ],
   });
 }
 function Lh() {
@@ -58642,6 +58492,8 @@ function Lh() {
     [isStoreConfigMinimized, setIsStoreConfigMinimized] = (0, _.useState)(true),
     [isCloudSyncMinimized, setIsCloudSyncMinimized] = (0, _.useState)(true),
     [isChangelogExpanded, setIsChangelogExpanded] = (0, _.useState)(false),
+    [isAppDetailsOpen, setIsAppDetailsOpen] = (0, _.useState)(false),
+    [reduceMotion, setReduceMotion] = (0, _.useState)(vhcReadReduceMotion()),
     [showAdminUnlock, setShowAdminUnlock] = (0, _.useState)(false),
     [isRestoringData, setIsRestoringData] = (0, _.useState)(!1),
     restoreLockRef = (0, _.useRef)(!1),
@@ -59641,6 +59493,29 @@ function Lh() {
     })();
     return () => { cancelled = !0; };
   }, []);
+  // Compact header: signed-in account e-mail (read-only, from the existing Supabase session) and a truthful
+  // save status. Pharmacy settings are written to storage by updateSettings() on every change (there is no
+  // separate save step), so the status confirms the stored copy matches what is on screen.
+  let [settingsAccountEmail, setSettingsAccountEmail] = (0, _.useState)(``);
+  (0, _.useEffect)(() => {
+    let cancelled = !1;
+    (async () => {
+      try {
+        let session = window.VHC_CLOUD && window.VHC_CLOUD.getSession ? await window.VHC_CLOUD.getSession() : null;
+        cancelled || setSettingsAccountEmail((session && session.user && session.user.email) || ``);
+      } catch (err) {}
+    })();
+    return () => { cancelled = !0; };
+  }, []);
+  let settingsSaveFirstRunRef = (0, _.useRef)(!0),
+    [settingsSaveState, setSettingsSaveState] = (0, _.useState)({ status: `saved`, at: null });
+  (0, _.useEffect)(() => {
+    if (settingsSaveFirstRunRef.current) { settingsSaveFirstRunRef.current = !1; return; }
+    let stored = null;
+    try { stored = localStorage.getItem(`pos_settings`); } catch (err) {}
+    setSettingsSaveState(stored === JSON.stringify(e) ? { status: `saved`, at: new Date() } : { status: `error`, at: new Date() });
+  }, [e]);
+  let settingsSaveLabel = settingsSaveState.status === `error` ? `⚠ Not saved — storage unavailable` : settingsSaveState.at ? `✓ All changes saved` : `✓ Changes save automatically`;
   let appPlatformLabel = (() => {
     let ua = (typeof navigator !== `undefined` && navigator.userAgent) || ``,
       osName = /Windows/i.test(ua) ? `Windows` : /Mac/i.test(ua) ? `macOS` : /Linux/i.test(ua) ? `Linux` : `Unknown`,
@@ -59679,16 +59554,46 @@ function Lh() {
   return (0, J.jsxs)(`div`, {
     className: `animate-fade-in pb-4 vhc-settings-page`,
     children: [
+      // v3.19.8 compact header. The old "Save Changes" button only showed a toast (settings were already saved on
+      // every change by updateSettings), so it is replaced by a status that checks the stored copy. Identity and
+      // Logout moved up here from their own card; the account type is still the server-verified isPlatformAdmin
+      // and Logout keeps the same confirm dialog + VHC_CLOUD.signOut().
       (0, J.jsxs)(`div`, {
-        className: `flex-between mb-4`,
+        className: `vhc-settings-header`,
         children: [
-          (0, J.jsx)(`h1`, { children: `Settings` }),
-          (0, J.jsxs)(`button`, {
-            className: `btn btn-primary`,
-            onClick: () => {
-              i(`Settings saved successfully!`, `success`);
-            },
-            children: [(0, J.jsx)(vr, { size: 20 }), `Save Changes`],
+          (0, J.jsxs)(`div`, {
+            className: `vhc-settings-header-main`,
+            children: [
+              (0, J.jsx)(`h1`, { className: `vhc-settings-title`, children: `Settings` }),
+              (0, J.jsxs)(`div`, {
+                className: `vhc-settings-identity`,
+                children: [
+                  (0, J.jsx)(`span`, { className: `vhc-settings-role ${isPlatformAdmin ? `is-platform` : `is-clinic`}`, title: `Account type (verified by the server)`, children: isPlatformAdmin ? `Platform Admin` : `Clinic Admin` }),
+                  settingsAccountEmail && (0, J.jsx)(`span`, { className: `vhc-settings-email`, title: `Signed-in account`, children: settingsAccountEmail }),
+                ],
+              }),
+            ],
+          }),
+          (0, J.jsxs)(`div`, {
+            className: `vhc-settings-header-actions`,
+            children: [
+              (0, J.jsx)(`span`, {
+                className: `vhc-settings-save-status is-${settingsSaveState.status}`,
+                role: `status`,
+                "aria-live": `polite`,
+                title: `Pharmacy settings are stored on this computer as soon as you change them. Sections with their own Save button (e.g. Telegram reports) still need that button.`,
+                children: settingsSaveLabel,
+              }),
+              (0, J.jsx)(`button`, {
+                type: `button`,
+                className: `vhc-settings-logout`,
+                onClick: async () => {
+                  if (!(await a(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`))) return;
+                  await window.VHC_CLOUD.signOut();
+                },
+                children: `🚪 Logout`,
+              }),
+            ],
           }),
         ],
       }),
@@ -59697,82 +59602,121 @@ function Lh() {
       (0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-appearance`,
         id: `vhc-appearance`,
-        style: {
-          padding: `1.25rem 1.5rem`,
-          background: `var(--surface)`,
-          borderRadius: `16px`,
-          border: `1.5px solid var(--border-strong)`,
-        },
         children: [
-          (0, J.jsxs)(`h3`, {
-            style: {
-              margin: 0,
-              fontSize: `1.1rem`,
-              color: `var(--text-primary)`,
-              display: `flex`,
-              alignItems: `center`,
-              gap: `0.5rem`,
-            },
-            children: [`🎨 Appearance`],
+          (0, J.jsxs)(`div`, {
+            className: `vhc-settings-section-title`,
+            children: [
+              (0, J.jsx)(`h3`, { children: `🎨 Appearance` }),
+              (0, J.jsx)(`span`, { children: `Applies immediately · remembered on this computer` }),
+            ],
           }),
-          (0, J.jsx)(`p`, {
-            style: {
-              margin: `0.4rem 0 1rem`,
-              fontSize: `0.85rem`,
-              color: `var(--text-muted)`,
-            },
-            children: `Choose how VHC Pharmacy POS looks. The change applies immediately and is remembered on this computer.`,
-          }),
-          // v3.19.5: six theme preview cards (VhcThemePicker); applies instantly, remembered after restart.
+          // v3.19.8: 12-theme gallery with live miniatures (VhcThemePicker); applies instantly, remembered after restart.
           (0, J.jsx)(VhcThemePicker, {}),
         ],
       }),
-      // Account type is derived from the real, server-verified isPlatformAdmin state (see
-      // the useEffect above, backed by profiles.is_platform_admin via RLS) — never a
-      // hardcoded email check. Logout uses the app's own Promise-based confirm dialog (Eh(),
-      // aliased `a` in this component) instead of window.confirm(): a native blocking dialog
-      // was found to leave the login form's inputs unresponsive afterward in this Electron
-      // window, requiring a full app restart to recover — this in-app modal doesn't have
-      // that failure mode and is what every other confirmation in this app already uses.
+      (0, J.jsx)(VhcAiScannerSettings, {}),
+      // v3.19.8 Printing preference. Real, existing settings storage (updateSettings -> pos_settings). It only picks
+      // where the receipt preview starts; one-off switches in the preview are never saved. Ctrl+P quick print is
+      // unchanged and always sends the thermal receipt to the Windows default printer.
       (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4 vhc-settings-account`,
-        style: { padding: `1.25rem 1.5rem`, display: `flex`, alignItems: `center`, justifyContent: `space-between`, flexWrap: `wrap`, gap: `1rem` },
+        className: `glass-panel mb-4 vhc-settings-printing`,
         children: [
           (0, J.jsxs)(`div`, {
+            className: `vhc-settings-section-title`,
             children: [
-              (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-soft)`, fontWeight: `700`, textTransform: `uppercase`, letterSpacing: `0.05em` }, children: `Signed in as` }),
-              (0, J.jsx)(`div`, { style: { fontSize: `1.05rem`, fontWeight: `800`, color: isPlatformAdmin ? `var(--purple-strong)` : `var(--info-strong)`, marginTop: `0.2rem` }, children: isPlatformAdmin ? `Platform Admin` : `Clinic Admin` }),
+              (0, J.jsx)(`h3`, { children: `🖨️ Printing` }),
+              (0, J.jsx)(`span`, { children: `Ctrl+P quick print always uses the thermal receipt` }),
             ],
           }),
-          (0, J.jsx)(`button`, {
-            type: `button`,
-            className: `btn`,
-            style: { background: `var(--danger-light)`, color: `var(--danger-hover)`, border: `1px solid var(--danger-border)`, fontWeight: `800` },
-            onClick: async () => {
-              if (!(await a(`Log out of VHC Pharmacy POS?\n\nThis only ends your signed-in session — no pharmacy data is affected.`))) return;
-              await window.VHC_CLOUD.signOut();
-            },
-            children: `🚪 Logout`,
+          (0, J.jsxs)(`div`, {
+            className: `vhc-print-pref`,
+            role: `radiogroup`,
+            "aria-label": `Default bill format`,
+            children: [
+              [`thermal`, `🧾 Thermal receipt`, `80 mm receipt printer (current default)`],
+              [`a4`, `📄 A4 invoice`, `Full-page invoice for laser / inkjet printers`],
+            ].map(([id, label, hint]) => {
+              let active = (e.defaultBillPaper === `a4` ? `a4` : `thermal`) === id;
+              return (0, J.jsxs)(
+                `button`,
+                {
+                  type: `button`,
+                  role: `radio`,
+                  "aria-checked": active ? `true` : `false`,
+                  className: `vhc-print-opt${active ? ` is-active` : ``}`,
+                  onClick: () => active || t({ ...e, defaultBillPaper: id }),
+                  children: [(0, J.jsx)(`strong`, { children: label }), (0, J.jsx)(`small`, { children: hint })],
+                },
+                id,
+              );
+            }),
+          }),
+          (0, J.jsx)(`p`, { className: `vhc-print-note`, children: `Default format for the Print button in the receipt preview. You can switch to the other format for a single print in the preview without changing this default; choose the printer in the print dialog.` }),
+        ],
+      }),
+      // v3.19.8 Shortcuts & Accessibility: lists only the shortcuts that exist in the app (Billing's keydown handler)
+      // and a real Reduce motion switch (vhcApplyReduceMotion). Nothing here changes data.
+      (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4 vhc-settings-a11y`,
+        children: [
+          (0, J.jsx)(`div`, { className: `vhc-settings-section-title`, children: (0, J.jsx)(`h3`, { children: `⌨️ Shortcuts & Accessibility` }) }),
+          (0, J.jsxs)(`div`, {
+            className: `vhc-a11y-grid`,
+            children: [
+              (0, J.jsxs)(`dl`, {
+                className: `vhc-shortcuts`,
+                "aria-label": `Keyboard shortcuts`,
+                children: [
+                  (0, J.jsx)(`dt`, { children: (0, J.jsx)(`kbd`, { children: `F8` }) }),
+                  (0, J.jsx)(`dd`, { children: `Billing: complete payment for the active bill` }),
+                  (0, J.jsx)(`dt`, { children: [(0, J.jsx)(`kbd`, { children: `Ctrl` }, `c`), ` + `, (0, J.jsx)(`kbd`, { children: `P` }, `p`)] }),
+                  (0, J.jsx)(`dd`, { children: `Billing: complete payment and quick-print the thermal receipt to the default printer` }),
+                ],
+              }),
+              (0, J.jsxs)(`label`, {
+                className: `vhc-switch-row`,
+                children: [
+                  (0, J.jsx)(`input`, {
+                    type: `checkbox`,
+                    checked: reduceMotion,
+                    onChange: (evt) => setReduceMotion(vhcApplyReduceMotion(evt.target.checked)),
+                  }),
+                  (0, J.jsxs)(`span`, {
+                    children: [
+                      (0, J.jsx)(`strong`, { children: `Reduce motion` }),
+                      (0, J.jsx)(`small`, { children: `Turns off animations and slide/fade effects on this computer (Windows' own "reduce motion" setting is also respected).` }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
           }),
         ],
       }),
+      // (Account type + Logout now live in the compact header above. Account type is derived from the real,
+      // server-verified isPlatformAdmin state, never an e-mail check. Logout uses the app's own Promise-based
+      // confirm dialog (Eh(), aliased `a`) instead of window.confirm(), which was found to leave the login
+      // form unresponsive in this Electron window.)
       // App Details / About + Changelog. Informational only, visible to every signed-in user
       // (not gated on isPlatformAdmin). Business name is read from the existing Pharmacy Details
       // setting (storeName) — nothing customer-specific is hardcoded beyond that setting's own
       // default. There is no global doctor setting in this app (doctor is per-bill), so none is shown.
       (0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-details`,
-        style: {
-          padding: `1.25rem 1.5rem`,
-          background: `var(--surface)`,
-          borderRadius: `16px`,
-          border: `1.5px solid var(--border-strong)`,
-        },
         children: [
-          (0, J.jsx)(`h3`, {
-            style: { margin: `0 0 0.75rem`, fontSize: `1.1rem`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` },
-            children: `ℹ️ App Details`,
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `vhc-settings-collapse-head`,
+            "aria-expanded": isAppDetailsOpen ? `true` : `false`,
+            "aria-controls": `vhc-app-details-body`,
+            onClick: () => setIsAppDetailsOpen((open) => !open),
+            children: [
+              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-title`, children: `ℹ️ App Details` }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-meta`, children: appDetailsInfo.version ? `v${appDetailsInfo.version}` : `` }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-action`, children: isAppDetailsOpen ? `Hide ▴` : `Show ▾` }),
+            ],
           }),
+          isAppDetailsOpen && (0, J.jsxs)(`div`, { id: `vhc-app-details-body`, className: `vhc-settings-collapse-body`, children: [
           (0, J.jsxs)(`div`, {
             className: `vhc-settings-detail-grid`,
             style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`, gap: `0.75rem`, marginBottom: `1rem` },
@@ -59820,6 +59764,7 @@ function Lh() {
               (0, J.jsx)(`li`, { children: `Modern operational dashboard with live billing, stock and expiry insights` }),
             ],
           }),
+          ] }),
         ],
       }),
       // Platform-Admin-only trigger cards (Backup & Restore, Stock Audit). Gated on the same
@@ -59837,7 +59782,13 @@ function Lh() {
         children: [
           (0, J.jsxs)(`button`, {
             type: `button`,
-            onClick: () => setAuthModalTarget(`backup`),
+            "aria-expanded": authModalTarget !== null || backupManagerOpen ? `true` : `false`,
+            "aria-controls": `vhc-admin-inline`,
+            onClick: () => {
+              authModalTarget !== null || backupManagerOpen
+                ? (setAuthModalTarget(null), setBackupManagerOpen(!1))
+                : setAuthModalTarget(`backup`);
+            },
             style: {
               textAlign: `left`,
               cursor: `pointer`,
@@ -59893,6 +59844,644 @@ function Lh() {
               }),
             ],
           }),
+        ],
+      }),
+      // v3.19.8: Admin · Backup & Restore is an inline, collapsible section instead of two popups. Same gates as
+      // before: the Backup & Restore card is still shown only to the server-verified Platform Admin, the Google
+      // Drive card still routes here, and the manager renders only after the admin password verifies
+      // (VhcInlineAdminAuth). Collapsing closes the manager; reopening asks for the password again.
+      (authModalTarget !== null || backupManagerOpen) && (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4 vhc-settings-admin-inline`,
+        id: `vhc-admin-inline`,
+        children: [
+          (0, J.jsxs)(`div`, {
+            className: `vhc-admin-inline-head`,
+            children: [
+              (0, J.jsx)(`h3`, { children: `🔐 Admin · Backup & Restore` }),
+              (0, J.jsx)(`span`, { className: `vhc-admin-state ${backupManagerOpen ? `is-unlocked` : `is-locked`}`, children: backupManagerOpen ? `Unlocked` : `Locked` }),
+              (0, J.jsx)(`button`, {
+                type: `button`,
+                className: `vhc-settings-collapse-action vhc-admin-collapse`,
+                "aria-label": `Collapse and lock admin section`,
+                onClick: () => { setAuthModalTarget(null); setBackupManagerOpen(!1); },
+                children: `Collapse ▴`,
+              }),
+            ],
+          }),
+          !backupManagerOpen &&
+            (0, J.jsx)(VhcInlineAdminAuth, {
+              purpose: `Backup & Restore`,
+              onCancel: () => setAuthModalTarget(null),
+              onSuccess: () => { setAuthModalTarget(null); setBackupManagerOpen(!0); },
+            }),
+          backupManagerOpen &&
+                (0, J.jsx)(`div`, {
+                  className: `vhc-admin-manager`,
+                  children: (0, J.jsxs)(`div`, {
+                    className: `vhc-admin-manager-inner`,
+                    style: { color: `var(--text-primary)`, display: `flex`, flexDirection: `column` },
+                    children: [
+                  (0, J.jsxs)(`div`, {
+                    style: {
+                      display: `flex`,
+                      justifyContent: `space-between`,
+                      alignItems: `center`,
+                      padding: `1.25rem 1.5rem`,
+                      borderBottom: `1px solid var(--border)`,
+                      flexShrink: 0,
+                    },
+                    children: [
+                      (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1rem` }, children: `Backup & Restore Manager` }),
+                      (0, J.jsx)(`span`, { className: `vhc-admin-unlocked`, children: `🔓 Unlocked for this visit` }),
+                    ],
+                  }),
+                  (0, J.jsx)(`div`, {
+                    style: { display: `flex`, gap: `0.4rem`, padding: `0.75rem 1.5rem 0`, borderBottom: `1px solid var(--border)`, flexShrink: 0 },
+                    children: [
+                      { id: `local`, label: `💾 Local` },
+                      { id: `gdrive`, label: `☁️ Google Drive` },
+                      { id: `schedule`, label: `⚙️ Schedule & Security` },
+                    ].map((tabDef) =>
+                      (0, J.jsx)(
+                        `button`,
+                        {
+                          type: `button`,
+                          onClick: () => setBackupManagerTab(tabDef.id),
+                          style: {
+                            padding: `0.6rem 1rem`,
+                            border: `none`,
+                            background: `none`,
+                            borderBottom: backupManagerTab === tabDef.id ? `3px solid var(--info-strong)` : `3px solid transparent`,
+                            color: backupManagerTab === tabDef.id ? `var(--info-strong)` : `var(--text-soft)`,
+                            fontWeight: `700`,
+                            fontSize: `0.85rem`,
+                            cursor: `pointer`,
+                            transition: `color 0.15s ease, border-color 0.15s ease`,
+                          },
+                          children: tabDef.label,
+                        },
+                        tabDef.id,
+                      ),
+                    ),
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: { padding: `1.5rem`, overflowY: `auto`, flex: 1 },
+                    children: [
+                      backupManagerTab === `local` &&
+                        (0, J.jsxs)(`div`, {
+                          className: `animate-fade-in`,
+                          children: [
+                            (0, J.jsx)(`p`, {
+                              style: { fontSize: `0.85rem`, color: `var(--text-secondary)`, marginBottom: `1rem` },
+                              children: `Download a full backup of settings, inventory, sales history & patients to this device, or restore from a previously saved local backup file.`,
+                            }),
+                            m &&
+                              (0, J.jsx)(`div`, {
+                                style: {
+                                  fontSize: `0.78rem`,
+                                  color: `var(--success-strong)`,
+                                  background: `var(--success-light)`,
+                                  padding: `0.4rem 0.6rem`,
+                                  borderRadius: `6px`,
+                                  border: `1px solid var(--success-border)`,
+                                  fontWeight: `700`,
+                                  marginBottom: `0.75rem`,
+                                },
+                                children: m,
+                              }),
+                            (0, J.jsx)(`input`, { type: `file`, accept: `.json`, ref: s, style: { display: `none` }, onChange: I }),
+                            (0, J.jsxs)(`div`, {
+                              style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(220px, 1fr))`, gap: `0.75rem` },
+                              children: [
+                                (0, J.jsx)(`button`, {
+                                  type: `button`,
+                                  className: `btn`,
+                                  style: { background: `#475569`, color: `#ffffff`, fontWeight: `800`, justifyContent: `center`, padding: `0.75rem` },
+                                  onClick: () => M(`Local_Offline`),
+                                  children: `💾 Download Local Backup`,
+                                }),
+                                (0, J.jsx)(`button`, {
+                                  type: `button`,
+                                  className: `btn`,
+                                  style: { background: isRestoringData ? `var(--text-faint)` : `var(--success-strong)`, color: `#ffffff`, fontWeight: `800`, justifyContent: `center`, padding: `0.75rem` },
+                                  disabled: isRestoringData,
+                                  onClick: () => { s.current && s.current.click(); },
+                                  children: isRestoringData ? `⏳ Restoring...` : `📥 Restore From Local File`,
+                                }),
+                              ],
+                            }),
+                          ],
+                        }),
+                      backupManagerTab === `gdrive` &&
+                        (0, J.jsxs)(`div`, {
+                          className: `animate-fade-in`,
+                          children: [
+                            (0, J.jsxs)(`div`, {
+                              style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
+                              children: [
+                                (0, J.jsxs)(`div`, {
+                                  style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
+                                  children: [
+                                    (0, J.jsxs)(`div`, {
+                                      children: [
+                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Google Drive Account` }),
+                                        gdriveSignedIn
+                                          ? (0, J.jsxs)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: [`Signed in as `, (0, J.jsx)(`strong`, { children: gdriveEmail })] })
+                                          : (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: `Sign in to enable one-click Google Drive backup & restore.` }),
+                                      ],
+                                    }),
+                                    gdriveSignedIn
+                                      ? (0, J.jsxs)(`div`, {
+                                          style: { display: `flex`, alignItems: `center`, gap: `0.6rem` },
+                                          children: [
+                                            (0, J.jsx)(`span`, {
+                                              style: { background: `var(--success-light)`, color: `var(--success-strong)`, fontSize: `0.72rem`, fontWeight: `800`, padding: `0.25rem 0.6rem`, borderRadius: `20px` },
+                                              children: `Signed in`,
+                                            }),
+                                            (0, J.jsx)(`button`, {
+                                              type: `button`,
+                                              className: `btn btn-outline`,
+                                              style: { fontSize: `0.78rem`, padding: `0.4rem 0.8rem` },
+                                              onClick: handleGdriveSignOut,
+                                              children: `Sign Out`,
+                                            }),
+                                          ],
+                                        })
+                                      : (0, J.jsx)(`button`, {
+                                          type: `button`,
+                                          className: `btn`,
+                                          style: { background: `#0284c7`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.82rem`, padding: `0.55rem 1rem` },
+                                          disabled: gdriveSignInLoading,
+                                          onClick: handleGdriveSignIn,
+                                          children: gdriveSignInLoading ? `⏳ Waiting for sign-in...` : `🔐 Sign in with Google`,
+                                        }),
+                                  ],
+                                }),
+                              ],
+                            }),
+                            gdriveSignedIn &&
+                              (0, J.jsxs)(`div`, {
+                                style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem`, display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
+                                children: [
+                                  (0, J.jsxs)(`div`, {
+                                    children: [
+                                      (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Backup Now to Drive` }),
+                                      (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: `Uploads a fresh backup of settings, inventory, sales & patients to your configured Drive folder.` }),
+                                    ],
+                                  }),
+                                  (0, J.jsx)(`button`, {
+                                    type: `button`,
+                                    className: `btn`,
+                                    style: { background: `#2563eb`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.82rem`, padding: `0.55rem 1rem` },
+                                    disabled: gdriveBackupNowLoading,
+                                    onClick: handleGdriveBackupNow,
+                                    children: gdriveBackupNowLoading ? `⏳ Uploading...` : `☁️ Google Drive Backup`,
+                                  }),
+                                ],
+                              }),
+                            // v3.19.5: encrypted, verified, daily Drive backups (WhatsApp-style). Older tools below are unchanged.
+                            (0, J.jsx)(VhcDriveBackupV2Panel, {
+                              settings: e,
+                              updateSettings: t,
+                              toast: i,
+                              confirmAsync: a,
+                              addLog: settingsAddLog,
+                              signedIn: gdriveSignedIn,
+                              inventoryFallback: n,
+                              beginRestore: beginRestoreOrWarn,
+                              endRestore: endRestore,
+                              onRestored: refreshUiAfterDataChange,
+                            }),
+                            gdriveSignedIn &&
+                              (0, J.jsxs)(`div`, {
+                                style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
+                                children: [
+                                  (0, J.jsxs)(`div`, {
+                                    style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `0.75rem` },
+                                    children: [
+                                      (0, J.jsx)(`h4`, { style: { margin: 0, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Drive Backups` }),
+                                      (0, J.jsx)(`button`, {
+                                        type: `button`,
+                                        className: `btn-icon`,
+                                        style: { fontSize: `0.75rem`, fontWeight: `700`, color: `var(--info-strong)` },
+                                        onClick: loadGdriveFiles,
+                                        disabled: gdriveFilesLoading,
+                                        children: gdriveFilesLoading ? `⏳ Refreshing...` : `🔄 Refresh`,
+                                      }),
+                                    ],
+                                  }),
+                                  getGdriveDuplicateGroups().length > 0 &&
+                                    (0, J.jsxs)(`div`, {
+                                      style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap`, background: `var(--warning-light)`, border: `1px solid var(--warning-border)`, borderRadius: `8px`, padding: `0.6rem 0.8rem`, marginBottom: `0.75rem` },
+                                      children: [
+                                        (0, J.jsxs)(`span`, {
+                                          style: { fontSize: `0.78rem`, color: `var(--warning-strong)`, fontWeight: `600` },
+                                          children: [
+                                            `⚠️ `,
+                                            getGdriveDuplicateGroups().reduce((sum, list) => sum + list.length - 1, 0),
+                                            ` duplicate backup file(s) found (same name, multiple copies).`,
+                                          ],
+                                        }),
+                                        (0, J.jsx)(`button`, {
+                                          type: `button`,
+                                          className: `btn btn-outline`,
+                                          style: { fontSize: `0.75rem`, padding: `0.35rem 0.7rem`, borderColor: `var(--warning-strong)`, color: `var(--warning-strong)`, whiteSpace: `nowrap` },
+                                          onClick: handleGdriveCleanupDuplicates,
+                                          children: `Clean Up Duplicates`,
+                                        }),
+                                      ],
+                                    }),
+                                  !getDriveFolderId()
+                                    ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-soft)` }, children: `Set a Google Drive folder link in the section below to see backups here.` })
+                                    : gdriveFilesList.length === 0
+                                      ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-soft)` }, children: gdriveFilesLoading ? `Loading...` : `No backups found in this folder yet.` })
+                                      : (0, J.jsx)(`div`, {
+                                          style: { overflowX: `auto` },
+                                          children: (0, J.jsxs)(`table`, {
+                                            style: { width: `100%`, borderCollapse: `collapse`, fontSize: `0.8rem` },
+                                            children: [
+                                              (0, J.jsx)(`thead`, {
+                                                children: (0, J.jsxs)(`tr`, {
+                                                  children: [
+                                                    (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `NAME` }),
+                                                    (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `DATE` }),
+                                                    (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `SIZE` }),
+                                                    (0, J.jsx)(`th`, { style: { padding: `0.4rem` }, children: `` }),
+                                                  ],
+                                                }),
+                                              }),
+                                              (0, J.jsx)(`tbody`, {
+                                                children: gdriveFilesList.map((file) =>
+                                                  (0, J.jsxs)(
+                                                    `tr`,
+                                                    {
+                                                      style: { borderTop: `1px solid var(--border)` },
+                                                      children: [
+                                                        (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, fontWeight: `700`, color: `var(--text-primary)`, wordBreak: `break-all` }, children: file.name }),
+                                                        (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: file.modifiedTime ? new Date(file.modifiedTime).toLocaleString(`en-IN`) : `` }),
+                                                        (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: file.size ? `${(parseInt(file.size, 10) / 1024).toFixed(1)} KB` : `—` }),
+                                                        (0, J.jsx)(`td`, {
+                                                          style: { padding: `0.5rem 0.4rem`, whiteSpace: `nowrap` },
+                                                          children: (0, J.jsxs)(`div`, {
+                                                            style: { display: `flex`, gap: `0.4rem`, justifyContent: `flex-end` },
+                                                            children: [
+                                                              (0, J.jsx)(`button`, {
+                                                                type: `button`,
+                                                                className: `btn btn-outline`,
+                                                                style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem` },
+                                                                onClick: () => handleGdriveDownload(file),
+                                                                children: `Download`,
+                                                              }),
+                                                              (0, J.jsx)(`button`, {
+                                                                type: `button`,
+                                                                className: `btn btn-outline`,
+                                                                style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem` },
+                                                                disabled: isRestoringData,
+                                                                onClick: () => handleGdriveRestore(file),
+                                                                children: isRestoringData ? `⏳...` : `Restore`,
+                                                              }),
+                                                              (0, J.jsx)(`button`, {
+                                                                type: `button`,
+                                                                className: `btn btn-outline`,
+                                                                style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem`, color: `var(--danger-hover)`, borderColor: `var(--danger-border)` },
+                                                                onClick: () => handleGdriveDelete(file),
+                                                                children: `Delete`,
+                                                              }),
+                                                            ],
+                                                          }),
+                                                        }),
+                                                      ],
+                                                    },
+                                                    file.id,
+                                                  ),
+                                                ),
+                                              }),
+                                            ],
+                                          }),
+                                        }),
+                                ],
+                              }),
+                            (0, J.jsx)(`button`, {
+                              type: `button`,
+                              onClick: () => setGdriveLegacyExpanded((prev) => !prev),
+                              style: {
+                                background: `none`,
+                                border: `1px dashed var(--border-strong)`,
+                                borderRadius: `6px`,
+                                color: `var(--text-soft)`,
+                                fontSize: `0.78rem`,
+                                fontWeight: `700`,
+                                cursor: `pointer`,
+                                padding: `0.35rem 0.6rem`,
+                                width: `100%`,
+                                marginBottom: `0.75rem`,
+                                textAlign: `left`,
+                              },
+                              children: gdriveLegacyExpanded ? `▲ Hide Advanced / Legacy Apps Script Sync` : `▼ Advanced: Legacy Apps Script Sync (optional)`,
+                            }),
+                            gdriveLegacyExpanded &&
+                              (0, J.jsxs)(`div`, {
+                                className: `animate-fade-in`,
+                                style: { marginTop: `0.25rem`, paddingTop: `0.75rem`, borderTop: `1px solid var(--border)` },
+                                children: [
+                            (0, J.jsx)(`p`, {
+                              style: { fontSize: `0.82rem`, color: `var(--info-strong)`, marginBottom: `0.75rem` },
+                              children: `Configure Google Drive folder link & Web App Script URL for cloud backup options.`,
+                            }),
+                            (0, J.jsxs)(`div`, {
+                              className: `input-group mb-2`,
+                              children: [
+                                (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Google Drive Folder Link` }),
+                                (0, J.jsx)(`input`, {
+                                  type: `text`,
+                                  name: `googleDriveUrl`,
+                                  className: `input-field`,
+                                  style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
+                                  value: e.googleDriveUrl || e.oneDriveUrl || ``,
+                                  onChange: (n) => t({ ...e, googleDriveUrl: n.target.value, oneDriveUrl: n.target.value }),
+                                  placeholder: `https://drive.google.com/drive/folders/...`,
+                                }),
+                              ],
+                            }),
+                            (0, J.jsxs)(`div`, {
+                              className: `input-group mb-2`,
+                              children: [
+                                (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Backup Script URL` }),
+                                (0, J.jsx)(`input`, {
+                                  type: `text`,
+                                  name: `gDriveScriptUrl`,
+                                  className: `input-field`,
+                                  style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
+                                  value: e.gDriveScriptUrl || ``,
+                                  onChange: B,
+                                  placeholder: `Paste Google Apps Script Web App URL...`,
+                                }),
+                              ],
+                            }),
+                            (0, J.jsx)(`button`, {
+                              type: `button`,
+                              onClick: () => S((prev) => !prev),
+                              style: {
+                                background: `none`,
+                                border: `1px dashed var(--info-strong)`,
+                                borderRadius: `6px`,
+                                color: `var(--info-strong)`,
+                                fontSize: `0.78rem`,
+                                fontWeight: `700`,
+                                cursor: `pointer`,
+                                padding: `0.35rem 0.6rem`,
+                                width: `100%`,
+                                marginBottom: `0.75rem`,
+                                textAlign: `left`,
+                              },
+                              children: x ? `▲ Hide Setup Guide` : `▼ How to setup Google Drive auto-upload? (2 min)`,
+                            }),
+                            x &&
+                              (0, J.jsxs)(`div`, {
+                                style: {
+                                  background: `var(--surface-raised)`,
+                                  border: `1px solid var(--info-border)`,
+                                  borderRadius: `8px`,
+                                  padding: `0.75rem`,
+                                  marginBottom: `0.75rem`,
+                                  fontSize: `0.75rem`,
+                                  color: `var(--info-strong)`,
+                                  maxHeight: `220px`,
+                                  overflowY: `auto`,
+                                },
+                                children: [
+                                  (0, J.jsx)(`div`, { style: { fontWeight: `800`, marginBottom: `0.4rem` }, children: `📋 Setup Instructions:` }),
+                                  (0, J.jsxs)(`ol`, {
+                                    style: { paddingLeft: `1.1rem`, lineHeight: `1.6`, margin: 0 },
+                                    children: [
+                                      (0, J.jsxs)(`li`, {
+                                        children: [
+                                          `Go to `,
+                                          (0, J.jsx)(`a`, { href: `https://script.google.com`, target: `_blank`, rel: `noopener noreferrer`, style: { color: `var(--info-strong)`, fontWeight: `700` }, children: `script.google.com` }),
+                                          ` → `,
+                                          (0, J.jsx)(`strong`, { children: `New Project` }),
+                                        ],
+                                      }),
+                                      (0, J.jsx)(`li`, { children: `Paste the Apps Script code for backup & restore.` }),
+                                      (0, J.jsxs)(`li`, { children: [`Click `, (0, J.jsx)(`strong`, { children: `Deploy → New Deployment → Web app` }), ` (Access: Anyone).`] }),
+                                      (0, J.jsx)(`li`, { children: `Copy the Web App URL & paste it into the field above.` }),
+                                    ],
+                                  }),
+                                ],
+                              }),
+                            (0, J.jsx)(`div`, {
+                              style: { background: `var(--surface-raised)`, padding: `0.75rem`, borderRadius: `10px`, border: `1px solid var(--info-border)` },
+                              children: (0, J.jsxs)(`div`, {
+                                  style: { display: `flex`, flexDirection: `column`, gap: `0.5rem`, maxWidth: `280px` },
+                                  children: [
+                                    (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, fontWeight: `800`, color: `var(--info-strong)` }, children: `☁️ Cloud Sync` }),
+                                    g !== `idle` &&
+                                      (0, J.jsx)(`div`, {
+                                        style: {
+                                          fontSize: `0.72rem`,
+                                          fontWeight: `700`,
+                                          padding: `0.35rem 0.5rem`,
+                                          borderRadius: `6px`,
+                                          background: g === `syncing` ? `var(--info-light)` : g === `success` ? `var(--success-light)` : `var(--danger-light)`,
+                                          color: g === `syncing` ? `var(--info-strong)` : g === `success` ? `var(--success-strong)` : `var(--danger-strong)`,
+                                        },
+                                        children: y,
+                                      }),
+                                    (0, J.jsx)(`button`, {
+                                      type: `button`,
+                                      className: `btn`,
+                                      style: { width: `100%`, justifyContent: `center`, background: g === `syncing` ? `var(--accent-border)` : `var(--info-strong)`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
+                                      disabled: g === `syncing`,
+                                      onClick: N,
+                                      children: g === `syncing` ? `⏳ Syncing...` : `☁️ G-Drive Backup`,
+                                    }),
+                                    (0, J.jsx)(`button`, {
+                                      type: `button`,
+                                      className: `btn`,
+                                      style: { width: `100%`, justifyContent: `center`, background: C !== `idle` && C !== `selecting` ? `var(--accent-border)` : `var(--info-strong)`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
+                                      disabled: C === `fetching` || C === `restoring`,
+                                      onClick: P,
+                                      children: C === `fetching` ? `⏳ Fetching...` : `☁️ G-Drive Restore`,
+                                    }),
+                                    C !== `idle` &&
+                                      (0, J.jsxs)(`div`, {
+                                        style: { fontSize: `0.72rem`, fontWeight: `700`, padding: `0.35rem 0.5rem`, borderRadius: `6px`, background: `var(--info-light)`, color: `var(--info-strong)` },
+                                        children: [
+                                          T,
+                                          C === `selecting` &&
+                                            D.length > 0 &&
+                                            (0, J.jsxs)(`div`, {
+                                              style: { display: `flex`, flexDirection: `column`, gap: `0.3rem`, marginTop: `0.3rem` },
+                                              children: [
+                                                (0, J.jsx)(`select`, {
+                                                  value: k?.id || ``,
+                                                  onChange: (evt) => A(D.find((f) => f.id === evt.target.value)),
+                                                  style: { fontSize: `0.72rem`, padding: `0.2rem` },
+                                                  children: D.map((f) => (0, J.jsx)(`option`, { value: f.id, children: f.name }, f.id)),
+                                                }),
+                                                (0, J.jsx)(`button`, {
+                                                  type: `button`,
+                                                  disabled: isRestoringData,
+                                                  onClick: F,
+                                                  style: { background: isRestoringData ? `var(--text-faint)` : `var(--success-strong)`, color: `#fff`, fontSize: `0.72rem`, border: `none`, borderRadius: `4px`, padding: `0.3rem`, fontWeight: `700`, cursor: isRestoringData ? `not-allowed` : `pointer` },
+                                                  children: isRestoringData ? `⏳ Restoring...` : `✅ Restore Selected`,
+                                                }),
+                                              ],
+                                            }),
+                                        ],
+                                      }),
+                                  ],
+                                }),
+                            }),
+                                ],
+                              }),
+                          ],
+                        }),
+                      backupManagerTab === `schedule` &&
+                        (0, J.jsxs)(`div`, {
+                          className: `animate-fade-in`,
+                          children: [
+                            (0, J.jsxs)(`div`, {
+                              style: { background: `var(--surface-raised)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--border)`, marginBottom: `1rem` },
+                              children: [
+                                (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, color: `var(--text-heading)`, fontSize: `0.9rem` }, children: `⏱️ Auto-Backup Status` }),
+                                (0, J.jsx)(`p`, {
+                                  style: { fontSize: `0.78rem`, color: `var(--text-soft)`, margin: `0 0 0.75rem` },
+                                  children: `A background job automatically syncs your data to Google Drive ~35 seconds after any change (settings, inventory, sales, patients). This runs continuously and needs no manual action.`,
+                                }),
+                                (0, J.jsx)(AutoSyncBadgeComponent, {}),
+                              ],
+                            }),
+                            (0, J.jsxs)(`div`, {
+                              style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--accent-border)`, marginBottom: `1rem` },
+                              children: [
+                                (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--info-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `🔑 Change Admin Password` }),
+                                (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.65rem` }, children: `Set a custom security password for the admin PIN gate & database resets.` }),
+                                (0, J.jsx)(`input`, {
+                                  type: `password`,
+                                  className: `input-field mb-2`,
+                                  placeholder: `Enter new admin password...`,
+                                  style: { fontSize: `0.82rem`, padding: `0.45rem 0.65rem` },
+                                  value: L,
+                                  onChange: (evt) => ee(evt.target.value),
+                                }),
+                                (0, J.jsx)(`button`, {
+                                  type: `button`,
+                                  className: `btn`,
+                                  style: { background: `#0284c7`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
+                                  onClick: z,
+                                  children: `Update Admin Password`,
+                                }),
+                              ],
+                            }),
+                            (0, J.jsxs)(`div`, {
+                              style: { background: `var(--danger-light)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, marginBottom: `0.5rem` },
+                              children: [
+                                (0, J.jsx)(`h4`, { style: { margin: `0 0 0.5rem`, color: `var(--danger-strong)`, fontSize: `0.95rem` }, children: `⚠️ Danger Zone` }),
+                                (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--danger-strong)`, margin: `0 0 0.9rem` }, children: `Destructive actions. A safety backup is created before any reset. Requires typing DELETE to confirm.` }),
+                                // Gated on the real Supabase profiles.is_platform_admin flag (see isPlatformAdmin
+                                // state above), not the local admin-password PIN this modal already sits behind —
+                                // these four actions wipe cloud data and are Platform-Admin-only regardless of who
+                                // knows the local PIN.
+                                !isPlatformAdmin && (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--danger-strong)`, fontWeight: `800`, margin: `0 0 0.9rem` }, children: `🔒 Platform Admin access required — these actions are locked for clinic accounts.` }),
+                                isPlatformAdmin && (0, J.jsxs)(`div`, {
+                                  style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`, gap: `1rem` },
+                                  children: [
+                                    (0, J.jsxs)(`div`, {
+                                      style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fed7aa`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                      children: [
+                                        (0, J.jsxs)(`div`, {
+                                          children: [
+                                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--warning-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📊 Clear Sales History Only` }),
+                                            (0, J.jsxs)(`p`, {
+                                              style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                                              children: [`Clears all bill records & daily sales reports. `, (0, J.jsx)(`strong`, { children: `Keeps all medicine inventory stock intact.` })],
+                                            }),
+                                          ],
+                                        }),
+                                        (0, J.jsx)(`button`, {
+                                          type: `button`,
+                                          className: `btn`,
+                                          style: { background: `#ea580c`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
+                                          onClick: () => setClearHistoryConfirmOpen(!0),
+                                          children: `Clear Sales History Only`,
+                                        }),
+                                      ],
+                                    }),
+                                    (0, J.jsxs)(`div`, {
+                                      style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                      children: [
+                                        (0, J.jsxs)(`div`, {
+                                          children: [
+                                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `💥 Reset Full POS System` }),
+                                            (0, J.jsxs)(`p`, {
+                                              style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                                              children: [`Clears this terminal's local sales history, audit logs and in-progress bills. `, (0, J.jsx)(`strong`, { children: `Inventory is synced from the cloud and is not affected.` })],
+                                            }),
+                                          ],
+                                        }),
+                                        (0, J.jsx)(`button`, {
+                                          type: `button`,
+                                          className: `btn`,
+                                          style: { background: `#dc2626`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
+                                          onClick: () => setResetSystemConfirmOpen(!0),
+                                          children: `Reset Full POS System`,
+                                        }),
+                                      ],
+                                    }),
+                                    (0, J.jsxs)(`div`, {
+                                      style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                      children: [
+                                        (0, J.jsxs)(`div`, {
+                                          children: [
+                                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📦 Clear Inventory` }),
+                                            (0, J.jsxs)(`p`, {
+                                              style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                                              children: [`Permanently deletes this pharmacy's stock levels, batches & stock movement history from the cloud database. `, (0, J.jsx)(`strong`, { children: `Settings, users, licenses and the shared product catalog are not affected.` })],
+                                            }),
+                                          ],
+                                        }),
+                                        (0, J.jsx)(`button`, {
+                                          type: `button`,
+                                          className: `btn`,
+                                          style: { background: `#dc2626`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
+                                          onClick: () => setClearInventoryConfirmOpen(!0),
+                                          children: `Clear Inventory`,
+                                        }),
+                                      ],
+                                    }),
+                                    (0, J.jsxs)(`div`, {
+                                      style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `2px solid var(--danger-strong)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
+                                      children: [
+                                        (0, J.jsxs)(`div`, {
+                                          children: [
+                                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `☢️ Factory Reset` }),
+                                            (0, J.jsxs)(`p`, {
+                                              style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                                              children: [`Permanently wipes this pharmacy's sales, bills and inventory from the cloud database. `, (0, J.jsx)(`strong`, { children: `Patients and the shared product catalog are preserved (shared with OPD/Warehouse)` }), `. App activation, credentials, clinic profile and cloud/Google Drive settings are never touched.`],
+                                            }),
+                                          ],
+                                        }),
+                                        (0, J.jsx)(`button`, {
+                                          type: `button`,
+                                          className: `btn`,
+                                          style: { background: `#7f1d1d`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
+                                          onClick: () => setFactoryResetConfirmOpen(!0),
+                                          children: `Factory Reset`,
+                                        }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                              ],
+                            }),
+                          ],
+                        }),
+                    ],
+                  }),
+                ],
+              }),
+            }),
         ],
       }),
       isPlatformAdmin && (0, J.jsxs)(`div`, {
@@ -60676,7 +61265,11 @@ function Lh() {
                 style: { marginTop: `0.9rem`, alignSelf: `flex-start` },
                 onClick: () => {
                   setBackupManagerTab(`gdrive`);
-                  setAuthModalTarget(`backup`);
+                  backupManagerOpen || setAuthModalTarget(`backup`);
+                  setTimeout(() => {
+                    let el = document.getElementById(`vhc-admin-inline`);
+                    el && el.scrollIntoView({ behavior: `smooth`, block: `start` });
+                  }, 60);
                 },
                 children: gdriveSignedIn ? `Manage Backups` : `Connect Google Drive`,
               }),
@@ -60824,637 +61417,6 @@ function Lh() {
         ],
       }),
     }),
-      (0, J.jsx)(AdminAuthModal, {
-        isOpen: authModalTarget !== null,
-        title: `Backup & Restore`,
-        subtitle: `Enter the admin password to continue.`,
-        onClose: () => setAuthModalTarget(null),
-        onSuccess: () => {
-          (setAuthModalTarget(null), setBackupManagerOpen(!0));
-        },
-      }),
-      backupManagerOpen &&
-        (0, J.jsx)(`div`, {
-          className: `modal-overlay`,
-          onClick: () => setBackupManagerOpen(!1),
-          children: (0, J.jsxs)(`div`, {
-            className: `modal-content glass-panel animate-fade-in`,
-            onClick: (evt) => evt.stopPropagation(),
-            style: {
-              maxWidth: `1280px`,
-              width: `96vw`,
-              padding: 0,
-              background: `var(--surface)`,
-              color: `var(--text-primary)`,
-              borderRadius: `16px`,
-              height: `92vh`,
-              maxHeight: `92vh`,
-              display: `flex`,
-              flexDirection: `column`,
-              overflow: `hidden`,
-            },
-            children: [
-              (0, J.jsxs)(`div`, {
-                style: {
-                  display: `flex`,
-                  justifyContent: `space-between`,
-                  alignItems: `center`,
-                  padding: `1.25rem 1.5rem`,
-                  borderBottom: `1px solid var(--border)`,
-                  flexShrink: 0,
-                },
-                children: [
-                  (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem` }, children: `🔐 Backup & Restore Manager` }),
-                  (0, J.jsx)(`button`, { className: `btn-icon`, onClick: () => setBackupManagerOpen(!1), children: `✕` }),
-                ],
-              }),
-              (0, J.jsx)(`div`, {
-                style: { display: `flex`, gap: `0.4rem`, padding: `0.75rem 1.5rem 0`, borderBottom: `1px solid var(--border)`, flexShrink: 0 },
-                children: [
-                  { id: `local`, label: `💾 Local` },
-                  { id: `gdrive`, label: `☁️ Google Drive` },
-                  { id: `schedule`, label: `⚙️ Schedule & Security` },
-                ].map((tabDef) =>
-                  (0, J.jsx)(
-                    `button`,
-                    {
-                      type: `button`,
-                      onClick: () => setBackupManagerTab(tabDef.id),
-                      style: {
-                        padding: `0.6rem 1rem`,
-                        border: `none`,
-                        background: `none`,
-                        borderBottom: backupManagerTab === tabDef.id ? `3px solid var(--info-strong)` : `3px solid transparent`,
-                        color: backupManagerTab === tabDef.id ? `var(--info-strong)` : `var(--text-soft)`,
-                        fontWeight: `700`,
-                        fontSize: `0.85rem`,
-                        cursor: `pointer`,
-                        transition: `color 0.15s ease, border-color 0.15s ease`,
-                      },
-                      children: tabDef.label,
-                    },
-                    tabDef.id,
-                  ),
-                ),
-              }),
-              (0, J.jsxs)(`div`, {
-                style: { padding: `1.5rem`, overflowY: `auto`, flex: 1 },
-                children: [
-                  backupManagerTab === `local` &&
-                    (0, J.jsxs)(`div`, {
-                      className: `animate-fade-in`,
-                      children: [
-                        (0, J.jsx)(`p`, {
-                          style: { fontSize: `0.85rem`, color: `var(--text-secondary)`, marginBottom: `1rem` },
-                          children: `Download a full backup of settings, inventory, sales history & patients to this device, or restore from a previously saved local backup file.`,
-                        }),
-                        m &&
-                          (0, J.jsx)(`div`, {
-                            style: {
-                              fontSize: `0.78rem`,
-                              color: `var(--success-strong)`,
-                              background: `var(--success-light)`,
-                              padding: `0.4rem 0.6rem`,
-                              borderRadius: `6px`,
-                              border: `1px solid var(--success-border)`,
-                              fontWeight: `700`,
-                              marginBottom: `0.75rem`,
-                            },
-                            children: m,
-                          }),
-                        (0, J.jsx)(`input`, { type: `file`, accept: `.json`, ref: s, style: { display: `none` }, onChange: I }),
-                        (0, J.jsxs)(`div`, {
-                          style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(220px, 1fr))`, gap: `0.75rem` },
-                          children: [
-                            (0, J.jsx)(`button`, {
-                              type: `button`,
-                              className: `btn`,
-                              style: { background: `#475569`, color: `#ffffff`, fontWeight: `800`, justifyContent: `center`, padding: `0.75rem` },
-                              onClick: () => M(`Local_Offline`),
-                              children: `💾 Download Local Backup`,
-                            }),
-                            (0, J.jsx)(`button`, {
-                              type: `button`,
-                              className: `btn`,
-                              style: { background: isRestoringData ? `var(--text-faint)` : `var(--success-strong)`, color: `#ffffff`, fontWeight: `800`, justifyContent: `center`, padding: `0.75rem` },
-                              disabled: isRestoringData,
-                              onClick: () => { s.current && s.current.click(); },
-                              children: isRestoringData ? `⏳ Restoring...` : `📥 Restore From Local File`,
-                            }),
-                          ],
-                        }),
-                      ],
-                    }),
-                  backupManagerTab === `gdrive` &&
-                    (0, J.jsxs)(`div`, {
-                      className: `animate-fade-in`,
-                      children: [
-                        (0, J.jsxs)(`div`, {
-                          style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
-                          children: [
-                            (0, J.jsxs)(`div`, {
-                              style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
-                              children: [
-                                (0, J.jsxs)(`div`, {
-                                  children: [
-                                    (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Google Drive Account` }),
-                                    gdriveSignedIn
-                                      ? (0, J.jsxs)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: [`Signed in as `, (0, J.jsx)(`strong`, { children: gdriveEmail })] })
-                                      : (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-soft)` }, children: `Sign in to enable one-click Google Drive backup & restore.` }),
-                                  ],
-                                }),
-                                gdriveSignedIn
-                                  ? (0, J.jsxs)(`div`, {
-                                      style: { display: `flex`, alignItems: `center`, gap: `0.6rem` },
-                                      children: [
-                                        (0, J.jsx)(`span`, {
-                                          style: { background: `var(--success-light)`, color: `var(--success-strong)`, fontSize: `0.72rem`, fontWeight: `800`, padding: `0.25rem 0.6rem`, borderRadius: `20px` },
-                                          children: `Signed in`,
-                                        }),
-                                        (0, J.jsx)(`button`, {
-                                          type: `button`,
-                                          className: `btn btn-outline`,
-                                          style: { fontSize: `0.78rem`, padding: `0.4rem 0.8rem` },
-                                          onClick: handleGdriveSignOut,
-                                          children: `Sign Out`,
-                                        }),
-                                      ],
-                                    })
-                                  : (0, J.jsx)(`button`, {
-                                      type: `button`,
-                                      className: `btn`,
-                                      style: { background: `#0284c7`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.82rem`, padding: `0.55rem 1rem` },
-                                      disabled: gdriveSignInLoading,
-                                      onClick: handleGdriveSignIn,
-                                      children: gdriveSignInLoading ? `⏳ Waiting for sign-in...` : `🔐 Sign in with Google`,
-                                    }),
-                              ],
-                            }),
-                          ],
-                        }),
-                        gdriveSignedIn &&
-                          (0, J.jsxs)(`div`, {
-                            style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem`, display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap` },
-                            children: [
-                              (0, J.jsxs)(`div`, {
-                                children: [
-                                  (0, J.jsx)(`h4`, { style: { margin: `0 0 0.2rem`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Backup Now to Drive` }),
-                                  (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: `Uploads a fresh backup of settings, inventory, sales & patients to your configured Drive folder.` }),
-                                ],
-                              }),
-                              (0, J.jsx)(`button`, {
-                                type: `button`,
-                                className: `btn`,
-                                style: { background: `#2563eb`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.82rem`, padding: `0.55rem 1rem` },
-                                disabled: gdriveBackupNowLoading,
-                                onClick: handleGdriveBackupNow,
-                                children: gdriveBackupNowLoading ? `⏳ Uploading...` : `☁️ Google Drive Backup`,
-                              }),
-                            ],
-                          }),
-                        // v3.19.5: encrypted, verified, daily Drive backups (WhatsApp-style). Older tools below are unchanged.
-                        (0, J.jsx)(VhcDriveBackupV2Panel, {
-                          settings: e,
-                          updateSettings: t,
-                          toast: i,
-                          confirmAsync: a,
-                          addLog: settingsAddLog,
-                          signedIn: gdriveSignedIn,
-                          inventoryFallback: n,
-                          beginRestore: beginRestoreOrWarn,
-                          endRestore: endRestore,
-                          onRestored: refreshUiAfterDataChange,
-                        }),
-                        gdriveSignedIn &&
-                          (0, J.jsxs)(`div`, {
-                            style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1px solid var(--border)`, padding: `1.1rem`, marginBottom: `1rem` },
-                            children: [
-                              (0, J.jsxs)(`div`, {
-                                style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, marginBottom: `0.75rem` },
-                                children: [
-                                  (0, J.jsx)(`h4`, { style: { margin: 0, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `Drive Backups` }),
-                                  (0, J.jsx)(`button`, {
-                                    type: `button`,
-                                    className: `btn-icon`,
-                                    style: { fontSize: `0.75rem`, fontWeight: `700`, color: `var(--info-strong)` },
-                                    onClick: loadGdriveFiles,
-                                    disabled: gdriveFilesLoading,
-                                    children: gdriveFilesLoading ? `⏳ Refreshing...` : `🔄 Refresh`,
-                                  }),
-                                ],
-                              }),
-                              getGdriveDuplicateGroups().length > 0 &&
-                                (0, J.jsxs)(`div`, {
-                                  style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, gap: `0.75rem`, flexWrap: `wrap`, background: `var(--warning-light)`, border: `1px solid var(--warning-border)`, borderRadius: `8px`, padding: `0.6rem 0.8rem`, marginBottom: `0.75rem` },
-                                  children: [
-                                    (0, J.jsxs)(`span`, {
-                                      style: { fontSize: `0.78rem`, color: `var(--warning-strong)`, fontWeight: `600` },
-                                      children: [
-                                        `⚠️ `,
-                                        getGdriveDuplicateGroups().reduce((sum, list) => sum + list.length - 1, 0),
-                                        ` duplicate backup file(s) found (same name, multiple copies).`,
-                                      ],
-                                    }),
-                                    (0, J.jsx)(`button`, {
-                                      type: `button`,
-                                      className: `btn btn-outline`,
-                                      style: { fontSize: `0.75rem`, padding: `0.35rem 0.7rem`, borderColor: `var(--warning-strong)`, color: `var(--warning-strong)`, whiteSpace: `nowrap` },
-                                      onClick: handleGdriveCleanupDuplicates,
-                                      children: `Clean Up Duplicates`,
-                                    }),
-                                  ],
-                                }),
-                              !getDriveFolderId()
-                                ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-soft)` }, children: `Set a Google Drive folder link in the section below to see backups here.` })
-                                : gdriveFilesList.length === 0
-                                  ? (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-soft)` }, children: gdriveFilesLoading ? `Loading...` : `No backups found in this folder yet.` })
-                                  : (0, J.jsx)(`div`, {
-                                      style: { overflowX: `auto` },
-                                      children: (0, J.jsxs)(`table`, {
-                                        style: { width: `100%`, borderCollapse: `collapse`, fontSize: `0.8rem` },
-                                        children: [
-                                          (0, J.jsx)(`thead`, {
-                                            children: (0, J.jsxs)(`tr`, {
-                                              children: [
-                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `NAME` }),
-                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `DATE` }),
-                                                (0, J.jsx)(`th`, { style: { textAlign: `left`, padding: `0.4rem`, color: `var(--text-soft)`, fontSize: `0.7rem` }, children: `SIZE` }),
-                                                (0, J.jsx)(`th`, { style: { padding: `0.4rem` }, children: `` }),
-                                              ],
-                                            }),
-                                          }),
-                                          (0, J.jsx)(`tbody`, {
-                                            children: gdriveFilesList.map((file) =>
-                                              (0, J.jsxs)(
-                                                `tr`,
-                                                {
-                                                  style: { borderTop: `1px solid var(--border)` },
-                                                  children: [
-                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, fontWeight: `700`, color: `var(--text-primary)`, wordBreak: `break-all` }, children: file.name }),
-                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: file.modifiedTime ? new Date(file.modifiedTime).toLocaleString(`en-IN`) : `` }),
-                                                    (0, J.jsx)(`td`, { style: { padding: `0.5rem 0.4rem`, color: `var(--text-secondary)`, whiteSpace: `nowrap` }, children: file.size ? `${(parseInt(file.size, 10) / 1024).toFixed(1)} KB` : `—` }),
-                                                    (0, J.jsx)(`td`, {
-                                                      style: { padding: `0.5rem 0.4rem`, whiteSpace: `nowrap` },
-                                                      children: (0, J.jsxs)(`div`, {
-                                                        style: { display: `flex`, gap: `0.4rem`, justifyContent: `flex-end` },
-                                                        children: [
-                                                          (0, J.jsx)(`button`, {
-                                                            type: `button`,
-                                                            className: `btn btn-outline`,
-                                                            style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem` },
-                                                            onClick: () => handleGdriveDownload(file),
-                                                            children: `Download`,
-                                                          }),
-                                                          (0, J.jsx)(`button`, {
-                                                            type: `button`,
-                                                            className: `btn btn-outline`,
-                                                            style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem` },
-                                                            disabled: isRestoringData,
-                                                            onClick: () => handleGdriveRestore(file),
-                                                            children: isRestoringData ? `⏳...` : `Restore`,
-                                                          }),
-                                                          (0, J.jsx)(`button`, {
-                                                            type: `button`,
-                                                            className: `btn btn-outline`,
-                                                            style: { fontSize: `0.72rem`, padding: `0.3rem 0.6rem`, color: `var(--danger-hover)`, borderColor: `var(--danger-border)` },
-                                                            onClick: () => handleGdriveDelete(file),
-                                                            children: `Delete`,
-                                                          }),
-                                                        ],
-                                                      }),
-                                                    }),
-                                                  ],
-                                                },
-                                                file.id,
-                                              ),
-                                            ),
-                                          }),
-                                        ],
-                                      }),
-                                    }),
-                            ],
-                          }),
-                        (0, J.jsx)(`button`, {
-                          type: `button`,
-                          onClick: () => setGdriveLegacyExpanded((prev) => !prev),
-                          style: {
-                            background: `none`,
-                            border: `1px dashed var(--border-strong)`,
-                            borderRadius: `6px`,
-                            color: `var(--text-soft)`,
-                            fontSize: `0.78rem`,
-                            fontWeight: `700`,
-                            cursor: `pointer`,
-                            padding: `0.35rem 0.6rem`,
-                            width: `100%`,
-                            marginBottom: `0.75rem`,
-                            textAlign: `left`,
-                          },
-                          children: gdriveLegacyExpanded ? `▲ Hide Advanced / Legacy Apps Script Sync` : `▼ Advanced: Legacy Apps Script Sync (optional)`,
-                        }),
-                        gdriveLegacyExpanded &&
-                          (0, J.jsxs)(`div`, {
-                            className: `animate-fade-in`,
-                            style: { marginTop: `0.25rem`, paddingTop: `0.75rem`, borderTop: `1px solid var(--border)` },
-                            children: [
-                        (0, J.jsx)(`p`, {
-                          style: { fontSize: `0.82rem`, color: `var(--info-strong)`, marginBottom: `0.75rem` },
-                          children: `Configure Google Drive folder link & Web App Script URL for cloud backup options.`,
-                        }),
-                        (0, J.jsxs)(`div`, {
-                          className: `input-group mb-2`,
-                          children: [
-                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Google Drive Folder Link` }),
-                            (0, J.jsx)(`input`, {
-                              type: `text`,
-                              name: `googleDriveUrl`,
-                              className: `input-field`,
-                              style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
-                              value: e.googleDriveUrl || e.oneDriveUrl || ``,
-                              onChange: (n) => t({ ...e, googleDriveUrl: n.target.value, oneDriveUrl: n.target.value }),
-                              placeholder: `https://drive.google.com/drive/folders/...`,
-                            }),
-                          ],
-                        }),
-                        (0, J.jsxs)(`div`, {
-                          className: `input-group mb-2`,
-                          children: [
-                            (0, J.jsx)(`label`, { className: `input-label`, style: { color: `var(--info-strong)`, fontWeight: `800`, fontSize: `0.8rem` }, children: `Backup Script URL` }),
-                            (0, J.jsx)(`input`, {
-                              type: `text`,
-                              name: `gDriveScriptUrl`,
-                              className: `input-field`,
-                              style: { fontSize: `0.82rem`, border: `1.5px solid var(--info-strong)`, background: `var(--surface)`, fontWeight: `600` },
-                              value: e.gDriveScriptUrl || ``,
-                              onChange: B,
-                              placeholder: `Paste Google Apps Script Web App URL...`,
-                            }),
-                          ],
-                        }),
-                        (0, J.jsx)(`button`, {
-                          type: `button`,
-                          onClick: () => S((prev) => !prev),
-                          style: {
-                            background: `none`,
-                            border: `1px dashed var(--info-strong)`,
-                            borderRadius: `6px`,
-                            color: `var(--info-strong)`,
-                            fontSize: `0.78rem`,
-                            fontWeight: `700`,
-                            cursor: `pointer`,
-                            padding: `0.35rem 0.6rem`,
-                            width: `100%`,
-                            marginBottom: `0.75rem`,
-                            textAlign: `left`,
-                          },
-                          children: x ? `▲ Hide Setup Guide` : `▼ How to setup Google Drive auto-upload? (2 min)`,
-                        }),
-                        x &&
-                          (0, J.jsxs)(`div`, {
-                            style: {
-                              background: `var(--surface-raised)`,
-                              border: `1px solid var(--info-border)`,
-                              borderRadius: `8px`,
-                              padding: `0.75rem`,
-                              marginBottom: `0.75rem`,
-                              fontSize: `0.75rem`,
-                              color: `var(--info-strong)`,
-                              maxHeight: `220px`,
-                              overflowY: `auto`,
-                            },
-                            children: [
-                              (0, J.jsx)(`div`, { style: { fontWeight: `800`, marginBottom: `0.4rem` }, children: `📋 Setup Instructions:` }),
-                              (0, J.jsxs)(`ol`, {
-                                style: { paddingLeft: `1.1rem`, lineHeight: `1.6`, margin: 0 },
-                                children: [
-                                  (0, J.jsxs)(`li`, {
-                                    children: [
-                                      `Go to `,
-                                      (0, J.jsx)(`a`, { href: `https://script.google.com`, target: `_blank`, rel: `noopener noreferrer`, style: { color: `var(--info-strong)`, fontWeight: `700` }, children: `script.google.com` }),
-                                      ` → `,
-                                      (0, J.jsx)(`strong`, { children: `New Project` }),
-                                    ],
-                                  }),
-                                  (0, J.jsx)(`li`, { children: `Paste the Apps Script code for backup & restore.` }),
-                                  (0, J.jsxs)(`li`, { children: [`Click `, (0, J.jsx)(`strong`, { children: `Deploy → New Deployment → Web app` }), ` (Access: Anyone).`] }),
-                                  (0, J.jsx)(`li`, { children: `Copy the Web App URL & paste it into the field above.` }),
-                                ],
-                              }),
-                            ],
-                          }),
-                        (0, J.jsx)(`div`, {
-                          style: { background: `var(--surface-raised)`, padding: `0.75rem`, borderRadius: `10px`, border: `1px solid var(--info-border)` },
-                          children: (0, J.jsxs)(`div`, {
-                              style: { display: `flex`, flexDirection: `column`, gap: `0.5rem`, maxWidth: `280px` },
-                              children: [
-                                (0, J.jsx)(`div`, { style: { fontSize: `0.8rem`, fontWeight: `800`, color: `var(--info-strong)` }, children: `☁️ Cloud Sync` }),
-                                g !== `idle` &&
-                                  (0, J.jsx)(`div`, {
-                                    style: {
-                                      fontSize: `0.72rem`,
-                                      fontWeight: `700`,
-                                      padding: `0.35rem 0.5rem`,
-                                      borderRadius: `6px`,
-                                      background: g === `syncing` ? `var(--info-light)` : g === `success` ? `var(--success-light)` : `var(--danger-light)`,
-                                      color: g === `syncing` ? `var(--info-strong)` : g === `success` ? `var(--success-strong)` : `var(--danger-strong)`,
-                                    },
-                                    children: y,
-                                  }),
-                                (0, J.jsx)(`button`, {
-                                  type: `button`,
-                                  className: `btn`,
-                                  style: { width: `100%`, justifyContent: `center`, background: g === `syncing` ? `var(--accent-border)` : `var(--info-strong)`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
-                                  disabled: g === `syncing`,
-                                  onClick: N,
-                                  children: g === `syncing` ? `⏳ Syncing...` : `☁️ G-Drive Backup`,
-                                }),
-                                (0, J.jsx)(`button`, {
-                                  type: `button`,
-                                  className: `btn`,
-                                  style: { width: `100%`, justifyContent: `center`, background: C !== `idle` && C !== `selecting` ? `var(--accent-border)` : `var(--info-strong)`, color: `#ffffff`, fontWeight: `800`, fontSize: `0.78rem`, padding: `0.5rem` },
-                                  disabled: C === `fetching` || C === `restoring`,
-                                  onClick: P,
-                                  children: C === `fetching` ? `⏳ Fetching...` : `☁️ G-Drive Restore`,
-                                }),
-                                C !== `idle` &&
-                                  (0, J.jsxs)(`div`, {
-                                    style: { fontSize: `0.72rem`, fontWeight: `700`, padding: `0.35rem 0.5rem`, borderRadius: `6px`, background: `var(--info-light)`, color: `var(--info-strong)` },
-                                    children: [
-                                      T,
-                                      C === `selecting` &&
-                                        D.length > 0 &&
-                                        (0, J.jsxs)(`div`, {
-                                          style: { display: `flex`, flexDirection: `column`, gap: `0.3rem`, marginTop: `0.3rem` },
-                                          children: [
-                                            (0, J.jsx)(`select`, {
-                                              value: k?.id || ``,
-                                              onChange: (evt) => A(D.find((f) => f.id === evt.target.value)),
-                                              style: { fontSize: `0.72rem`, padding: `0.2rem` },
-                                              children: D.map((f) => (0, J.jsx)(`option`, { value: f.id, children: f.name }, f.id)),
-                                            }),
-                                            (0, J.jsx)(`button`, {
-                                              type: `button`,
-                                              disabled: isRestoringData,
-                                              onClick: F,
-                                              style: { background: isRestoringData ? `var(--text-faint)` : `var(--success-strong)`, color: `#fff`, fontSize: `0.72rem`, border: `none`, borderRadius: `4px`, padding: `0.3rem`, fontWeight: `700`, cursor: isRestoringData ? `not-allowed` : `pointer` },
-                                              children: isRestoringData ? `⏳ Restoring...` : `✅ Restore Selected`,
-                                            }),
-                                          ],
-                                        }),
-                                    ],
-                                  }),
-                              ],
-                            }),
-                        }),
-                            ],
-                          }),
-                      ],
-                    }),
-                  backupManagerTab === `schedule` &&
-                    (0, J.jsxs)(`div`, {
-                      className: `animate-fade-in`,
-                      children: [
-                        (0, J.jsxs)(`div`, {
-                          style: { background: `var(--surface-raised)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--border)`, marginBottom: `1rem` },
-                          children: [
-                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.4rem`, color: `var(--text-heading)`, fontSize: `0.9rem` }, children: `⏱️ Auto-Backup Status` }),
-                            (0, J.jsx)(`p`, {
-                              style: { fontSize: `0.78rem`, color: `var(--text-soft)`, margin: `0 0 0.75rem` },
-                              children: `A background job automatically syncs your data to Google Drive ~35 seconds after any change (settings, inventory, sales, patients). This runs continuously and needs no manual action.`,
-                            }),
-                            (0, J.jsx)(AutoSyncBadgeComponent, {}),
-                          ],
-                        }),
-                        (0, J.jsxs)(`div`, {
-                          style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--accent-border)`, marginBottom: `1rem` },
-                          children: [
-                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--info-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `🔑 Change Admin Password` }),
-                            (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.65rem` }, children: `Set a custom security password for the admin PIN gate & database resets.` }),
-                            (0, J.jsx)(`input`, {
-                              type: `password`,
-                              className: `input-field mb-2`,
-                              placeholder: `Enter new admin password...`,
-                              style: { fontSize: `0.82rem`, padding: `0.45rem 0.65rem` },
-                              value: L,
-                              onChange: (evt) => ee(evt.target.value),
-                            }),
-                            (0, J.jsx)(`button`, {
-                              type: `button`,
-                              className: `btn`,
-                              style: { background: `#0284c7`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
-                              onClick: z,
-                              children: `Update Admin Password`,
-                            }),
-                          ],
-                        }),
-                        (0, J.jsxs)(`div`, {
-                          style: { background: `var(--danger-light)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, marginBottom: `0.5rem` },
-                          children: [
-                            (0, J.jsx)(`h4`, { style: { margin: `0 0 0.5rem`, color: `var(--danger-strong)`, fontSize: `0.95rem` }, children: `⚠️ Danger Zone` }),
-                            (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--danger-strong)`, margin: `0 0 0.9rem` }, children: `Destructive actions. A safety backup is created before any reset. Requires typing DELETE to confirm.` }),
-                            // Gated on the real Supabase profiles.is_platform_admin flag (see isPlatformAdmin
-                            // state above), not the local admin-password PIN this modal already sits behind —
-                            // these four actions wipe cloud data and are Platform-Admin-only regardless of who
-                            // knows the local PIN.
-                            !isPlatformAdmin && (0, J.jsx)(`p`, { style: { fontSize: `0.78rem`, color: `var(--danger-strong)`, fontWeight: `800`, margin: `0 0 0.9rem` }, children: `🔒 Platform Admin access required — these actions are locked for clinic accounts.` }),
-                            isPlatformAdmin && (0, J.jsxs)(`div`, {
-                              style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`, gap: `1rem` },
-                              children: [
-                                (0, J.jsxs)(`div`, {
-                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid #fed7aa`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
-                                  children: [
-                                    (0, J.jsxs)(`div`, {
-                                      children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--warning-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📊 Clear Sales History Only` }),
-                                        (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
-                                          children: [`Clears all bill records & daily sales reports. `, (0, J.jsx)(`strong`, { children: `Keeps all medicine inventory stock intact.` })],
-                                        }),
-                                      ],
-                                    }),
-                                    (0, J.jsx)(`button`, {
-                                      type: `button`,
-                                      className: `btn`,
-                                      style: { background: `#ea580c`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
-                                      onClick: () => setClearHistoryConfirmOpen(!0),
-                                      children: `Clear Sales History Only`,
-                                    }),
-                                  ],
-                                }),
-                                (0, J.jsxs)(`div`, {
-                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
-                                  children: [
-                                    (0, J.jsxs)(`div`, {
-                                      children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `💥 Reset Full POS System` }),
-                                        (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
-                                          children: [`Clears this terminal's local sales history, audit logs and in-progress bills. `, (0, J.jsx)(`strong`, { children: `Inventory is synced from the cloud and is not affected.` })],
-                                        }),
-                                      ],
-                                    }),
-                                    (0, J.jsx)(`button`, {
-                                      type: `button`,
-                                      className: `btn`,
-                                      style: { background: `#dc2626`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
-                                      onClick: () => setResetSystemConfirmOpen(!0),
-                                      children: `Reset Full POS System`,
-                                    }),
-                                  ],
-                                }),
-                                (0, J.jsxs)(`div`, {
-                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--danger-border)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
-                                  children: [
-                                    (0, J.jsxs)(`div`, {
-                                      children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `📦 Clear Inventory` }),
-                                        (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
-                                          children: [`Permanently deletes this pharmacy's stock levels, batches & stock movement history from the cloud database. `, (0, J.jsx)(`strong`, { children: `Settings, users, licenses and the shared product catalog are not affected.` })],
-                                        }),
-                                      ],
-                                    }),
-                                    (0, J.jsx)(`button`, {
-                                      type: `button`,
-                                      className: `btn`,
-                                      style: { background: `#dc2626`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
-                                      onClick: () => setClearInventoryConfirmOpen(!0),
-                                      children: `Clear Inventory`,
-                                    }),
-                                  ],
-                                }),
-                                (0, J.jsxs)(`div`, {
-                                  style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `2px solid var(--danger-strong)`, display: `flex`, flexDirection: `column`, justifyContent: `space-between` },
-                                  children: [
-                                    (0, J.jsxs)(`div`, {
-                                      children: [
-                                        (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--danger-strong)`, fontSize: `0.9rem`, fontWeight: `800` }, children: `☢️ Factory Reset` }),
-                                        (0, J.jsxs)(`p`, {
-                                          style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
-                                          children: [`Permanently wipes this pharmacy's sales, bills and inventory from the cloud database. `, (0, J.jsx)(`strong`, { children: `Patients and the shared product catalog are preserved (shared with OPD/Warehouse)` }), `. App activation, credentials, clinic profile and cloud/Google Drive settings are never touched.`],
-                                        }),
-                                      ],
-                                    }),
-                                    (0, J.jsx)(`button`, {
-                                      type: `button`,
-                                      className: `btn`,
-                                      style: { background: `#7f1d1d`, color: `#ffffff`, fontWeight: `800`, width: `100%`, justifyContent: `center` },
-                                      onClick: () => setFactoryResetConfirmOpen(!0),
-                                      children: `Factory Reset`,
-                                    }),
-                                  ],
-                                }),
-                              ],
-                            }),
-                          ],
-                        }),
-                      ],
-                    }),
-                ],
-              }),
-            ],
-          }),
-        }),
       (0, J.jsx)(TypedConfirmModal, {
         isOpen: clearHistoryConfirmOpen,
         onClose: () => setClearHistoryConfirmOpen(!1),
