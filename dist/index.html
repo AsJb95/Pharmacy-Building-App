@@ -26,6 +26,40 @@
           document.documentElement.setAttribute('data-theme', 'light');
           document.documentElement.setAttribute('data-vhc-theme', 'modern-light');
         }
+
+        /* Windows 11 Personalization bootstrap — runs before paint to prevent flash */
+        try {
+          var trans = localStorage.getItem('vhc_personalization_transparency') || 'on';
+          document.documentElement.setAttribute('data-transparency', trans);
+          var accentColor = localStorage.getItem('vhc_personalization_accent_color') || '#0078D4';
+          
+          window.vhcApplyAccentColor = function(hex) {
+            if (!hex || typeof hex !== 'string') hex = '#0078D4';
+            if (hex.indexOf('#') !== 0) hex = '#' + hex;
+            var clean = hex.slice(1);
+            if (clean.length === 3) clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
+            var num = parseInt(clean, 16);
+            if (isNaN(num)) return;
+            var r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+            var adjust = function(p) {
+              var ar = Math.min(255, Math.max(0, Math.round(r + (255 * p) / 100))).toString(16).padStart(2, '0');
+              var ag = Math.min(255, Math.max(0, Math.round(g + (255 * p) / 100))).toString(16).padStart(2, '0');
+              var ab = Math.min(255, Math.max(0, Math.round(b + (255 * p) / 100))).toString(16).padStart(2, '0');
+              return '#' + ar + ag + ab;
+            };
+            var yiq = (r * 299 + g * 587 + b * 114) / 1000;
+            var textCol = yiq >= 140 ? '#0f172a' : '#ffffff';
+            var s = document.documentElement.style;
+            s.setProperty('--vhc-accent-color', hex);
+            s.setProperty('--vhc-accent-hover', adjust(-15));
+            s.setProperty('--vhc-accent-active', adjust(-25));
+            s.setProperty('--vhc-accent-light', 'rgba(' + r + ', ' + g + ', ' + b + ', 0.15)');
+            s.setProperty('--vhc-accent-glow', 'rgba(' + r + ', ' + g + ', ' + b + ', 0.35)');
+            s.setProperty('--vhc-accent-shadow', 'rgba(' + r + ', ' + g + ', ' + b + ', 0.35)');
+            s.setProperty('--vhc-accent-text', textCol);
+          };
+          window.vhcApplyAccentColor(accentColor);
+        } catch (e) {}
       })();
     </script>
     <script src="./assets/vhc-runtime-policy.js"></script>

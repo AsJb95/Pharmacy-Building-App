@@ -58453,10 +58453,30 @@ function Lh() {
     { inventory: n, auditLogs: r, addLog: settingsAddLog } = Vr(),
     i = Th(),
     a = Eh(),
-    [themeMode, setThemeMode] = vhcUseTheme(),
+    [themeMode, setThemeMode, , themeChoice] = vhcUseTheme(),
+    [personalizationMode, setPersonalizationMode] = (0, _.useState)(() => {
+      try { return localStorage.getItem(`vhc_personalization_mode`) || `system`; } catch { return `system`; }
+    }),
+    [transparencyEnabled, setTransparencyEnabled] = (0, _.useState)(() => {
+      try { return (localStorage.getItem(`vhc_personalization_transparency`) || `on`) === `on`; } catch { return !0; }
+    }),
+    [accentMode, setAccentMode] = (0, _.useState)(() => {
+      try { return localStorage.getItem(`vhc_personalization_accent_mode`) || `auto`; } catch { return `auto`; }
+    }),
+    [accentColor, setAccentColor] = (0, _.useState)(() => {
+      try { return localStorage.getItem(`vhc_personalization_accent_color`) || `#0078D4`; } catch { return `#0078D4`; }
+    }),
+    [customHexInput, setCustomHexInput] = (0, _.useState)(``),
+    [hexError, setHexError] = (0, _.useState)(``),
+    [recentColors, setRecentColors] = (0, _.useState)(() => {
+      try { return JSON.parse(localStorage.getItem(`vhc_recent_accent_colors`)) || [`#0078D4`, `#00B7C3`, `#107C41`, `#881798`, `#F7630C`]; }
+      catch { return [`#0078D4`, `#00B7C3`, `#107C41`, `#881798`, `#F7630C`]; }
+    }),
     o = (0, _.useRef)(null),
     s = (0, _.useRef)(null),
     [backupManagerOpen, setBackupManagerOpen] = (0, _.useState)(!1),
+    [showAllThemes, setShowAllThemes] = (0, _.useState)(!1),
+    [isAiScannerExpanded, setIsAiScannerExpanded] = (0, _.useState)(!1),
     [authModalTarget, setAuthModalTarget] = (0, _.useState)(null),
     [backupManagerTab, setBackupManagerTab] = (0, _.useState)(`local`),
     [clearHistoryConfirmOpen, setClearHistoryConfirmOpen] = (0, _.useState)(!1),
@@ -59189,12 +59209,12 @@ function Lh() {
         }
         t({ ...e, adminPassword: newAdminPwd });
         settingsAddLog(`ADMIN_PASSWORD_CREATED`, `Admin password was created (none was configured on this PC)`);
-        (l(!0), p(``), d(``), setAdminSetupConfirm(``));
+        (l(!0), setBackupManagerOpen(!0), p(``), d(``), setAdminSetupConfirm(``));
         i(`Admin password created. Keep it safe - there is no built-in recovery password.`, `success`, 5e3);
         return;
       }
       vhcVerifyAdminPassword(e, u)
-        ? (l(!0), p(``), d(``))
+        ? (l(!0), setBackupManagerOpen(!0), p(``), d(``))
         : p(`Incorrect password.`);
     },
     z = () => {
@@ -59551,14 +59571,137 @@ function Lh() {
       setTelegramSettingsSaving(!1);
     }
   };
+
+  let applyAndSaveAccent = (hex, isAuto) => {
+    if (!hex || typeof hex !== 'string') hex = '#0078D4';
+    if (hex.indexOf('#') !== 0) hex = '#' + hex;
+    let clean = hex.slice(1);
+    if (clean.length === 3) clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
+    let normalized = '#' + clean.toUpperCase();
+    setAccentColor(normalized);
+    try { localStorage.setItem('vhc_personalization_accent_color', normalized); } catch (e) {}
+    if (isAuto) {
+      setAccentMode('auto');
+      try { localStorage.setItem('vhc_personalization_accent_mode', 'auto'); } catch (e) {}
+    } else {
+      setAccentMode('manual');
+      try { localStorage.setItem('vhc_personalization_accent_mode', 'manual'); } catch (e) {}
+      setRecentColors((prev) => {
+        let cur = Array.isArray(prev) ? prev : [];
+        let updated = [normalized, ...cur.filter((c) => c && c.toUpperCase() !== normalized.toUpperCase())].slice(0, 5);
+        try { localStorage.setItem('vhc_recent_accent_colors', JSON.stringify(updated)); } catch (e) {}
+        return updated;
+      });
+    }
+    if (window.vhcApplyAccentColor) {
+      window.vhcApplyAccentColor(normalized);
+    }
+  };
+
+  let toggleTransparency = (newVal) => {
+    setTransparencyEnabled(newVal);
+    let str = newVal ? 'on' : 'off';
+    try {
+      localStorage.setItem('vhc_personalization_transparency', str);
+      document.documentElement.setAttribute('data-transparency', str);
+    } catch (e) {}
+  };
+
+  let changeMode = (m) => {
+    setPersonalizationMode(m);
+    try { localStorage.setItem('vhc_personalization_mode', m); } catch (e) {}
+    if (m === 'light') {
+      vhcApplyTheme('modern-light');
+    } else if (m === 'dark') {
+      vhcApplyTheme('modern-dark');
+    } else if (m === 'system') {
+      vhcApplyTheme('system');
+    }
+  };
+
+  let handleSetAutomatic = () => {
+    setAccentMode('auto');
+    try { localStorage.setItem('vhc_personalization_accent_mode', 'auto'); } catch (e) {}
+    if (window.electronAPI && window.electronAPI.getWindowsPersonalization) {
+      window.electronAPI.getWindowsPersonalization().then((info) => {
+        if (info && info.accentColor) {
+          applyAndSaveAccent(info.accentColor, true);
+        }
+      }).catch(() => {});
+    } else {
+      applyAndSaveAccent('#0078D4', true);
+    }
+  };
+
+  let handleApplyCustomHex = () => {
+    let val = (customHexInput || '').trim();
+    if (!val) {
+      setHexError('Please enter a HEX color code');
+      return;
+    }
+    if (val.indexOf('#') !== 0) val = '#' + val;
+    let clean = val.slice(1);
+    if (!/^[0-9A-Fa-f]{3}$|^[0-9A-Fa-f]{6}$/.test(clean)) {
+      setHexError('Invalid format. Please enter a 3 or 6-digit hex code (e.g. #0078D4)');
+      return;
+    }
+    if (clean.length === 3) clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
+    let finalHex = '#' + clean.toUpperCase();
+    setHexError('');
+    applyAndSaveAccent(finalHex, false);
+    setCustomHexInput('');
+  };
+
+  (0, _.useEffect)(() => {
+    let unlistenAccent, unlistenTheme;
+    if (window.electronAPI && window.electronAPI.getWindowsPersonalization) {
+      window.electronAPI.getWindowsPersonalization().then((info) => {
+        if (info && info.accentColor) {
+          if ((localStorage.getItem('vhc_personalization_accent_mode') || 'auto') === 'auto') {
+            applyAndSaveAccent(info.accentColor, true);
+          }
+        }
+      }).catch(() => {});
+    }
+    if (window.electronAPI && window.electronAPI.onWindowsAccentChanged) {
+      unlistenAccent = window.electronAPI.onWindowsAccentChanged((newAccent) => {
+        if ((localStorage.getItem('vhc_personalization_accent_mode') || 'auto') === 'auto') {
+          applyAndSaveAccent(newAccent, true);
+        }
+      });
+    }
+    if (window.electronAPI && window.electronAPI.onWindowsThemeChanged) {
+      unlistenTheme = window.electronAPI.onWindowsThemeChanged((isDark) => {
+        if ((localStorage.getItem('vhc_personalization_mode') || 'system') === 'system') {
+          vhcApplyTheme('system');
+        }
+      });
+    }
+    return () => {
+      unlistenAccent && unlistenAccent();
+      unlistenTheme && unlistenTheme();
+    };
+  }, []);
+
+  (0, _.useEffect)(() => {
+    let handleThemeChange = (evt) => {
+      let ch = evt && evt.detail && evt.detail.choice;
+      if (ch === 'system') {
+        setPersonalizationMode('system');
+      } else {
+        let th = evt && evt.detail && evt.detail.theme;
+        if (th === 'dark') setPersonalizationMode('dark');
+        else if (th === 'light') setPersonalizationMode('light');
+      }
+    };
+    window.addEventListener('vhc-theme-change', handleThemeChange);
+    return () => window.removeEventListener('vhc-theme-change', handleThemeChange);
+  }, []);
+
   return (0, J.jsxs)(`div`, {
     className: `animate-fade-in pb-4 vhc-settings-page`,
     children: [
-      // v3.19.8 compact header. The old "Save Changes" button only showed a toast (settings were already saved on
-      // every change by updateSettings), so it is replaced by a status that checks the stored copy. Identity and
-      // Logout moved up here from their own card; the account type is still the server-verified isPlatformAdmin
-      // and Logout keeps the same confirm dialog + VHC_CLOUD.signOut().
-      (0, J.jsxs)(`div`, {
+(0, J.jsxs)(`div`, {
         className: `vhc-settings-header`,
         children: [
           (0, J.jsxs)(`div`, {
@@ -59598,36 +59741,415 @@ function Lh() {
         ],
       }),
       // Appearance — Light / Dark theme. UI-only; persisted in its own
-      // `vhc_pos_theme` key (see vhcUseTheme). Switch applies instantly.
-      (0, J.jsxs)(`div`, {
+      // `vhc_pos_theme` key (see vhcUseTheme). Switch applies instantly.,
+(0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-appearance`,
         id: `vhc-appearance`,
         children: [
           (0, J.jsxs)(`div`, {
             className: `vhc-settings-section-title`,
+            style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `0.5rem` },
             children: [
-              (0, J.jsx)(`h3`, { children: `🎨 Appearance` }),
-              (0, J.jsx)(`span`, { children: `Applies immediately · remembered on this computer` }),
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`h3`, { children: `🎨 Appearance` }),
+                  (0, J.jsxs)(`span`, {
+                    children: [
+                      `Active Theme: `,
+                      (0, J.jsx)(`strong`, { style: { color: `var(--accent-strong)` }, children: (VHC_THEMES.find((t) => t.id === (themeChoice || themeMode)) || {}).label || `Midnight AMOLED` }),
+                      ` · 12 themes available`,
+                    ],
+                  }),
+                ],
+              }),
+              (0, J.jsx)(`button`, {
+                type: `button`,
+                className: `btn btn-outline`,
+                style: { fontSize: `0.82rem`, padding: `0.35rem 0.85rem`, fontWeight: `700` },
+                onClick: () => setShowAllThemes((prev) => !prev),
+                children: showAllThemes ? `Hide Themes ▴` : `Show All Themes ▾`,
+              }),
             ],
           }),
-          // v3.19.8: 12-theme gallery with live miniatures (VhcThemePicker); applies instantly, remembered after restart.
-          (0, J.jsx)(VhcThemePicker, {}),
+          showAllThemes &&
+            (0, J.jsx)(`div`, {
+              className: `animate-fade-in`,
+              style: { marginTop: `1rem`, paddingTop: `1rem`, borderTop: `1px solid var(--border)` },
+              children: (0, J.jsx)(VhcThemePicker, {}),
+            }),
         ],
       }),
-      (0, J.jsx)(VhcAiScannerSettings, {}),
-      // v3.19.8 Printing preference. Real, existing settings storage (updateSettings -> pos_settings). It only picks
-      // where the receipt preview starts; one-off switches in the preview are never saved. Ctrl+P quick print is
-      // unchanged and always sends the thermal receipt to the Windows default printer.
-      (0, J.jsxs)(`div`, {
+(0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4 vhc-settings-section vhc-settings-personalization`,
+        id: `vhc-personalization`,
+        style: {
+          padding: `1.25rem 1.5rem`,
+          background: `var(--surface)`,
+          borderRadius: `16px`,
+          border: `1.5px solid var(--border-strong)`,
+        },
+        children: [
+          (0, J.jsxs)(`div`, {
+            className: `vhc-settings-section-title`,
+            style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `0.75rem`, marginBottom: `1.25rem` },
+            children: [
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsxs)(`h3`, {
+                    style: { margin: 0, fontSize: `1.15rem`, fontWeight: `800`, color: `var(--text-primary)`, display: `flex`, alignItems: `center`, gap: `0.5rem` },
+                    children: [(0, J.jsx)(`span`, { children: `✨` }), `Personalization & Colors`],
+                  }),
+                  (0, J.jsx)(`p`, {
+                    style: { margin: `0.2rem 0 0`, fontSize: `0.8rem`, color: `var(--text-secondary)` },
+                    children: `Customize color accents, mode, and transparency inspired by Windows 11 design.`,
+                  }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                style: {
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: `0.5rem`,
+                  background: `var(--surface-sunken)`,
+                  padding: `0.35rem 0.85rem`,
+                  borderRadius: `20px`,
+                  border: `1px solid var(--border)`,
+                  fontSize: `0.8rem`,
+                  fontWeight: `700`,
+                },
+                children: [
+                  (0, J.jsx)(`span`, {
+                    style: { width: `14px`, height: `14px`, borderRadius: `50%`, backgroundColor: accentColor, border: `1.5px solid var(--border-strong)`, display: `inline-block` },
+                  }),
+                  (0, J.jsxs)(`span`, {
+                    style: { color: `var(--text-primary)`, fontFamily: `monospace`, fontWeight: `800` },
+                    children: [accentColor.toUpperCase()],
+                  }),
+                  (0, J.jsx)(`span`, {
+                    style: { color: `var(--text-secondary)`, fontSize: `0.75rem` },
+                    children: accentMode === `auto` ? `(Windows Auto)` : `(Manual)`,
+                  }),
+                ],
+              }),
+            ],
+          }),
+          (0, J.jsxs)(`div`, {
+            style: { display: `flex`, flexDirection: `column`, gap: `1.25rem` },
+            children: [
+              (0, J.jsxs)(`div`, {
+                style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(300px, 1fr))`, gap: `1rem` },
+                children: [
+                  (0, J.jsxs)(`div`, {
+                    style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1.5px solid var(--border)`, padding: `1rem 1.25rem` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        style: { marginBottom: `0.75rem` },
+                        children: [
+                          (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `0.92rem`, color: `var(--text-primary)` }, children: `🌓 Choose your mode` }),
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginTop: `0.15rem` }, children: `Select default app appearance or mirror Windows setting` }),
+                        ],
+                      }),
+                      (0, J.jsxs)(`div`, {
+                        style: { display: `grid`, gridTemplateColumns: `repeat(3, 1fr)`, gap: `0.5rem` },
+                        children: [
+                          [`light`, `☀️ Light`, `Clean day look`],
+                          [`dark`, `🌙 Dark`, `Darker contrast`],
+                          [`system`, `💻 System`, `Follows Windows`],
+                        ].map(([mId, mLabel, mDesc]) => {
+                          let active = personalizationMode === mId;
+                          return (0, J.jsxs)(`button`, {
+                            key: mId,
+                            type: `button`,
+                            className: `btn ` + (active ? `btn-primary` : `btn-outline`),
+                            style: {
+                              padding: `0.5rem 0.4rem`,
+                              fontSize: `0.8rem`,
+                              fontWeight: `700`,
+                              display: `flex`,
+                              flexDirection: `column`,
+                              alignItems: `center`,
+                              justifyContent: `center`,
+                              gap: `0.2rem`,
+                              borderRadius: `8px`,
+                              borderWidth: active ? `2px` : `1px`,
+                              cursor: `pointer`,
+                            },
+                            onClick: () => changeMode(mId),
+                            children: [
+                              (0, J.jsx)(`span`, { children: mLabel }),
+                              (0, J.jsx)(`span`, { style: { fontSize: `0.68rem`, opacity: 0.8, fontWeight: `500` }, children: mDesc }),
+                            ],
+                          });
+                        }),
+                      }),
+                    ],
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: {
+                      background: `var(--surface-raised)`,
+                      borderRadius: `12px`,
+                      border: `1.5px solid var(--border)`,
+                      padding: `1rem 1.25rem`,
+                      display: `flex`,
+                      justifyContent: `space-between`,
+                      alignItems: `center`,
+                      gap: `1rem`,
+                    },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        children: [
+                          (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `0.92rem`, color: `var(--text-primary)` }, children: `🪟 Transparency effects` }),
+                          (0, J.jsx)(`div`, {
+                            style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginTop: `0.2rem`, maxWidth: `320px` },
+                            children: `Windows 11 Mica & acrylic blur effect on panels, dialogs, and navigation surfaces.`,
+                          }),
+                          (0, J.jsx)(`div`, {
+                            style: { fontSize: `0.72rem`, color: `var(--text-soft)`, marginTop: `0.35rem` },
+                            children: transparencyEnabled ? `Status: Blur & saturation enabled` : `Status: Opaque solid surfaces (low power)`,
+                          }),
+                        ],
+                      }),
+                      (0, J.jsxs)(`label`, {
+                        className: `vhc-switch-row`,
+                        style: { margin: 0, cursor: `pointer`, display: `flex`, alignItems: `center`, gap: `0.6rem`, userSelect: `none` },
+                        children: [
+                          (0, J.jsx)(`input`, {
+                            type: `checkbox`,
+                            checked: transparencyEnabled,
+                            onChange: (evt) => toggleTransparency(evt.target.checked),
+                            style: { width: `22px`, height: `22px`, accentColor: `var(--vhc-accent-color)`, cursor: `pointer` },
+                          }),
+                          (0, J.jsx)(`span`, {
+                            style: { fontWeight: `800`, fontSize: `0.85rem`, color: transparencyEnabled ? `var(--success-strong)` : `var(--text-secondary)` },
+                            children: transparencyEnabled ? `ON` : `OFF`,
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1.5px solid var(--border)`, padding: `1.25rem` },
+                children: [
+                  (0, J.jsxs)(`div`, {
+                    style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `0.75rem`, marginBottom: `1.25rem` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        children: [
+                          (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `0.95rem`, color: `var(--text-primary)` }, children: `🎨 Accent color` }),
+                          (0, J.jsx)(`div`, {
+                            style: { fontSize: `0.78rem`, color: `var(--text-secondary)`, marginTop: `0.15rem` },
+                            children: `Applied strictly to active navigation, primary buttons, tabs, switches, and highlights.`,
+                          }),
+                        ],
+                      }),
+                      (0, J.jsxs)(`div`, {
+                        style: { display: `flex`, gap: `0.4rem`, background: `var(--surface-sunken)`, padding: `0.25rem`, borderRadius: `8px`, border: `1px solid var(--border)` },
+                        children: [
+                          (0, J.jsx)(`button`, {
+                            type: `button`,
+                            className: `btn ` + (accentMode === `auto` ? `btn-primary` : `btn-outline`),
+                            style: { padding: `0.35rem 0.85rem`, fontSize: `0.78rem`, fontWeight: `800`, border: `none`, borderRadius: `6px`, cursor: `pointer` },
+                            onClick: handleSetAutomatic,
+                            children: `🖥️ Automatic (Windows)`,
+                          }),
+                          (0, J.jsx)(`button`, {
+                            type: `button`,
+                            className: `btn ` + (accentMode === `manual` ? `btn-primary` : `btn-outline`),
+                            style: { padding: `0.35rem 0.85rem`, fontSize: `0.78rem`, fontWeight: `800`, border: `none`, borderRadius: `6px`, cursor: `pointer` },
+                            onClick: () => { setAccentMode(`manual`); try { localStorage.setItem(`vhc_personalization_accent_mode`, `manual`); } catch(e){} },
+                            children: `🖌️ Manual`,
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  (0, J.jsx)(`div`, {
+                    style: { fontSize: `0.82rem`, fontWeight: `700`, color: `var(--text-primary)`, marginBottom: `0.6rem` },
+                    children: `Windows colors`,
+                  }),
+                  (0, J.jsx)(`div`, {
+                    style: { display: `flex`, flexWrap: `wrap`, gap: `0.65rem`, marginBottom: `1.25rem` },
+                    children: [
+                      [`#0078D4`, `Windows Blue`],
+                      [`#00B7C3`, `Cobalt Cyan`],
+                      [`#107C41`, `Mint Emerald`],
+                      [`#5C2D91`, `Royal Indigo`],
+                      [`#881798`, `Electric Violet`],
+                      [`#E3008C`, `Crimson Rose`],
+                      [`#F7630C`, `Vermilion Orange`],
+                      [`#FFB900`, `Amber Gold`],
+                    ].map(([hex, name]) => {
+                      let isCurrent = accentColor.toUpperCase() === hex.toUpperCase();
+                      return (0, J.jsx)(`button`, {
+                        key: hex,
+                        type: `button`,
+                        className: `vhc-color-swatch-btn` + (isCurrent ? ` is-active` : ``),
+                        style: {
+                          backgroundColor: hex,
+                          border: isCurrent ? `3px solid #ffffff` : `2px solid transparent`,
+                          boxShadow: isCurrent ? `0 0 0 2.5px ` + hex + `, 0 4px 8px rgba(0,0,0,0.3)` : `0 2px 5px rgba(0,0,0,0.2)`,
+                        },
+                        onClick: () => applyAndSaveAccent(hex, false),
+                        title: name + ` (` + hex + `)`,
+                        children: isCurrent ? (0, J.jsx)(`span`, { style: { color: `#ffffff`, fontSize: `14px`, fontWeight: `900`, textShadow: `0 1px 2px rgba(0,0,0,0.6)` }, children: `✓` }) : null,
+                      });
+                    }),
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))`, gap: `1.25rem`, paddingTop: `1rem`, borderTop: `1px solid var(--border)` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        children: [
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, fontWeight: `700`, color: `var(--text-primary)`, marginBottom: `0.4rem` }, children: `Custom color` }),
+                          (0, J.jsxs)(`div`, {
+                            style: { display: `flex`, alignItems: `center`, gap: `0.5rem` },
+                            children: [
+                              (0, J.jsx)(`input`, {
+                                type: `color`,
+                                value: (accentColor.length === 7 ? accentColor : `#0078D4`),
+                                onChange: (evt) => { setCustomHexInput(evt.target.value.toUpperCase()); applyAndSaveAccent(evt.target.value, false); },
+                                style: { width: `38px`, height: `36px`, padding: `0`, borderRadius: `6px`, border: `1px solid var(--border-strong)`, cursor: `pointer`, background: `transparent` },
+                                title: `Open color picker`,
+                              }),
+                              (0, J.jsx)(`input`, {
+                                type: `text`,
+                                className: `input-field`,
+                                placeholder: `#0078D4`,
+                                maxLength: 7,
+                                value: customHexInput,
+                                onChange: (evt) => { setCustomHexInput(evt.target.value); setHexError(``); },
+                                onKeyDown: (evt) => evt.key === `Enter` && handleApplyCustomHex(),
+                                style: { width: `110px`, padding: `0.45rem 0.65rem`, fontSize: `0.82rem`, fontFamily: `monospace`, textTransform: `uppercase` },
+                              }),
+                              (0, J.jsx)(`button`, {
+                                type: `button`,
+                                className: `btn btn-primary`,
+                                style: { padding: `0.45rem 0.85rem`, fontSize: `0.8rem`, fontWeight: `700` },
+                                onClick: handleApplyCustomHex,
+                                children: `Apply`,
+                              }),
+                            ],
+                          }),
+                          hexError && (0, J.jsx)(`div`, { style: { color: `var(--danger-strong)`, fontSize: `0.75rem`, marginTop: `0.35rem`, fontWeight: `700` }, children: hexError }),
+                        ],
+                      }),
+                      (0, J.jsxs)(`div`, {
+                        children: [
+                          (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, fontWeight: `700`, color: `var(--text-primary)`, marginBottom: `0.4rem` }, children: `Recent colors` }),
+                          (0, J.jsx)(`div`, {
+                            style: { display: `flex`, gap: `0.5rem`, alignItems: `center`, minHeight: `36px` },
+                            children: recentColors && recentColors.length > 0
+                              ? recentColors.map((hex, idx) => {
+                                  let isCurrent = accentColor.toUpperCase() === hex.toUpperCase();
+                                  return (0, J.jsx)(`button`, {
+                                    key: idx,
+                                    type: `button`,
+                                    className: `vhc-color-swatch-btn` + (isCurrent ? ` is-active` : ``),
+                                    style: {
+                                      width: `30px`,
+                                      height: `30px`,
+                                      backgroundColor: hex,
+                                      border: isCurrent ? `2.5px solid #ffffff` : `1.5px solid var(--border-strong)`,
+                                      boxShadow: isCurrent ? `0 0 0 2px ` + hex : `none`,
+                                    },
+                                    onClick: () => applyAndSaveAccent(hex, false),
+                                    title: `Recent: ` + hex,
+                                    children: isCurrent ? (0, J.jsx)(`span`, { style: { color: `#ffffff`, fontSize: `11px`, fontWeight: `900` }, children: `✓` }) : null,
+                                  });
+                                })
+                              : (0, J.jsx)(`span`, { style: { fontSize: `0.75rem`, color: `var(--text-secondary)` }, children: `No recent colors yet` }),
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: {
+                      marginTop: `1.25rem`,
+                      padding: `0.75rem 1rem`,
+                      borderRadius: `8px`,
+                      background: `var(--surface-sunken)`,
+                      border: `1px solid var(--border)`,
+                      display: `flex`,
+                      alignItems: `center`,
+                      gap: `0.6rem`,
+                      fontSize: `0.75rem`,
+                      color: `var(--text-secondary)`,
+                    },
+                    children: [
+                      (0, J.jsx)(`span`, { style: { fontSize: `1rem` }, children: `🛡️` }),
+                      (0, J.jsx)(`span`, {
+                        children: `Strict Theme Isolation: Accent color strictly targets active navigation, primary buttons, selected tabs, toggle switches, and focus outlines. Theme background palettes and typography remain 100% untouched.`,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+(0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-printing`,
         children: [
           (0, J.jsxs)(`div`, {
             className: `vhc-settings-section-title`,
             children: [
-              (0, J.jsx)(`h3`, { children: `🖨️ Printing` }),
-              (0, J.jsx)(`span`, { children: `Ctrl+P quick print always uses the thermal receipt` }),
+              (0, J.jsx)(`h3`, { children: `🖨️ Printing Preferences` }),
+              (0, J.jsx)(`span`, { children: `Receipt format and printer layout settings` }),
             ],
           }),
+          (() => {
+            let isThermal = (e.defaultBillPaper || `thermal`) !== `a4`;
+            return (0, J.jsxs)(`div`, {
+              style: {
+                display: `flex`,
+                alignItems: `center`,
+                justifyContent: `space-between`,
+                background: `var(--surface)`,
+                padding: `1rem 1.25rem`,
+                borderRadius: `12px`,
+                border: `1.5px solid var(--border)`,
+                marginBottom: `1rem`,
+                flexWrap: `wrap`,
+                gap: `0.75rem`,
+              },
+              children: [
+                (0, J.jsxs)(`div`, {
+                  children: [
+                    (0, J.jsx)(`div`, {
+                      style: { fontWeight: `800`, fontSize: `0.95rem`, color: `var(--text-primary)` },
+                      children: `🧾 Use Thermal Receipt (80 mm) by Default`,
+                    }),
+                    (0, J.jsx)(`div`, {
+                      style: { fontSize: `0.8rem`, color: `var(--text-secondary)`, marginTop: `0.2rem` },
+                      children: isThermal
+                        ? `Thermal receipt format active (Recommended for POS bill rolls)`
+                        : `Full-page A4 Invoice format active (Laser / Inkjet)`,
+                    }),
+                  ],
+                }),
+                (0, J.jsxs)(`label`, {
+                  className: `vhc-switch-row`,
+                  style: { margin: 0, cursor: `pointer`, display: `flex`, alignItems: `center`, gap: `0.6rem` },
+                  children: [
+                    (0, J.jsx)(`input`, {
+                      type: `checkbox`,
+                      checked: isThermal,
+                      onChange: (evt) => t({ ...e, defaultBillPaper: evt.target.checked ? `thermal` : `a4` }),
+                      style: { width: `20px`, height: `20px`, accentColor: `var(--accent-color)` },
+                    }),
+                    (0, J.jsx)(`span`, {
+                      style: { fontWeight: `700`, fontSize: `0.85rem`, color: isThermal ? `var(--success-strong)` : `var(--text-soft)` },
+                      children: isThermal ? `Enabled (Thermal)` : `Disabled (A4)`,
+                    }),
+                  ],
+                }),
+              ],
+            });
+          })(),
           (0, J.jsxs)(`div`, {
             className: `vhc-print-pref`,
             role: `radiogroup`,
@@ -59651,12 +60173,13 @@ function Lh() {
               );
             }),
           }),
-          (0, J.jsx)(`p`, { className: `vhc-print-note`, children: `Default format for the Print button in the receipt preview. You can switch to the other format for a single print in the preview without changing this default; choose the printer in the print dialog.` }),
+          (0, J.jsx)(`p`, {
+            className: `vhc-print-note`,
+            children: `Default format for the Print button in the receipt preview. Ctrl+P quick print always uses the thermal receipt to the Windows default printer.`,
+          }),
         ],
       }),
-      // v3.19.8 Shortcuts & Accessibility: lists only the shortcuts that exist in the app (Billing's keydown handler)
-      // and a real Reduce motion switch (vhcApplyReduceMotion). Nothing here changes data.
-      (0, J.jsxs)(`div`, {
+(0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-a11y`,
         children: [
           (0, J.jsx)(`div`, { className: `vhc-settings-section-title`, children: (0, J.jsx)(`h3`, { children: `⌨️ Shortcuts & Accessibility` }) }),
@@ -59700,182 +60223,257 @@ function Lh() {
       // App Details / About + Changelog. Informational only, visible to every signed-in user
       // (not gated on isPlatformAdmin). Business name is read from the existing Pharmacy Details
       // setting (storeName) — nothing customer-specific is hardcoded beyond that setting's own
-      // default. There is no global doctor setting in this app (doctor is per-bill), so none is shown.
-      (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4 vhc-settings-details`,
-        children: [
-          (0, J.jsxs)(`button`, {
-            type: `button`,
-            className: `vhc-settings-collapse-head`,
-            "aria-expanded": isAppDetailsOpen ? `true` : `false`,
-            "aria-controls": `vhc-app-details-body`,
-            onClick: () => setIsAppDetailsOpen((open) => !open),
-            children: [
-              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-title`, children: `ℹ️ App Details` }),
-              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-meta`, children: appDetailsInfo.version ? `v${appDetailsInfo.version}` : `` }),
-              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-action`, children: isAppDetailsOpen ? `Hide ▴` : `Show ▾` }),
-            ],
-          }),
-          isAppDetailsOpen && (0, J.jsxs)(`div`, { id: `vhc-app-details-body`, className: `vhc-settings-collapse-body`, children: [
-          (0, J.jsxs)(`div`, {
-            className: `vhc-settings-detail-grid`,
-            style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`, gap: `0.75rem`, marginBottom: `1rem` },
-            children: [
-              appDetailsTile(`Application`, `VHC Pharmacy POS`),
-              appDetailsTile(`Version`, appDetailsInfo.version ? `v${appDetailsInfo.version}` : localStorage.getItem(`vhc_app_version`) ? `v${localStorage.getItem(`vhc_app_version`)}` : `—`),
-              appDetailsTile(`Hospital / Business`, e.storeName || `VARNIKA HEALTH CARE`),
-              appDetailsTile(`Platform`, appPlatformLabel),
-              appDetailsTile(
-                `Local Database`,
-                appDetailsInfo.db
-                  ? appDetailsInfo.db.opened
-                    ? `SQLite ready (schema v${appDetailsInfo.db.schemaVersion})`
-                    : `Unavailable — using existing storage`
-                  : `Checking…`,
-              ),
-            ],
-          }),
-          (0, J.jsxs)(`button`, {
-            type: `button`,
-            className: `vhc-settings-changelog-toggle`,
-            "aria-expanded": isChangelogExpanded,
-            onClick: () => setIsChangelogExpanded((open) => !open),
-            children: [
-              (0, J.jsxs)(`span`, { children: [`What's New`, appDetailsInfo.version ? ` in v${appDetailsInfo.version}` : ``] }),
-              (0, J.jsx)(`span`, { className: `vhc-settings-changelog-action`, children: isChangelogExpanded ? `Hide` : `View` }),
-            ],
-          }),
-          isChangelogExpanded && (0, J.jsxs)(`ul`, {
-            className: `vhc-settings-changelog-content`,
-            children: [
-              (0, J.jsx)(`li`, { children: `After a successful bill the cart is always cleared for the next patient, even if a receipt, log or display step fails` }),
-              (0, J.jsx)(`li`, { children: `Cloud stock now updates safely even when stock changed elsewhere after billing — no more chains of "Need Review" bills from one stock difference` }),
-              (0, J.jsx)(`li`, { children: `Every bill's stock deduction is applied exactly once, even after a lost connection, a retry or an app restart` }),
-              (0, J.jsx)(`li`, { children: `A temporary cloud problem now shows "Saved locally — waiting for cloud sync" and retries automatically with back-off` }),
-              (0, J.jsx)(`li`, { children: `Reports: Total Bills now counts each bill once — a Split Payment bill (Cash + UPI) is no longer counted twice` }),
-              (0, J.jsx)(`li`, { children: `Payment mode is never pre-selected: every new bill and tab starts with no payment mode, and Complete Payment stays disabled until one is chosen` }),
-              (0, J.jsx)(`li`, { children: `Cash Received / Change to Return shown only for Cash payments, and cleared when switching away` }),
-              (0, J.jsx)(`li`, { children: `Custom Charge drafts are kept per billing tab` }),
-              (0, J.jsx)(`li`, { children: `Split Payment entered inline (Cash + UPI must equal the Net Total) — no popup` }),
-              (0, J.jsx)(`li`, { children: `One Bill Details view from All Bills, Patient Name and Payments, with the same Return / Exchange option` }),
-              (0, J.jsx)(`li`, { children: `Return / Exchange for historical bills when the original stock batch can be traced exactly; unsafe lines are refused` }),
-              (0, J.jsx)(`li`, { children: `Checkout retries are now replay-safe: repeated clicks, keyboard shortcuts and post-save failures cannot create duplicate bills` }),
-              (0, J.jsx)(`li`, { children: `Receipt particulars are restored, and medicine quantity shortcuts 1–10 are available in Billing` }),
-              (0, J.jsx)(`li`, { children: `Modern operational dashboard with live billing, stock and expiry insights` }),
-            ],
-          }),
-          ] }),
-        ],
-      }),
-      // Platform-Admin-only trigger cards (Backup & Restore, Stock Audit). Gated on the same
-      // server-verified isPlatformAdmin used by the Danger Zone and the account label above —
-      // hidden entirely for clinic accounts rather than shown-disabled, per spec. Sibling
-      // sections below collapse up naturally since this is a conditional array entry, not a
-      // fixed-height placeholder.
-      isPlatformAdmin && (0, J.jsxs)(`div`, {
-        className: `mb-4 vhc-settings-tools`,
+      // default. There is no global doctor setting in this app (doctor is per-bill), so none is shown.,
+isPlatformAdmin && (0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4 vhc-settings-section vhc-settings-admin-controls`,
+        id: `vhc-admin-controls`,
         style: {
-          display: `grid`,
-          gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))`,
-          gap: `1rem`,
+          padding: `1.5rem`,
+          background: `var(--surface)`,
+          borderRadius: `16px`,
+          border: c ? `2px solid var(--accent-border, var(--border-strong))` : `1.5px solid var(--border-strong)`,
         },
         children: [
-          (0, J.jsxs)(`button`, {
-            type: `button`,
-            "aria-expanded": authModalTarget !== null || backupManagerOpen ? `true` : `false`,
-            "aria-controls": `vhc-admin-inline`,
-            onClick: () => {
-              authModalTarget !== null || backupManagerOpen
-                ? (setAuthModalTarget(null), setBackupManagerOpen(!1))
-                : setAuthModalTarget(`backup`);
-            },
-            style: {
-              textAlign: `left`,
-              cursor: `pointer`,
-              background: `var(--surface)`,
-              color: `var(--text-primary)`,
-              border: `1px solid var(--border-strong)`,
-              borderRadius: `16px`,
-              padding: `1.4rem`,
-              display: `flex`,
-              alignItems: `center`,
-              gap: `1rem`,
-              boxShadow: `var(--card-shadow)`,
-              transition: `border-color 0.15s ease, box-shadow 0.15s ease`,
-            },
-            className: `glass-panel-hover vhc-settings-tool`,
+          !c ? (0, J.jsxs)(`div`, {
             children: [
-              (0, J.jsx)(`div`, { className: `vhc-settings-tool-icon`, children: `🔐` }),
               (0, J.jsxs)(`div`, {
+                style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `0.75rem`, marginBottom: `1rem` },
                 children: [
-                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-title`, children: `Backup & Restore` }),
-                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-description`, children: `Local backups, Google Drive, schedule and security` }),
+                  (0, J.jsxs)(`div`, {
+                    style: { display: `flex`, alignItems: `center`, gap: `0.6rem` },
+                    children: [
+                      (0, J.jsx)(`span`, { style: { fontSize: `1.3rem` }, children: `🛡️` }),
+                      (0, J.jsxs)(`div`, {
+                        children: [
+                          (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.15rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: `Admin Controls` }),
+                          (0, J.jsx)(`p`, { style: { margin: `0.2rem 0 0`, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: `Single secure gateway for backups, database restore, stock audit, AI vision scanner, and system administration.` }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  (0, J.jsx)(`span`, {
+                    style: { background: `var(--surface-sunken)`, color: `var(--text-soft)`, border: `1px solid var(--border-strong)`, padding: `0.25rem 0.75rem`, borderRadius: `12px`, fontSize: `0.8rem`, fontWeight: `700` },
+                    children: `🔒 Locked`,
+                  }),
+                ],
+              }),
+              (0, J.jsxs)(`div`, {
+                style: { marginTop: `1.25rem`, maxWidth: `500px` },
+                children: [
+                  (0, J.jsx)(`p`, {
+                    style: { fontSize: `0.85rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                    children: vhcAdminPasswordConfigured(e)
+                      ? `Enter Admin Password to unlock the complete administrative dashboard:`
+                      : `No admin password has been set on this PC yet. Create one now — it will be required to access admin controls:`,
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: { display: `flex`, gap: `0.5rem`, alignItems: `center`, flexWrap: `wrap` },
+                    children: [
+                      (0, J.jsx)(`input`, {
+                        type: `password`,
+                        className: `input-field`,
+                        placeholder: vhcAdminPasswordConfigured(e) ? `Enter Admin Password...` : `New Admin Password`,
+                        value: u,
+                        onChange: (evt) => d(evt.target.value),
+                        onKeyDown: (evt) => evt.key === `Enter` && R(),
+                        style: { flex: 1, minWidth: `200px`, padding: `0.55rem 0.85rem`, fontSize: `0.85rem`, borderRadius: `8px` },
+                      }),
+                      !vhcAdminPasswordConfigured(e) &&
+                        (0, J.jsx)(`input`, {
+                          type: `password`,
+                          className: `input-field`,
+                          placeholder: `Confirm Admin Password`,
+                          value: adminSetupConfirm,
+                          onChange: (evt) => setAdminSetupConfirm(evt.target.value),
+                          onKeyDown: (evt) => evt.key === `Enter` && R(),
+                          style: { flex: 1, minWidth: `180px`, padding: `0.55rem 0.85rem`, fontSize: `0.85rem`, borderRadius: `8px` },
+                        }),
+                      (0, J.jsx)(`button`, {
+                        type: `button`,
+                        className: `btn btn-primary`,
+                        onClick: R,
+                        style: { padding: `0.55rem 1.15rem`, fontSize: `0.85rem`, fontWeight: `800`, whiteSpace: `nowrap` },
+                        children: vhcAdminPasswordConfigured(e) ? `Unlock Dashboard` : `Create & Unlock`,
+                      }),
+                    ],
+                  }),
+                  f && (0, J.jsx)(`p`, { style: { color: `var(--danger-strong)`, fontSize: `0.82rem`, margin: `0.5rem 0 0`, fontWeight: `700` }, children: f }),
                 ],
               }),
             ],
-          }),
-          (0, J.jsxs)(`button`, {
-            type: `button`,
-            onClick: () => {
-              window.VHC_AUDIT && window.VHC_AUDIT.promptAdminGate && window.VHC_AUDIT.promptAdminGate(window.VHC_AUDIT.openStockHistory);
-            },
-            style: {
-              textAlign: `left`,
-              cursor: `pointer`,
-              background: `var(--surface)`,
-              color: `var(--text-primary)`,
-              border: `1px solid var(--border-strong)`,
-              borderRadius: `16px`,
-              padding: `1.4rem`,
-              display: `flex`,
-              alignItems: `center`,
-              gap: `1rem`,
-              boxShadow: `var(--card-shadow)`,
-              transition: `border-color 0.15s ease, box-shadow 0.15s ease`,
-            },
-            className: `glass-panel-hover vhc-settings-tool`,
+          }) : (0, J.jsxs)(`div`, {
+            className: `animate-fade-in`,
             children: [
-              (0, J.jsx)(`div`, { className: `vhc-settings-tool-icon`, children: `📊` }),
+              // Dashboard Session Top Bar
               (0, J.jsxs)(`div`, {
+                style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `0.75rem`, paddingBottom: `1rem`, borderBottom: `1px solid var(--border)` },
                 children: [
-                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-title`, children: `Stock Audit` }),
-                  (0, J.jsx)(`div`, { className: `vhc-settings-tool-description`, children: `Movement history and stock reconciliation` }),
+                  (0, J.jsxs)(`div`, {
+                    style: { display: `flex`, alignItems: `center`, gap: `0.6rem` },
+                    children: [
+                      (0, J.jsx)(`span`, { style: { fontSize: `1.4rem` }, children: `🛡️` }),
+                      (0, J.jsxs)(`div`, {
+                        children: [
+                          (0, J.jsx)(`h3`, { style: { margin: 0, fontSize: `1.2rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: `Admin Dashboard` }),
+                          (0, J.jsx)(`p`, { style: { margin: `0.15rem 0 0`, fontSize: `0.8rem`, color: `var(--text-secondary)` }, children: `Full administrative workspace · Unlocked for this session` }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: { display: `flex`, alignItems: `center`, gap: `0.75rem` },
+                    children: [
+                      (0, J.jsx)(`span`, {
+                        style: { background: `var(--success-light)`, color: `var(--success-strong)`, border: `1px solid var(--success-border)`, padding: `0.3rem 0.8rem`, borderRadius: `20px`, fontSize: `0.8rem`, fontWeight: `800` },
+                        children: `🔓 Session Unlocked`,
+                      }),
+                      (0, J.jsx)(`button`, {
+                        type: `button`,
+                        className: `btn btn-outline`,
+                        style: { fontSize: `0.8rem`, padding: `0.35rem 0.85rem`, borderColor: `var(--danger-color)`, color: `var(--danger-strong)`, fontWeight: `700` },
+                        onClick: () => { l(!1); setBackupManagerOpen(!1); setShowAdminUnlock(false); },
+                        children: `🔒 Lock Session`,
+                      }),
+                    ],
+                  }),
                 ],
               }),
-            ],
-          }),
-        ],
-      }),
-      // v3.19.8: Admin · Backup & Restore is an inline, collapsible section instead of two popups. Same gates as
-      // before: the Backup & Restore card is still shown only to the server-verified Platform Admin, the Google
-      // Drive card still routes here, and the manager renders only after the admin password verifies
-      // (VhcInlineAdminAuth). Collapsing closes the manager; reopening asks for the password again.
-      (authModalTarget !== null || backupManagerOpen) && (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4 vhc-settings-admin-inline`,
-        id: `vhc-admin-inline`,
-        children: [
-          (0, J.jsxs)(`div`, {
-            className: `vhc-admin-inline-head`,
-            children: [
-              (0, J.jsx)(`h3`, { children: `🔐 Admin · Backup & Restore` }),
-              (0, J.jsx)(`span`, { className: `vhc-admin-state ${backupManagerOpen ? `is-unlocked` : `is-locked`}`, children: backupManagerOpen ? `Unlocked` : `Locked` }),
-              (0, J.jsx)(`button`, {
-                type: `button`,
-                className: `vhc-settings-collapse-action vhc-admin-collapse`,
-                "aria-label": `Collapse and lock admin section`,
-                onClick: () => { setAuthModalTarget(null); setBackupManagerOpen(!1); },
-                children: `Collapse ▴`,
-              }),
-            ],
-          }),
-          !backupManagerOpen &&
-            (0, J.jsx)(VhcInlineAdminAuth, {
-              purpose: `Backup & Restore`,
-              onCancel: () => setAuthModalTarget(null),
-              onSuccess: () => { setAuthModalTarget(null); setBackupManagerOpen(!0); },
-            }),
-          backupManagerOpen &&
-                (0, J.jsx)(`div`, {
+              // Dashboard Widgets Grid
+              (0, J.jsxs)(`div`, {
+                style: { display: `flex`, flexDirection: `column`, gap: `1.25rem`, marginTop: `1.25rem` },
+                children: [
+                  // Widget 1: Stock Audit Card
+                  (0, J.jsxs)(`div`, {
+                    style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1.5px solid var(--border)`, padding: `1.25rem`, display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `1rem` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        style: { display: `flex`, alignItems: `center`, gap: `0.75rem` },
+                        children: [
+                          (0, J.jsx)(`span`, { style: { fontSize: `1.5rem` }, children: `📊` }),
+                          (0, J.jsxs)(`div`, {
+                            children: [
+                              (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `1rem`, color: `var(--text-primary)` }, children: `Stock Audit & Reconciliation` }),
+                              (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginTop: `0.2rem` }, children: `Audit batch movements, trace stock discrepancies, and review physical inventory reconciliation logs.` }),
+                            ],
+                          }),
+                        ],
+                      }),
+                      (0, J.jsx)(`button`, {
+                        type: `button`,
+                        className: `btn btn-primary`,
+                        style: { padding: `0.55rem 1.15rem`, fontWeight: `800`, fontSize: `0.85rem`, whiteSpace: `nowrap` },
+                        onClick: () => { window.VHC_AUDIT && window.VHC_AUDIT.promptAdminGate && window.VHC_AUDIT.promptAdminGate(window.VHC_AUDIT.openStockHistory); },
+                        children: `📊 Launch Stock Audit Console`,
+                      }),
+                    ],
+                  }),
+                  // Widget 2: AI Scanner Configuration (Gemini) - Collapsed by default
+                  (0, J.jsxs)(`div`, {
+                    style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1.5px solid var(--border)`, padding: `1.25rem` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        style: { display: `flex`, justifyContent: `space-between`, alignItems: `center`, flexWrap: `wrap`, gap: `0.75rem`, cursor: `pointer` },
+                        onClick: () => setIsAiScannerExpanded((prev) => !prev),
+                        children: [
+                          (0, J.jsxs)(`div`, {
+                            style: { display: `flex`, alignItems: `center`, gap: `0.75rem` },
+                            children: [
+                              (0, J.jsx)(`span`, { style: { fontSize: `1.5rem` }, children: `🤖` }),
+                              (0, J.jsxs)(`div`, {
+                                children: [
+                                  (0, J.jsx)(`div`, { style: { fontWeight: `800`, fontSize: `1rem`, color: `var(--text-primary)` }, children: `AI & Scanner Configuration (Gemini)` }),
+                                  (0, J.jsx)(`div`, { style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginTop: `0.2rem` }, children: `Google Gemini AI vision configuration for "Scan to Add" purchase bills and prescription OCR.` }),
+                                ],
+                              }),
+                            ],
+                          }),
+                          (0, J.jsxs)(`div`, {
+                            style: { display: `flex`, alignItems: `center`, gap: `0.6rem` },
+                            children: [
+                              (0, J.jsx)(`span`, { style: { background: `var(--surface-sunken)`, color: `var(--info-strong)`, border: `1px solid var(--border-strong)`, padding: `0.25rem 0.65rem`, borderRadius: `12px`, fontSize: `0.78rem`, fontWeight: `700` }, children: `gemini-2.5-flash · safeStorage` }),
+                              (0, J.jsx)(`button`, {
+                                type: `button`,
+                                className: `btn btn-outline`,
+                                style: { fontSize: `0.8rem`, padding: `0.35rem 0.75rem`, fontWeight: `700` },
+                                onClick: (evt) => { evt.stopPropagation(); setIsAiScannerExpanded((prev) => !prev); },
+                                children: isAiScannerExpanded ? `Collapse ▴` : `Expand Configuration ▾`,
+                              }),
+                            ],
+                          }),
+                        ],
+                      }),
+                      isAiScannerExpanded &&
+                        (0, J.jsx)(`div`, {
+                          className: `animate-fade-in`,
+                          style: { marginTop: `1.25rem`, paddingTop: `1.25rem`, borderTop: `1px solid var(--border)` },
+                          children: (0, J.jsx)(VhcAiScannerSettings, {}),
+                        }),
+                    ],
+                  }),
+                  // Widget 3: Stock Administration & GST Valuation
+                  (0, J.jsxs)(`div`, {
+                    style: { background: `var(--surface-raised)`, borderRadius: `12px`, border: `1.5px solid var(--border)`, padding: `1.25rem` },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+                        style: { display: `flex`, alignItems: `center`, gap: `0.6rem`, marginBottom: `1rem` },
+                        children: [
+                          (0, J.jsx)(`span`, { style: { fontSize: `1.3rem` }, children: `📦` }),
+                          (0, J.jsx)(`h4`, { style: { margin: 0, fontSize: `1rem`, fontWeight: `800`, color: `var(--text-primary)` }, children: `Stock Administration & GST Valuation` }),
+                        ],
+                      }),
+                      (0, J.jsx)(StockValuationAdminComponent, {}),
+                      (0, J.jsxs)(`div`, {
+                        style: { background: `var(--surface)`, padding: `1rem`, borderRadius: `8px`, border: `1px solid var(--accent-border)`, marginTop: `1rem` },
+                        children: [
+                          (0, J.jsx)(`h4`, { style: { margin: `0 0 0.3rem`, color: `var(--accent-strong)`, fontSize: `0.95rem`, fontWeight: `800` }, children: `🧾 GST Mode` }),
+                          (0, J.jsx)(`p`, { style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, margin: `0 0 0.75rem` }, children: `Controls whether bills show full GST tax calculations, or are issued as a Bill of Supply under the Composition Scheme (no tax columns, mandatory declaration printed). This does not affect existing saved bills.` }),
+                          (0, J.jsxs)(`div`, {
+                            style: { display: `flex`, gap: `0.75rem`, flexWrap: `wrap` },
+                            children: [
+                              (0, J.jsxs)(`button`, {
+                                type: `button`,
+                                onClick: () => t({ ...e, gstMode: `composition` }),
+                                style: {
+                                  padding: `0.65rem 1rem`,
+                                  borderRadius: `10px`,
+                                  fontWeight: `800`,
+                                  fontSize: `0.9rem`,
+                                  border: (e.gstMode || `composition`) === `composition` ? `2.5px solid var(--accent)` : `1.5px solid var(--border-strong)`,
+                                  background: (e.gstMode || `composition`) === `composition` ? `var(--accent-light)` : `var(--surface)`,
+                                  color: (e.gstMode || `composition`) === `composition` ? `var(--accent-strong)` : `var(--text-secondary)`,
+                                  cursor: `pointer`,
+                                },
+                                children: `Composition GST (Default)`,
+                              }),
+                              (0, J.jsxs)(`button`, {
+                                type: `button`,
+                                onClick: () => t({ ...e, gstMode: `regular` }),
+                                style: {
+                                  padding: `0.65rem 1rem`,
+                                  borderRadius: `10px`,
+                                  fontWeight: `800`,
+                                  fontSize: `0.9rem`,
+                                  border: e.gstMode === `regular` ? `2.5px solid var(--accent)` : `1.5px solid var(--border-strong)`,
+                                  background: e.gstMode === `regular` ? `var(--accent-light)` : `var(--surface)`,
+                                  color: e.gstMode === `regular` ? `var(--accent-strong)` : `var(--text-secondary)`,
+                                  cursor: `pointer`,
+                                },
+                                children: `Regular GST`,
+                              }),
+                            ],
+                          }),
+                          (0, J.jsx)(`p`, {
+                            style: { fontSize: `0.75rem`, color: `var(--text-soft)`, margin: `0.6rem 0 0` },
+                            children: (e.gstMode || `composition`) === `composition`
+                              ? `Currently: Composition Scheme — bills print as "Bill of Supply" with item, quantity, price & total only, plus the required composition declaration.`
+                              : `Currently: Regular GST — bills show full CGST/SGST tax breakdown as a Tax Invoice.`,
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  // Widget 4: Full Backup & Restore Manager (Local, Google Drive, Change Admin Password, Danger Zone)
+                  (0, J.jsx)(`div`, {
                   className: `vhc-admin-manager`,
                   children: (0, J.jsxs)(`div`, {
                     className: `vhc-admin-manager-inner`,
@@ -60482,189 +61080,13 @@ function Lh() {
                 ],
               }),
             }),
-        ],
-      }),
-      isPlatformAdmin && (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4 vhc-settings-security`,
-        style: {
-          padding: `1.5rem`,
-          border: c ? `2px solid var(--danger-color)` : `1px solid var(--panel-border)`,
-          background: c ? `var(--danger-light)` : `var(--surface)`,
-        },
-        children: [
-          (0, J.jsxs)(`div`, {
-            className: `flex-between mb-3`,
-            children: [
-              (0, J.jsxs)(`h3`, {
-                className: `flex-center gap-2`,
-                style: {
-                  justifyContent: `flex-start`,
-                  color: c ? `var(--danger-strong)` : `var(--text-primary)`,
-                  margin: 0,
-                },
-                children: [
-                  (0, J.jsx)(or, {
-                    className: c ? `text-danger` : `text-accent`,
-                  }),
-                  c
-                    ? `🛡️ Pharmacy & Stock Admin Settings`
-                    : `🔒 Admin Security Unlock`,
                 ],
               }),
-              c &&
-                (0, J.jsx)(`button`, {
-                  type: `button`,
-                  className: `btn btn-outline`,
-                  style: {
-                    fontSize: `0.78rem`,
-                    padding: `0.35rem 0.75rem`,
-                    borderColor: `var(--danger-color)`,
-                    color: `var(--danger-strong)`,
-                  },
-                  onClick: () => { l(!1); setShowAdminUnlock(false); },
-                  children: `🔒 Lock Admin Session`,
-                }),
             ],
           }),
-          c
-            ? (0, J.jsxs)(`div`, {
-                children: [
-                  (0, J.jsx)(StockValuationAdminComponent, {}),
-                  (0, J.jsxs)(`div`, {
-                    style: {
-                      background: `var(--surface)`,
-                      padding: `1rem`,
-                      borderRadius: `8px`,
-                      border: `1px solid var(--accent-border)`,
-                      marginBottom: `1rem`,
-                    },
-                    children: [
-                      (0, J.jsx)(`h4`, {
-                        style: { margin: `0 0 0.3rem`, color: `var(--accent-strong)`, fontSize: `0.95rem` },
-                        children: `🧾 GST Mode`,
-                      }),
-                      (0, J.jsx)(`p`, {
-                        style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, margin: `0 0 0.75rem` },
-                        children: `Controls whether bills show full GST tax calculations, or are issued as a Bill of Supply under the Composition Scheme (no tax columns, mandatory declaration printed). This does not affect existing saved bills.`,
-                      }),
-                      (0, J.jsxs)(`div`, {
-                        style: { display: `flex`, gap: `0.75rem`, flexWrap: `wrap` },
-                        children: [
-                          (0, J.jsxs)(`button`, {
-                            type: `button`,
-                            onClick: () => t({ ...e, gstMode: `composition` }),
-                            style: {
-                              padding: `0.65rem 1rem`,
-                              borderRadius: `10px`,
-                              fontWeight: `800`,
-                              fontSize: `0.9rem`,
-                              border: (e.gstMode || `composition`) === `composition` ? `2.5px solid var(--accent)` : `1.5px solid var(--border-strong)`,
-                              background: (e.gstMode || `composition`) === `composition` ? `var(--accent-light)` : `var(--surface)`,
-                              color: (e.gstMode || `composition`) === `composition` ? `var(--accent-strong)` : `var(--text-secondary)`,
-                              cursor: `pointer`,
-                            },
-                            children: `Composition GST (Default)`,
-                          }),
-                          (0, J.jsxs)(`button`, {
-                            type: `button`,
-                            onClick: () => t({ ...e, gstMode: `regular` }),
-                            style: {
-                              padding: `0.65rem 1rem`,
-                              borderRadius: `10px`,
-                              fontWeight: `800`,
-                              fontSize: `0.9rem`,
-                              border: e.gstMode === `regular` ? `2.5px solid var(--accent)` : `1.5px solid var(--border-strong)`,
-                              background: e.gstMode === `regular` ? `var(--accent-light)` : `var(--surface)`,
-                              color: e.gstMode === `regular` ? `var(--accent-strong)` : `var(--text-secondary)`,
-                              cursor: `pointer`,
-                            },
-                            children: `Regular GST`,
-                          }),
-                        ],
-                      }),
-                      (0, J.jsx)(`p`, {
-                        style: { fontSize: `0.75rem`, color: `var(--text-soft)`, margin: `0.6rem 0 0` },
-                        children:
-                          (e.gstMode || `composition`) === `composition`
-                            ? `Currently: Composition Scheme — bills print as "Bill of Supply" with item, quantity, price & total only, plus the required composition declaration.`
-                            : `Currently: Regular GST — bills show full CGST/SGST tax breakdown as a Tax Invoice.`,
-                      }),
-                    ],
-                  }),
-                ],
-              })
-              : !showAdminUnlock
-                ? (0, J.jsxs)(`div`, {
-                    className: `vhc-settings-security-locked`,
-                    children: [
-                      (0, J.jsx)(`p`, { children: `Administrative controls are locked.` }),
-                      (0, J.jsx)(`button`, {
-                        type: `button`,
-                        className: `btn btn-outline`,
-                        onClick: () => setShowAdminUnlock(true),
-                        children: `Unlock Admin Controls`,
-                      }),
-                    ],
-                  })
-                : (0, J.jsxs)(`div`, {
-                children: [
-                  (0, J.jsx)(`p`, {
-                    style: {
-                      fontSize: `0.85rem`,
-                      color: `var(--text-secondary)`,
-                      marginBottom: `0.75rem`,
-                    },
-                    children: vhcAdminPasswordConfigured(e)
-                      ? `Enter Admin Password to unlock database reset, password settings, and data clearing options:`
-                      : `No admin password has been set on this PC yet. Create one now - it will be required for database reset, backup & restore, password settings and data clearing. There is no built-in password.`,
-                  }),
-                  (0, J.jsxs)(`div`, {
-                    style: {
-                      display: `flex`,
-                      gap: `0.5rem`,
-                      maxWidth: `400px`,
-                    },
-                    children: [
-                      (0, J.jsx)(`input`, {
-                        type: `password`,
-                        className: `input-field`,
-                        placeholder: vhcAdminPasswordConfigured(e) ? `Enter Admin Password` : `New Admin Password`,
-                        value: u,
-                        onChange: (e) => d(e.target.value),
-                        onKeyDown: (e) => e.key === `Enter` && R(),
-                      }),
-                      !vhcAdminPasswordConfigured(e) &&
-                        (0, J.jsx)(`input`, {
-                          type: `password`,
-                          className: `input-field`,
-                          placeholder: `Confirm Admin Password`,
-                          value: adminSetupConfirm,
-                          onChange: (evt) => setAdminSetupConfirm(evt.target.value),
-                          onKeyDown: (evt) => evt.key === `Enter` && R(),
-                        }),
-                      (0, J.jsx)(`button`, {
-                        type: `button`,
-                        className: `btn btn-primary`,
-                        onClick: R,
-                        children: vhcAdminPasswordConfigured(e) ? `Unlock Admin` : `Create & Unlock`,
-                      }),
-                    ],
-                  }),
-                  f &&
-                    (0, J.jsx)(`div`, {
-                      style: {
-                        color: `var(--danger-hover)`,
-                        fontSize: `0.82rem`,
-                        marginTop: `0.4rem`,
-                        fontWeight: `700`,
-                      },
-                      children: f,
-                    }),
-                ],
-              }),
         ],
       }),
-      (0, J.jsxs)(`div`, {
+(0, J.jsxs)(`div`, {
         className: `glass-panel mb-4 vhc-settings-section vhc-settings-pharmacy-section`,
         style: {
           padding: `1.25rem 1.5rem`,
@@ -60674,8 +61096,8 @@ function Lh() {
         },
         children: [
           (0, J.jsxs)(`div`, {
-              className: `vhc-settings-section-header`,
-              onClick: () => setIsStoreConfigMinimized((prev) => !prev),
+            className: `vhc-settings-section-header`,
+            onClick: () => setIsStoreConfigMinimized((prev) => !prev),
             style: {
               display: `flex`,
               justifyContent: `space-between`,
@@ -60701,7 +61123,7 @@ function Lh() {
                       alignItems: `center`,
                       gap: `0.5rem`,
                     },
-                    children: `🏫 Pharmacy Details & General Configuration`,
+                    children: `🏫 Pharmacy Details`,
                   }),
                   isStoreConfigMinimized &&
                     (0, J.jsxs)(`span`, {
@@ -60741,17 +61163,10 @@ function Lh() {
                   event.stopPropagation();
                   setIsStoreConfigMinimized((prev) => !prev);
                 },
-                title: isStoreConfigMinimized
-                  ? `Expand Pharmacy Details`
-                  : `Minimize Pharmacy Details`,
+                title: isStoreConfigMinimized ? `Expand Pharmacy Details` : `Minimize Pharmacy Details`,
                 children: [
-                  (0, J.jsx)(`span`, {
-                    style: { fontSize: `0.78rem`, fontWeight: `700` },
-                    children: isStoreConfigMinimized ? `Expand` : `Minimize`,
-                  }),
-                  isStoreConfigMinimized
-                    ? (0, J.jsx)(Gn, { size: 18 })
-                    : (0, J.jsx)(Kn, { size: 18 }),
+                  (0, J.jsx)(`span`, { style: { fontSize: `0.78rem`, fontWeight: `700` }, children: isStoreConfigMinimized ? `Expand` : `Minimize` }),
+                  isStoreConfigMinimized ? (0, J.jsx)(Gn, { size: 18 }) : (0, J.jsx)(Kn, { size: 18 }),
                 ],
               }),
             ],
@@ -60765,10 +61180,6 @@ function Lh() {
                 borderTop: `1px solid var(--border)`,
               },
               children: (0, J.jsxs)(`div`, {
-                className: `dashboard-grid`,
-                style: { gridTemplateColumns: `2fr 1fr` },
-                children: [
-                  (0, J.jsxs)(`div`, {
                     className: `glass-panel`,
                     style: { padding: `1.5rem` },
                     children: [
@@ -60956,8 +61367,318 @@ function Lh() {
                       }),
                     ],
                   }),
+            }),
+        ],
+      }),
+(0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4 vhc-settings-section vhc-settings-cloud-section`,
+        style: {
+          padding: `1.25rem 1.5rem`,
+          background: `var(--surface)`,
+          borderRadius: `16px`,
+          border: `1.5px solid var(--border-strong)`,
+          marginTop: `1.5rem`,
+        },
+        children: [
+          (0, J.jsxs)(`div`, {
+            className: `vhc-settings-section-header`,
+            onClick: () => setIsCloudSyncMinimized((prev) => !prev),
+            style: {
+              display: `flex`,
+              justifyContent: `space-between`,
+              alignItems: `center`,
+              cursor: `pointer`,
+              userSelect: `none`,
+            },
+            children: [
+              (0, J.jsxs)(`div`, {
+                style: {
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: `0.75rem`,
+                  flexWrap: `wrap`,
+                },
+                children: [
+                  (0, J.jsx)(`h3`, {
+                    style: {
+                      margin: 0,
+                      fontSize: `1.15rem`,
+                      fontWeight: `800`,
+                      color: `var(--text-primary)`,
+                      display: `flex`,
+                      alignItems: `center`,
+                      gap: `0.5rem`,
+                    },
+                    children: `⚙️ General Configuration & Cloud Sync`,
+                  }),
+                  isCloudSyncMinimized &&
+                    (0, J.jsx)(`span`, {
+                      style: {
+                        background: `var(--info-light)`,
+                        color: `var(--info-strong)`,
+                        padding: `0.25rem 0.75rem`,
+                        borderRadius: `20px`,
+                        fontSize: `0.82rem`,
+                        fontWeight: `700`,
+                        border: `1px solid var(--info-border)`,
+                      },
+                      children: `Cloud Sync • Telegram Bot • Privacy & Billing Options`,
+                    }),
+                ],
+              }),
+              (0, J.jsxs)(`button`, {
+                type: `button`,
+                className: `btn-icon`,
+                "aria-expanded": !isCloudSyncMinimized,
+                style: {
+                  background: `var(--surface-raised)`,
+                  padding: `0.35rem 0.65rem`,
+                  borderRadius: `8px`,
+                  border: `1.5px solid var(--border-strong)`,
+                  color: `var(--text-heading)`,
+                  display: `flex`,
+                  alignItems: `center`,
+                  gap: `0.3rem`,
+                  cursor: `pointer`,
+                },
+                onClick: (event) => {
+                  event.stopPropagation();
+                  setIsCloudSyncMinimized((prev) => !prev);
+                },
+                title: isCloudSyncMinimized ? `Expand General Configuration` : `Minimize General Configuration`,
+                children: [
+                  (0, J.jsx)(`span`, { style: { fontSize: `0.78rem`, fontWeight: `700` }, children: isCloudSyncMinimized ? `Expand` : `Minimize` }),
+                  isCloudSyncMinimized ? (0, J.jsx)(Gn, { size: 18 }) : (0, J.jsx)(Kn, { size: 18 }),
+                ],
+              }),
+            ],
+          }),
+          !isCloudSyncMinimized &&
+            (0, J.jsx)(`div`, {
+              className: `animate-fade-in`,
+              style: {
+                marginTop: `1.25rem`,
+                paddingTop: `1.25rem`,
+                borderTop: `1px solid var(--border)`,
+              },
+              children: (0, J.jsxs)(`div`, {
+                style: { display: `flex`, flexDirection: `column`, gap: `1.5rem` },
+                children: [
+                  // Row 1: Cloud Integrations (Google Drive + Telegram Bot)
                   (0, J.jsxs)(`div`, {
-                    style: { display: `flex`, flexDirection: `column`, gap: `1rem` },
+                    style: {
+                      display: `grid`,
+                      gridTemplateColumns: `repeat(auto-fit, minmax(320px, 1fr))`,
+                      gap: `1.25rem`,
+                    },
+                    children: [
+                      (0, J.jsxs)(`div`, {
+            className: `glass-panel`,
+            style: {
+              padding: `1.5rem`,
+              background: `var(--surface-raised)`,
+              border: `1.5px solid var(--border-strong)`,
+              display: `flex`,
+              flexDirection: `column`,
+              // Top-aligned rather than space-between: the grid stretches both cards to the
+              // height of the taller one, and space-between pushed this card's single button
+              // to the very bottom, leaving a large empty gap under the short Drive summary.
+              justifyContent: `flex-start`,
+            },
+            children: [
+              (0, J.jsxs)(`div`, {
+                children: [
+                  (0, J.jsx)(`h3`, {
+                    className: `flex-center gap-2 mb-2`,
+                    style: { color: `var(--text-primary)`, justifyContent: `flex-start`, fontSize: `1.05rem` },
+                    children: `☁️ Google Drive Backup`,
+                  }),
+                  (0, J.jsx)(`p`, {
+                    style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                    children: `Secure cloud backup and restore. No folder or file setup needed.`,
+                  }),
+                  (0, J.jsxs)(`div`, {
+                    style: { fontSize: `0.82rem`, fontWeight: `700`, color: `var(--text-heading)`, marginBottom: `0.3rem` },
+                    children: [
+                      `Status: `,
+                      (0, J.jsx)(`span`, {
+                        style: { color: gdriveSignedIn ? `var(--success-strong)` : `var(--text-soft)`, fontWeight: `800` },
+                        children: gdriveSignedIn ? `✓ Connected` : `Not connected`,
+                      }),
+                    ],
+                  }),
+                  gdriveSignedIn && gdriveEmail
+                    ? (0, J.jsx)(`div`, {
+                        style: { fontSize: `0.78rem`, color: `var(--text-soft)`, overflowWrap: `anywhere` },
+                        children: `Account: ${gdriveEmail}`,
+                      })
+                    : null,
+                ],
+              }),
+              (0, J.jsx)(`button`, {
+                type: `button`,
+                className: `btn btn-outline`,
+                style: { marginTop: `0.9rem`, alignSelf: `flex-start` },
+                onClick: () => {
+                  setBackupManagerTab(`gdrive`);
+                  backupManagerOpen || setAuthModalTarget(`backup`);
+                  setTimeout(() => {
+                    let el = document.getElementById(`vhc-admin-inline`);
+                    el && el.scrollIntoView({ behavior: `smooth`, block: `start` });
+                  }, 60);
+                },
+                children: gdriveSignedIn ? `Manage Backups` : `Connect Google Drive`,
+              }),
+            ],
+          }),
+                      (0, J.jsxs)(`div`, {
+            className: `glass-panel`,
+            style: {
+              padding: `1.5rem`,
+              background: `var(--surface-raised)`,
+              border: `1.5px solid var(--border-strong)`,
+              display: `flex`,
+              flexDirection: `column`,
+              justifyContent: `space-between`,
+            },
+            children: [
+              (0, J.jsxs)(`div`, {
+                children: [
+                  // Modernised Remote Reports Bot header. The legacy "4. Telegram Bot Integration"
+                  // block that used to sit here (raw bot-token password field + "Enable Telegram Bot
+                  // Auto-Sync" checkbox, for the separate invoice-photo-intake bot) is intentionally no
+                  // longer exposed to the client: those are operator-level secrets, not day-to-day
+                  // pharmacy settings. settings.telegramToken / settings.telegramEnabled are still kept
+                  // in the settings object and still saved and read by the backend exactly as before —
+                  // only their input controls are withdrawn from this screen.
+                  (0, J.jsx)(`h3`, {
+                    className: `flex-center gap-2 mb-2`,
+                    style: { color: `var(--info-strong)`, justifyContent: `flex-start`, fontSize: `1.05rem` },
+                    children: `🤖 Remote Reports Bot`,
+                  }),
+                  (0, J.jsx)(`div`, {
+                    style: { fontSize: `0.8rem`, color: `var(--text-soft)`, fontWeight: `700`, marginBottom: `0.5rem` },
+                    children: `@vhcpharma_bot`,
+                  }),
+                  (0, J.jsx)(`p`, {
+                    style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
+                    children: `Remote sales, stock and expiry reports on demand in Telegram.`,
+                  }),
+                  !telegramBotAvailable &&
+                    (0, J.jsxs)(`div`, {
+                      style: { fontSize: `0.82rem`, color: `var(--text-heading)`, fontWeight: `600` },
+                      children: [`Service: `, (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `800` }, children: `Not running on this device` })],
+                    }),
+                  telegramBotAvailable &&
+                    (0, J.jsxs)(`div`, {
+                      style: { marginTop: `0.9rem`, paddingTop: `0.9rem`, borderTop: `1px solid var(--info-border)` },
+                      children: [
+                        // The card header above already names this integration and shows its
+                        // handle, so repeating it here duplicated the title inside its own card.
+                        (() => {
+                          if (!telegramLiveStatus) return null;
+                          let liveMeta = {
+                            starting: { label: `Starting…`, color: `#f59e0b` },
+                            running: { label: `Running`, color: `#059669` },
+                            error: { label: `Error — retrying`, color: `#ea580c` },
+                            disconnected: { label: `Disconnected`, color: `var(--danger-hover)` },
+                            stopped: { label: `Stopped`, color: `var(--text-soft)` },
+                          }[telegramLiveStatus.state] || { label: `Unknown`, color: `var(--text-soft)` };
+                          let lastPollLabel = telegramLiveStatus.lastPollAt
+                            ? new Date(telegramLiveStatus.lastPollAt).toLocaleTimeString()
+                            : `—`;
+                          return (0, J.jsxs)(`div`, {
+                            style: {
+                              display: `flex`, flexWrap: `wrap`, gap: `0.4rem 1rem`, alignItems: `center`,
+                              background: `var(--surface)`, border: `1px solid var(--info-border)`, borderRadius: `8px`,
+                              padding: `0.5rem 0.7rem`, marginBottom: `0.6rem`, fontSize: `0.75rem`,
+                            },
+                            children: [
+                              (0, J.jsxs)(`span`, {
+                                style: { display: `flex`, alignItems: `center`, gap: `0.35rem`, fontWeight: `700`, color: liveMeta.color },
+                                children: [
+                                  (0, J.jsx)(`span`, { style: { width: `7px`, height: `7px`, borderRadius: `50%`, background: liveMeta.color, display: `inline-block` } }),
+                                  `Service: ${liveMeta.label}`,
+                                ],
+                              }),
+                              (0, J.jsx)(`span`, { style: { color: `var(--text-soft)` }, children: `Last poll: ${lastPollLabel}` }),
+                              telegramLiveStatus.lastError &&
+                                (0, J.jsx)(`span`, { style: { color: `var(--danger-hover)` }, title: telegramLiveStatus.lastError, children: `Last error: ${String(telegramLiveStatus.lastError).slice(0, 60)}` }),
+                            ],
+                          });
+                        })(),
+                        (0, J.jsxs)(`p`, {
+                          style: { fontSize: `0.76rem`, color: `var(--text-secondary)`, marginBottom: `0.6rem` },
+                          children: [
+                            telegramChannelConfigured ? `Channel configured. ` : `⚠️ No report channel configured yet — automatic reports won't send until one is set up (see telegram-bot/README.md). `,
+                            `${telegramAuthorizedUserCount} authorized user${telegramAuthorizedUserCount === 1 ? `` : `s`} can use /report, /today, /inventory, /expiry, /backup, /credit.`,
+                          ],
+                        }),
+                        (0, J.jsxs)(`label`, {
+                          className: `flex-center gap-2 mb-3`,
+                          style: { cursor: `pointer`, fontSize: `0.82rem`, fontWeight: `600` },
+                          children: [
+                            (0, J.jsx)(`input`, {
+                              type: `checkbox`,
+                              checked: telegramAutoReportEnabled,
+                              onChange: (evt) => setTelegramAutoReportEnabled(evt.target.checked),
+                              style: { width: `16px`, height: `16px`, accentColor: `#0284c7` },
+                            }),
+                            `Enable automatic daily OP close report`,
+                          ],
+                        }),
+                        (0, J.jsxs)(`div`, {
+                          style: { display: `flex`, gap: `0.5rem`, alignItems: `center` },
+                          children: [
+                            (0, J.jsx)(`label`, { style: { fontSize: `0.78rem`, color: `var(--text-heading)`, fontWeight: `600` }, children: `Report time:` }),
+                            (0, J.jsx)(`input`, {
+                              type: `time`,
+                              className: `input-field`,
+                              value: telegramReportTime,
+                              onChange: (evt) => setTelegramReportTime(evt.target.value),
+                              style: { width: `120px`, fontSize: `0.8rem`, padding: `0.4rem 0.6rem` },
+                            }),
+                            (0, J.jsx)(`button`, {
+                              type: `button`,
+                              className: `btn btn-outline`,
+                              disabled: telegramSettingsSaving,
+                              onClick: saveTelegramBotSettingsHandler,
+                              style: { fontSize: `0.78rem`, padding: `0.4rem 0.8rem` },
+                              children: telegramSettingsSaving ? `Saving...` : `Save`,
+                            }),
+                          ],
+                        }),
+                      ],
+                    }),
+                ],
+              }),
+              (0, J.jsx)(`a`, {
+                href: `https://t.me/Vhcpharm_bot`,
+                target: `_blank`,
+                rel: `noopener noreferrer`,
+                className: `btn btn-primary`,
+                style: {
+                  width: `100%`,
+                  justifyContent: `center`,
+                  background: `#0284c7`,
+                  color: `#ffffff`,
+                  fontWeight: `700`,
+                  textDecoration: `none`,
+                  fontSize: `0.85rem`,
+                },
+                children: `🚀 Open @Vhcpharm_bot on Telegram ↗`,
+              }),
+            ],
+          }),
+                    ],
+                  }),
+                  // Row 2: Privacy, UI & Billing Configuration
+                  (0, J.jsxs)(`div`, {
+                    style: {
+                      display: `grid`,
+                      gridTemplateColumns: `repeat(auto-fit, minmax(300px, 1fr))`,
+                      gap: `1.25rem`,
+                    },
                     children: [
                       (0, J.jsxs)(`div`, {
                         className: `glass-panel`,
@@ -61103,321 +61824,78 @@ function Lh() {
             }),
         ],
       }),
-      isPlatformAdmin && (0, J.jsxs)(`div`, {
-        className: `glass-panel mb-4 vhc-settings-section vhc-settings-cloud-section`,
-        style: {
-          padding: `1.25rem 1.5rem`,
-          background: `var(--surface)`,
-          borderRadius: `16px`,
-          border: `1.5px solid var(--border-strong)`,
-          marginTop: `1.5rem`,
-        },
+(0, J.jsxs)(`div`, {
+        className: `glass-panel mb-4 vhc-settings-details`,
         children: [
-          (0, J.jsxs)(`div`, {
-              className: `vhc-settings-section-header`,
-              onClick: () => setIsCloudSyncMinimized((prev) => !prev),
-            style: {
-              display: `flex`,
-              justifyContent: `space-between`,
-              alignItems: `center`,
-              cursor: `pointer`,
-              userSelect: `none`,
-            },
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `vhc-settings-collapse-head`,
+            "aria-expanded": isAppDetailsOpen ? `true` : `false`,
+            "aria-controls": `vhc-app-details-body`,
+            onClick: () => setIsAppDetailsOpen((open) => !open),
             children: [
-              (0, J.jsxs)(`div`, {
-                style: {
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.75rem`,
-                  flexWrap: `wrap`,
-                },
-                children: [
-                  (0, J.jsx)(`h3`, {
-                    style: {
-                      margin: 0,
-                      fontSize: `1.15rem`,
-                      fontWeight: `800`,
-                      color: `var(--text-primary)`,
-                      display: `flex`,
-                      alignItems: `center`,
-                      gap: `0.5rem`,
-                    },
-                    children: `⚡ Cloud Integrations & Data Sync`,
-                  }),
-                  isCloudSyncMinimized &&
-                    (0, J.jsx)(`span`, {
-                      style: {
-                        background: `var(--info-light)`,
-                        color: `var(--info-strong)`,
-                        padding: `0.25rem 0.75rem`,
-                        borderRadius: `20px`,
-                        fontSize: `0.82rem`,
-                        fontWeight: `700`,
-                        border: `1px solid var(--info-border)`,
-                      },
-                      children: `Patient Sync (Live) • POS Export • G-Drive Backup • Telegram Bot`,
-                    }),
-                ],
-              }),
-              (0, J.jsxs)(`button`, {
-                type: `button`,
-                className: `btn-icon`,
-                "aria-expanded": !isCloudSyncMinimized,
-                style: {
-                  background: `var(--surface-raised)`,
-                  padding: `0.35rem 0.65rem`,
-                  borderRadius: `8px`,
-                  border: `1.5px solid var(--border-strong)`,
-                  color: `var(--text-heading)`,
-                  display: `flex`,
-                  alignItems: `center`,
-                  gap: `0.3rem`,
-                  cursor: `pointer`,
-                },
-                onClick: (event) => {
-                  event.stopPropagation();
-                  setIsCloudSyncMinimized((prev) => !prev);
-                },
-                title: isCloudSyncMinimized
-                  ? `Expand Cloud Integrations`
-                  : `Minimize Cloud Integrations`,
-                children: [
-                  (0, J.jsx)(`span`, {
-                    style: { fontSize: `0.78rem`, fontWeight: `700` },
-                    children: isCloudSyncMinimized ? `Expand` : `Minimize`,
-                  }),
-                  isCloudSyncMinimized
-                    ? (0, J.jsx)(Gn, { size: 18 })
-                    : (0, J.jsx)(Kn, { size: 18 }),
-                ],
-              }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-title`, children: `ℹ️ App Details` }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-meta`, children: appDetailsInfo.version ? `v${appDetailsInfo.version}` : `` }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-collapse-action`, children: isAppDetailsOpen ? `Hide ▴` : `Show ▾` }),
             ],
           }),
-          !isCloudSyncMinimized &&
-            (0, J.jsx)(`div`, {
-              className: `animate-fade-in`,
-              style: {
-                marginTop: `1.25rem`,
-                paddingTop: `1.25rem`,
-                borderTop: `1px solid var(--border)`,
-              },
-              children: (0, J.jsxs)(`div`, {
-                style: {
-                  display: `grid`,
-                  gridTemplateColumns: `repeat(auto-fit, minmax(320px, 1fr))`,
-                  gap: `1.25rem`,
-                },
-                children: [
-          // Google Drive backup status. Deliberately NOT a second Drive implementation: it reads
-          // the same gdriveSignedIn / gdriveEmail OAuth state the Backup & Restore Manager uses,
-          // and its button opens that same manager on its Drive tab through the SAME admin gate
-          // (setAuthModalTarget('backup')) as the Backup & Restore tool card — so Connect, Backup
-          // Now, Manage Backups and Disconnect all remain the one existing implementation and the
-          // authorization path is unchanged. The legacy "2. Billing, Inventory & Reports Export
-          // Sheet" card that used to occupy this slot (manual Google Sheet URL + Apps Script
-          // export) is no longer client-facing; its settings values are left untouched.
+          isAppDetailsOpen && (0, J.jsxs)(`div`, { id: `vhc-app-details-body`, className: `vhc-settings-collapse-body`, children: [
           (0, J.jsxs)(`div`, {
-            className: `glass-panel`,
-            style: {
-              padding: `1.5rem`,
-              background: `var(--surface-raised)`,
-              border: `1.5px solid var(--border-strong)`,
-              display: `flex`,
-              flexDirection: `column`,
-              // Top-aligned rather than space-between: the grid stretches both cards to the
-              // height of the taller one, and space-between pushed this card's single button
-              // to the very bottom, leaving a large empty gap under the short Drive summary.
-              justifyContent: `flex-start`,
-            },
+            className: `vhc-settings-detail-grid`,
+            style: { display: `grid`, gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`, gap: `0.75rem`, marginBottom: `1rem` },
             children: [
-              (0, J.jsxs)(`div`, {
-                children: [
-                  (0, J.jsx)(`h3`, {
-                    className: `flex-center gap-2 mb-2`,
-                    style: { color: `var(--text-primary)`, justifyContent: `flex-start`, fontSize: `1.05rem` },
-                    children: `☁️ Google Drive Backup`,
-                  }),
-                  (0, J.jsx)(`p`, {
-                    style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
-                    children: `Secure cloud backup and restore. No folder or file setup needed.`,
-                  }),
-                  (0, J.jsxs)(`div`, {
-                    style: { fontSize: `0.82rem`, fontWeight: `700`, color: `var(--text-heading)`, marginBottom: `0.3rem` },
-                    children: [
-                      `Status: `,
-                      (0, J.jsx)(`span`, {
-                        style: { color: gdriveSignedIn ? `var(--success-strong)` : `var(--text-soft)`, fontWeight: `800` },
-                        children: gdriveSignedIn ? `✓ Connected` : `Not connected`,
-                      }),
-                    ],
-                  }),
-                  gdriveSignedIn && gdriveEmail
-                    ? (0, J.jsx)(`div`, {
-                        style: { fontSize: `0.78rem`, color: `var(--text-soft)`, overflowWrap: `anywhere` },
-                        children: `Account: ${gdriveEmail}`,
-                      })
-                    : null,
-                ],
-              }),
-              (0, J.jsx)(`button`, {
-                type: `button`,
-                className: `btn btn-outline`,
-                style: { marginTop: `0.9rem`, alignSelf: `flex-start` },
-                onClick: () => {
-                  setBackupManagerTab(`gdrive`);
-                  backupManagerOpen || setAuthModalTarget(`backup`);
-                  setTimeout(() => {
-                    let el = document.getElementById(`vhc-admin-inline`);
-                    el && el.scrollIntoView({ behavior: `smooth`, block: `start` });
-                  }, 60);
-                },
-                children: gdriveSignedIn ? `Manage Backups` : `Connect Google Drive`,
-              }),
+              appDetailsTile(`Application`, `VHC Pharmacy POS`),
+              appDetailsTile(`Version`, appDetailsInfo.version ? `v${appDetailsInfo.version}` : localStorage.getItem(`vhc_app_version`) ? `v${localStorage.getItem(`vhc_app_version`)}` : `—`),
+              appDetailsTile(`Hospital / Business`, e.storeName || `VARNIKA HEALTH CARE`),
+              appDetailsTile(`Platform`, appPlatformLabel),
+              appDetailsTile(
+                `Local Database`,
+                appDetailsInfo.db
+                  ? appDetailsInfo.db.opened
+                    ? `SQLite ready (schema v${appDetailsInfo.db.schemaVersion})`
+                    : `Unavailable — using existing storage`
+                  : `Checking…`,
+              ),
             ],
           }),
-          (0, J.jsxs)(`div`, {
-            className: `glass-panel`,
-            style: {
-              padding: `1.5rem`,
-              background: `var(--surface-raised)`,
-              border: `1.5px solid var(--border-strong)`,
-              display: `flex`,
-              flexDirection: `column`,
-              justifyContent: `space-between`,
-            },
+          (0, J.jsxs)(`button`, {
+            type: `button`,
+            className: `vhc-settings-changelog-toggle`,
+            "aria-expanded": isChangelogExpanded,
+            onClick: () => setIsChangelogExpanded((open) => !open),
             children: [
-              (0, J.jsxs)(`div`, {
-                children: [
-                  // Modernised Remote Reports Bot header. The legacy "4. Telegram Bot Integration"
-                  // block that used to sit here (raw bot-token password field + "Enable Telegram Bot
-                  // Auto-Sync" checkbox, for the separate invoice-photo-intake bot) is intentionally no
-                  // longer exposed to the client: those are operator-level secrets, not day-to-day
-                  // pharmacy settings. settings.telegramToken / settings.telegramEnabled are still kept
-                  // in the settings object and still saved and read by the backend exactly as before —
-                  // only their input controls are withdrawn from this screen.
-                  (0, J.jsx)(`h3`, {
-                    className: `flex-center gap-2 mb-2`,
-                    style: { color: `var(--info-strong)`, justifyContent: `flex-start`, fontSize: `1.05rem` },
-                    children: `🤖 Remote Reports Bot`,
-                  }),
-                  (0, J.jsx)(`div`, {
-                    style: { fontSize: `0.8rem`, color: `var(--text-soft)`, fontWeight: `700`, marginBottom: `0.5rem` },
-                    children: `@vhcpharma_bot`,
-                  }),
-                  (0, J.jsx)(`p`, {
-                    style: { fontSize: `0.82rem`, color: `var(--text-secondary)`, marginBottom: `0.75rem` },
-                    children: `Remote sales, stock and expiry reports on demand in Telegram.`,
-                  }),
-                  !telegramBotAvailable &&
-                    (0, J.jsxs)(`div`, {
-                      style: { fontSize: `0.82rem`, color: `var(--text-heading)`, fontWeight: `600` },
-                      children: [`Service: `, (0, J.jsx)(`span`, { style: { color: `var(--text-soft)`, fontWeight: `800` }, children: `Not running on this device` })],
-                    }),
-                  telegramBotAvailable &&
-                    (0, J.jsxs)(`div`, {
-                      style: { marginTop: `0.9rem`, paddingTop: `0.9rem`, borderTop: `1px solid var(--info-border)` },
-                      children: [
-                        // The card header above already names this integration and shows its
-                        // handle, so repeating it here duplicated the title inside its own card.
-                        (() => {
-                          if (!telegramLiveStatus) return null;
-                          let liveMeta = {
-                            starting: { label: `Starting…`, color: `#f59e0b` },
-                            running: { label: `Running`, color: `#059669` },
-                            error: { label: `Error — retrying`, color: `#ea580c` },
-                            disconnected: { label: `Disconnected`, color: `var(--danger-hover)` },
-                            stopped: { label: `Stopped`, color: `var(--text-soft)` },
-                          }[telegramLiveStatus.state] || { label: `Unknown`, color: `var(--text-soft)` };
-                          let lastPollLabel = telegramLiveStatus.lastPollAt
-                            ? new Date(telegramLiveStatus.lastPollAt).toLocaleTimeString()
-                            : `—`;
-                          return (0, J.jsxs)(`div`, {
-                            style: {
-                              display: `flex`, flexWrap: `wrap`, gap: `0.4rem 1rem`, alignItems: `center`,
-                              background: `var(--surface)`, border: `1px solid var(--info-border)`, borderRadius: `8px`,
-                              padding: `0.5rem 0.7rem`, marginBottom: `0.6rem`, fontSize: `0.75rem`,
-                            },
-                            children: [
-                              (0, J.jsxs)(`span`, {
-                                style: { display: `flex`, alignItems: `center`, gap: `0.35rem`, fontWeight: `700`, color: liveMeta.color },
-                                children: [
-                                  (0, J.jsx)(`span`, { style: { width: `7px`, height: `7px`, borderRadius: `50%`, background: liveMeta.color, display: `inline-block` } }),
-                                  `Service: ${liveMeta.label}`,
-                                ],
-                              }),
-                              (0, J.jsx)(`span`, { style: { color: `var(--text-soft)` }, children: `Last poll: ${lastPollLabel}` }),
-                              telegramLiveStatus.lastError &&
-                                (0, J.jsx)(`span`, { style: { color: `var(--danger-hover)` }, title: telegramLiveStatus.lastError, children: `Last error: ${String(telegramLiveStatus.lastError).slice(0, 60)}` }),
-                            ],
-                          });
-                        })(),
-                        (0, J.jsxs)(`p`, {
-                          style: { fontSize: `0.76rem`, color: `var(--text-secondary)`, marginBottom: `0.6rem` },
-                          children: [
-                            telegramChannelConfigured ? `Channel configured. ` : `⚠️ No report channel configured yet — automatic reports won't send until one is set up (see telegram-bot/README.md). `,
-                            `${telegramAuthorizedUserCount} authorized user${telegramAuthorizedUserCount === 1 ? `` : `s`} can use /report, /today, /inventory, /expiry, /backup, /credit.`,
-                          ],
-                        }),
-                        (0, J.jsxs)(`label`, {
-                          className: `flex-center gap-2 mb-3`,
-                          style: { cursor: `pointer`, fontSize: `0.82rem`, fontWeight: `600` },
-                          children: [
-                            (0, J.jsx)(`input`, {
-                              type: `checkbox`,
-                              checked: telegramAutoReportEnabled,
-                              onChange: (evt) => setTelegramAutoReportEnabled(evt.target.checked),
-                              style: { width: `16px`, height: `16px`, accentColor: `#0284c7` },
-                            }),
-                            `Enable automatic daily OP close report`,
-                          ],
-                        }),
-                        (0, J.jsxs)(`div`, {
-                          style: { display: `flex`, gap: `0.5rem`, alignItems: `center` },
-                          children: [
-                            (0, J.jsx)(`label`, { style: { fontSize: `0.78rem`, color: `var(--text-heading)`, fontWeight: `600` }, children: `Report time:` }),
-                            (0, J.jsx)(`input`, {
-                              type: `time`,
-                              className: `input-field`,
-                              value: telegramReportTime,
-                              onChange: (evt) => setTelegramReportTime(evt.target.value),
-                              style: { width: `120px`, fontSize: `0.8rem`, padding: `0.4rem 0.6rem` },
-                            }),
-                            (0, J.jsx)(`button`, {
-                              type: `button`,
-                              className: `btn btn-outline`,
-                              disabled: telegramSettingsSaving,
-                              onClick: saveTelegramBotSettingsHandler,
-                              style: { fontSize: `0.78rem`, padding: `0.4rem 0.8rem` },
-                              children: telegramSettingsSaving ? `Saving...` : `Save`,
-                            }),
-                          ],
-                        }),
-                      ],
-                    }),
-                ],
-              }),
-              (0, J.jsx)(`a`, {
-                href: `https://t.me/Vhcpharm_bot`,
-                target: `_blank`,
-                rel: `noopener noreferrer`,
-                className: `btn btn-primary`,
-                style: {
-                  width: `100%`,
-                  justifyContent: `center`,
-                  background: `#0284c7`,
-                  color: `#ffffff`,
-                  fontWeight: `700`,
-                  textDecoration: `none`,
-                  fontSize: `0.85rem`,
-                },
-                children: `🚀 Open @Vhcpharm_bot on Telegram ↗`,
-              }),
+              (0, J.jsxs)(`span`, { children: [`What's New`, appDetailsInfo.version ? ` in v${appDetailsInfo.version}` : ``] }),
+              (0, J.jsx)(`span`, { className: `vhc-settings-changelog-action`, children: isChangelogExpanded ? `Hide` : `View` }),
             ],
           }),
+          isChangelogExpanded && (0, J.jsxs)(`ul`, {
+            className: `vhc-settings-changelog-content`,
+            children: [
+              (0, J.jsx)(`li`, { children: `After a successful bill the cart is always cleared for the next patient, even if a receipt, log or display step fails` }),
+              (0, J.jsx)(`li`, { children: `Cloud stock now updates safely even when stock changed elsewhere after billing — no more chains of "Need Review" bills from one stock difference` }),
+              (0, J.jsx)(`li`, { children: `Every bill's stock deduction is applied exactly once, even after a lost connection, a retry or an app restart` }),
+              (0, J.jsx)(`li`, { children: `A temporary cloud problem now shows "Saved locally — waiting for cloud sync" and retries automatically with back-off` }),
+              (0, J.jsx)(`li`, { children: `Reports: Total Bills now counts each bill once — a Split Payment bill (Cash + UPI) is no longer counted twice` }),
+              (0, J.jsx)(`li`, { children: `Payment mode is never pre-selected: every new bill and tab starts with no payment mode, and Complete Payment stays disabled until one is chosen` }),
+              (0, J.jsx)(`li`, { children: `Cash Received / Change to Return shown only for Cash payments, and cleared when switching away` }),
+              (0, J.jsx)(`li`, { children: `Custom Charge drafts are kept per billing tab` }),
+              (0, J.jsx)(`li`, { children: `Split Payment entered inline (Cash + UPI must equal the Net Total) — no popup` }),
+              (0, J.jsx)(`li`, { children: `One Bill Details view from All Bills, Patient Name and Payments, with the same Return / Exchange option` }),
+              (0, J.jsx)(`li`, { children: `Return / Exchange for historical bills when the original stock batch can be traced exactly; unsafe lines are refused` }),
+              (0, J.jsx)(`li`, { children: `Checkout retries are now replay-safe: repeated clicks, keyboard shortcuts and post-save failures cannot create duplicate bills` }),
+              (0, J.jsx)(`li`, { children: `Receipt particulars are restored, and medicine quantity shortcuts 1–10 are available in Billing` }),
+              (0, J.jsx)(`li`, { children: `Modern operational dashboard with live billing, stock and expiry insights` }),
+            ],
+          }),
+          ] }),
         ],
       }),
-    }),
-      (0, J.jsx)(TypedConfirmModal, {
+      // Platform-Admin-only trigger cards (Backup & Restore, Stock Audit). Gated on the same
+      // server-verified isPlatformAdmin used by the Danger Zone and the account label above —
+      // hidden entirely for clinic accounts rather than shown-disabled, per spec. Sibling
+      // sections below collapse up naturally since this is a conditional array entry, not a
+      // fixed-height placeholder.,
+(0, J.jsx)(TypedConfirmModal, {
         isOpen: clearHistoryConfirmOpen,
         onClose: () => setClearHistoryConfirmOpen(!1),
         onConfirm: executeClearSalesHistory,
@@ -61448,11 +61926,9 @@ function Lh() {
         title: `Factory Reset`,
         message: `☢️ WARNING: Are you sure you want to FACTORY RESET this pharmacy?\n\n- All sales, bills and inventory (stock levels, batches, movement history) for THIS location will be permanently deleted from the cloud database.\n- Patients and the shared product catalog are PRESERVED (shared with OPD/Warehouse) — only this location's transactions are removed.\n- App activation, credentials, clinic profile and cloud/Google Drive settings are NOT touched.\n- An automatic safety backup will be downloaded first.\n- This cannot be undone except by restoring from a backup.`,
         requiredText: `DELETE`,
-      }),
-],
-}),
-],
-});
+      })
+    ],
+  });
 }
 function Rh(e, t, n, r, i) {
   r ||= {};

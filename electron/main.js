@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, nativeImage, ipcMain, dialog, net, safeStorage, Tray, Menu } from 'electron';
+import { app, BrowserWindow, shell, nativeImage, ipcMain, dialog, net, safeStorage, Tray, Menu, systemPreferences, nativeTheme } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, fork } from 'child_process';
@@ -211,6 +211,44 @@ function createWindow() {
 }
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// ─── Windows 11 Personalization IPC ───
+ipcMain.handle('windows:get-personalization', () => {
+  let accentColor = '#0078D4';
+  try {
+    if (systemPreferences && typeof systemPreferences.getAccentColor === 'function') {
+      const raw = systemPreferences.getAccentColor();
+      if (raw && typeof raw === 'string') {
+        accentColor = '#' + raw.slice(0, 6);
+      }
+    }
+  } catch (e) {}
+  return {
+    accentColor,
+    shouldUseDarkColors: nativeTheme ? Boolean(nativeTheme.shouldUseDarkColors) : true
+  };
+});
+
+try {
+  if (systemPreferences && typeof systemPreferences.on === 'function') {
+    systemPreferences.on('accent-color-changed', (event, newColor) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const hex = typeof newColor === 'string' ? '#' + newColor.slice(0, 6) : '#0078D4';
+        mainWindow.webContents.send('windows:accent-color-changed', hex);
+      }
+    });
+  }
+} catch (e) {}
+
+try {
+  if (nativeTheme && typeof nativeTheme.on === 'function') {
+    nativeTheme.on('updated', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('windows:theme-changed', Boolean(nativeTheme.shouldUseDarkColors));
+      }
+    });
+  }
+} catch (e) {}
 
 // ─── IPC Handlers for safe dialog usage ───
 ipcMain.handle('show-alert', async (event, message) => {

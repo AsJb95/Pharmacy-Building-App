@@ -527,3 +527,116 @@ body,.glass-panel,.input-field,.btn-outline,td,th{transition:background-color .1
 .vhc-admin-manager{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
 .vhc-admin-unlocked{font-size:.72rem;font-weight:700;color:var(--success-strong)}
 /* === /VHC SETTINGS V3 === */
+
+
+/* === WINDOWS 11 PERSONALIZATION & ACCENT COLOR SYSTEM === */
+:root {
+  --vhc-accent-color: #0078D4;
+  --vhc-accent-hover: #0063B1;
+  --vhc-accent-active: #00508F;
+  --vhc-accent-light: rgba(0, 120, 212, 0.15);
+  --vhc-accent-glow: rgba(0, 120, 212, 0.35);
+  --vhc-accent-shadow: rgba(0, 120, 212, 0.35);
+  --vhc-accent-text: #ffffff;
+}
+
+/* 1. Active Sidebar Navigation */
+:root .sidebar .nav-link.active,
+:root[data-vhc-theme] .sidebar .nav-link.active {
+  background: var(--vhc-accent-color) !important;
+  color: var(--vhc-accent-text, #ffffff) !important;
+  box-shadow: 0 4px 14px var(--vhc-accent-shadow) !important;
+}
+
+/* 2. Primary Buttons */
+:root .btn-primary,
+:root[data-vhc-theme] .btn-primary {
+  background-color: var(--vhc-accent-color) !important;
+  color: var(--vhc-accent-text, #ffffff) !important;
+  border-color: var(--vhc-accent-color) !important;
+  box-shadow: 0 4px 12px var(--vhc-accent-shadow) !important;
+}
+:root .btn-primary:hover:not(:disabled),
+:root[data-vhc-theme] .btn-primary:hover:not(:disabled) {
+  background-color: var(--vhc-accent-hover) !important;
+  border-color: var(--vhc-accent-hover) !important;
+  box-shadow: 0 6px 16px var(--vhc-accent-shadow) !important;
+}
+
+/* 3. Selected Tabs & Options */
+:root .vhc-print-opt.is-active,
+:root .vhc-paper-opt.is-active,
+:root .tab.active,
+:root .nav-tabs button.active {
+  border-color: var(--vhc-accent-color) !important;
+  box-shadow: 0 0 0 2px var(--vhc-accent-light) !important;
+}
+:root .vhc-admin-manager button[style*="border-bottom: 2px solid"],
+:root .vhc-admin-manager button[style*="borderBottom: 2px solid"] {
+  border-bottom-color: var(--vhc-accent-color) !important;
+  color: var(--vhc-accent-color) !important;
+}
+
+/* 4. Toggle Switches */
+:root input[type="checkbox"]:checked,
+:root .vhc-switch-row input:checked {
+  accent-color: var(--vhc-accent-color) !important;
+}
+
+/* 5. Focus Indicators */
+:root :focus-visible,
+:root .input-field:focus,
+:root input:focus,
+:root textarea:focus,
+:root select:focus {
+  border-color: var(--vhc-accent-color) !important;
+  outline-color: var(--vhc-accent-color) !important;
+  box-shadow: 0 0 0 2px var(--vhc-accent-glow) !important;
+}
+
+/* 6. Interactive Highlights */
+:root .text-accent,
+:root .vhc-accent-text {
+  color: var(--vhc-accent-color) !important;
+}
+:root .vhc-theme-card.is-active {
+  border-color: var(--vhc-accent-color) !important;
+  box-shadow: 0 0 0 2px var(--vhc-accent-light) !important;
+}
+:root .vhc-theme-card.is-active .vhc-theme-card-text small {
+  color: var(--vhc-accent-color) !important;
+}
+
+/* Transparency Effects (Mica & Acrylic) */
+:root[data-transparency="on"] .glass-panel,
+:root[data-transparency="on"] .vhc-settings-section {
+  backdrop-filter: blur(14px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+}
+:root[data-transparency="off"] .glass-panel,
+:root[data-transparency="off"] .sidebar,
+:root[data-transparency="off"] .vhc-settings-section {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Personalization UI Styling */
+.vhc-color-swatch-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.vhc-color-swatch-btn:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--vhc-accent-color);
+}
+.vhc-color-swatch-btn.is-active {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-primary);
+}

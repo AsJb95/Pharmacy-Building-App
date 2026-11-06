@@ -123,5 +123,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = () => callback();
     ipcRenderer.on('open-settings-page', handler);
     return () => ipcRenderer.removeListener('open-settings-page', handler);
+  },
+  // Windows 11 Personalization APIs
+  getWindowsPersonalization: () => ipcRenderer.invoke('windows:get-personalization'),
+  onWindowsAccentChanged: (callback) => {
+    const handler = (event, color) => callback(color);
+    ipcRenderer.on('windows:accent-color-changed', handler);
+    return () => ipcRenderer.removeListener('windows:accent-color-changed', handler);
+  },
+  onWindowsThemeChanged: (callback) => {
+    const handler = (event, isDark) => callback(isDark);
+    ipcRenderer.on('windows:theme-changed', handler);
+    return () => ipcRenderer.removeListener('windows:theme-changed', handler);
   }
 });
