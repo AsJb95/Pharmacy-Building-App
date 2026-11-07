@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelLocalSale: (billId) => ipcRenderer.invoke('database:cancel-local-sale', billId),
   createLocalSaleReturn: (payload) => ipcRenderer.invoke('database:create-local-sale-return', payload),
   getLocalSale: (billId) => ipcRenderer.invoke('database:get-local-sale', billId),
+  getRecentSalesForDuplicateCheck: (payload) => ipcRenderer.invoke('database:get-recent-sales-for-duplicate-check', payload),
   getPendingStockOverlays: () => ipcRenderer.invoke('database:get-pending-stock-overlays'),
   recordCreditRepayment: (payload) => ipcRenderer.invoke('database:record-credit-repayment', payload),
   getCreditRepayments: (billId) => ipcRenderer.invoke('database:get-credit-repayments', billId),

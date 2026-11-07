@@ -52247,6 +52247,9 @@ function Nh() {
     [splitCashInput, setSplitCashInput] = [activeTab.splitCash || ``, vhcField(`splitCash`)],
     [splitUpiInput, setSplitUpiInput] = [activeTab.splitUpi || ``, vhcField(`splitUpi`)],
     [tabPendingClose, setTabPendingClose] = (0, _.useState)(null),
+    [isCheckingOut, setIsCheckingOut] = (0, _.useState)(false),
+    [duplicateWarningModal, setDuplicateWarningModal] = (0, _.useState)(null),
+    allowDuplicateOverrideRef = (0, _.useRef)(false),
     checkoutInFlight = (0, _.useRef)(false),
     // Always the CURRENT render's checkout. The F8 / Ctrl+P listener calls through this ref, so a
     // payment mode changed after the listener was bound can never be saved under the old mode.
@@ -52317,6 +52320,7 @@ function Nh() {
   // injections/procedures and the checkout attempt id, plus the legacy single-cart storage keys.
   // Never throws (each storage removal is independent), so a completed sale is always reset.
   let N = (tabId = activeTabId) => {
+    setIsCheckingOut(false);
     setTabs((prevTabs) => prevTabs.map((t) => (t.id === tabId ? vhcTabResetForNewBill(t) : t)));
     for (let key of [`pos_active_cart`, `pos_active_patient`, `pos_active_doctor`, `pos_active_injections`, `pos_active_procedures`,
       `pos_active_custom_charges`, `pos_active_discount`, `pos_active_discount_percent`, `pos_active_discount_mode`]) {
@@ -52481,7 +52485,7 @@ function Nh() {
     splitBillTotal = Math.round(trueGrandTotal * 100) / 100,
     hasActiveBillContent = o.length > 0 || injectionItems.length > 0 || procedureItems.length > 0 || customCharges.length > 0,
     splitState = vhcSplitPaymentState(splitCashInput, splitUpiInput, splitBillTotal),
-    paymentBlockReason = vhcPaymentBlockReason({ hasContent: hasActiveBillContent, mode: f, cashReceived, splitCash: splitCashInput, splitUpi: splitUpiInput, netTotal: trueGrandTotal }),
+    paymentBlockReason = (isCheckingOut ? `Processing payment...` : null) || vhcPaymentBlockReason({ hasContent: hasActiveBillContent, mode: f, cashReceived, splitCash: splitCashInput, splitUpi: splitUpiInput, netTotal: trueGrandTotal }),
     [ne, re] = [activeTab.lastBillId, vhcField(`lastBillId`)],
     [U, ie] = [activeTab.lastBillSnapshot, vhcField(`lastBillSnapshot`)],
     ae = (e, t, n, r, i, a, o, s, extraParticulars, gstModeForBill, discountForBill, discountPercentForBill, patientSnapshotForBill, paymentDetailsForBill) => {
@@ -52570,13 +52574,63 @@ function Nh() {
         i(`Checkout is already being saved. Please wait for the result.`, `warning`);
         return null;
       }
+      if (!allowDuplicateOverrideRef.current && window.electronAPI && window.electronAPI.getRecentSalesForDuplicateCheck) {
+        try {
+          let patName = (c || '').trim();
+          if (!patName && activeTab && activeTab.patientName) patName = String(activeTab.patientName).trim();
+          if (!patName) {
+            try {
+              let pEl = document.querySelector('input[placeholder*="Patient"], input[placeholder*="Mobile"]');
+              if (pEl && pEl.value) patName = pEl.value.trim();
+            } catch {}
+          }
+          let patId = (x && typeof x === 'object' && (x.id || x.patientId)) ? (x.id || x.patientId) : null;
+          let recentMatches = await window.electronAPI.getRecentSalesForDuplicateCheck({
+            patientName: patName,
+            patientId: patId,
+            windowMinutes: 15,
+          });
+          if (Array.isArray(recentMatches) && recentMatches.length > 0) {
+            let currentItemNames = new Set((o || []).map((it) => (it.name || '').trim().toLowerCase()));
+            let currentTotal = trueGrandTotal;
+            let candidate = recentMatches.find((cand) => {
+              let candTotal = cand.totalAmount || 0;
+              let isSimilarAmount = Math.abs(candTotal - currentTotal) <= 5 || (currentTotal > 0 && Math.abs(candTotal - currentTotal) / currentTotal <= 0.05);
+              let candItemNames = (cand.items || []).map((it) => (it.medicineName || it.drugName || '').trim().toLowerCase());
+              let commonMedicines = candItemNames.filter((nm) => nm && currentItemNames.has(nm));
+              return isSimilarAmount || commonMedicines.length > 0;
+            });
+            if (candidate) {
+              let candItemNames = (candidate.items || []).map((it) => (it.medicineName || it.drugName || '').trim());
+              let matchedMedicines = (candidate.items || []).filter((it) => {
+                let nm = (it.medicineName || it.drugName || '').trim().toLowerCase();
+                return nm && currentItemNames.has(nm);
+              }).map((it) => it.medicineName || it.drugName);
+              setDuplicateWarningModal({
+                billId: candidate.billId,
+                billTime: candidate.createdAt || candidate.saleDate,
+                billAmount: candidate.totalAmount,
+                currentAmount: currentTotal,
+                patientName: patName || candidate.patientName || 'Walk-in Patient',
+                matchedMedicines: matchedMedicines.length > 0 ? matchedMedicines : candItemNames.filter(Boolean),
+              });
+              return null;
+            }
+          }
+        } catch (warnErr) {
+          console.warn('[VHC_CHECKOUT] Duplicate warning check skipped on error:', warnErr);
+        }
+      }
+      allowDuplicateOverrideRef.current = false;
       checkoutInFlight.current = true;
+      setIsCheckingOut(true);
       // The tab this sale belongs to: the post-commit reset targets exactly this tab, even if the
       // user switches tabs while the local save is in progress.
       let checkoutTabId = activeTabId;
       let m = activeTab.checkoutAttemptId || `BILL-${Date.now()}`;
+      let opId = activeTab.checkoutOperationId || `OP-${m.replace(/^BILL-/, '')}`;
       if (!activeTab.checkoutAttemptId) {
-        let attemptTabsState = { ...tabsState, tabs: tabsState.tabs.map((tab) => tab.id === activeTabId ? { ...tab, checkoutAttemptId: m } : tab) };
+        let attemptTabsState = { ...tabsState, tabs: tabsState.tabs.map((tab) => tab.id === activeTabId ? { ...tab, checkoutAttemptId: m, checkoutOperationId: opId } : tab) };
         setTabsState(attemptTabsState);
         try {
           localStorage.setItem(`pos_billing_tabs`, JSON.stringify(attemptTabsState));
@@ -52830,6 +52884,7 @@ function Nh() {
         try {
           let localResult = await window.electronAPI.createLocalSale({
             billId: m,
+            operationId: opId,
             patientSnapshot,
             doctorName: p,
             paymentMode: f,
@@ -52884,6 +52939,7 @@ function Nh() {
               }
             }
             i(`Sale could not be saved: ${localResult.error || `Rejected by the local database`}`, `error`, 6e3);
+            setIsCheckingOut(false);
             checkoutInFlight.current = false;
             return null;
           } else {
@@ -52897,6 +52953,7 @@ function Nh() {
             }
             i(`Payment was NOT completed because the bill could not be saved to the local billing database. ${localResult && localResult.error ? localResult.error : ``}`, `error`, 12e3);
             window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_BILL_SQLITE_SAVE_FAILED`, { billId: m, source: `local`, message: localResult && localResult.error ? localResult.error : `createLocalSale returned no success` });
+            setIsCheckingOut(false);
             checkoutInFlight.current = false;
             return null;
           }
@@ -52912,6 +52969,7 @@ function Nh() {
           console.error(`[LocalSQLite] createLocalSale threw; checkout stopped for ${m}:`, localErr);
           i(`Payment was NOT completed because the local billing database failed. ${localErr && localErr.message ? localErr.message : localErr}`, `error`, 12e3);
           window.VHC_AUDIT && window.VHC_AUDIT.logFinancial && window.VHC_AUDIT.logFinancial(`LOCAL_BILL_SQLITE_SAVE_FAILED`, { billId: m, source: `local`, message: localErr && localErr.message ? localErr.message : String(localErr) });
+          setIsCheckingOut(false);
           checkoutInFlight.current = false;
           return null;
         }
@@ -54589,24 +54647,43 @@ function Nh() {
                             `Print Thermal Receipt`,
                           ],
                         }),
+                        isCheckingOut && (0, J.jsx)(`div`, {
+                          style: {
+                            padding: `0.4rem`,
+                            marginBottom: `0.4rem`,
+                            background: `#dbeafe`,
+                            color: `#1e40af`,
+                            borderRadius: `4px`,
+                            fontSize: `0.75rem`,
+                            fontWeight: `600`,
+                            textAlign: `center`,
+                          },
+                          children: `⏳ Processing Payment... Please wait.`,
+                        }),
                         (0, J.jsxs)(`button`, {
                           className: `btn btn-primary`,
-                          onClick: oe,
+                          onClick: (e) => {
+                            if (checkoutInFlight.current || isCheckingOut || !!paymentBlockReason) return;
+                            if (e && e.currentTarget) e.currentTarget.disabled = true;
+                            oe();
+                          },
                           style: {
                             width: `100%`,
                             padding: `0.55rem 0.4rem`,
                             fontSize: `0.76rem`,
                             lineHeight: `1.2`,
-                            background: `#2563eb`,
+                            background: isCheckingOut ? `#64748b` : `#2563eb`,
                             color: `white`,
                             fontWeight: `700`,
                             whiteSpace: `normal`,
                             textAlign: `center`,
+                            opacity: isCheckingOut ? 0.75 : 1,
+                            cursor: (isCheckingOut || !!paymentBlockReason) ? `not-allowed` : `pointer`,
                           },
                           disabled: !!paymentBlockReason,
                           title: paymentBlockReason || undefined,
                           children: f ? [`F8 - Complete Payment (`, f, `)`] : [`Select payment mode`],
-                        }),
+                        })
                       ],
                     }),
                   ],
@@ -54636,6 +54713,81 @@ function Nh() {
                       style: { background: `var(--danger-color)`, color: `white`, flex: 1 },
                       onClick: () => { vhcCloseTabDirect(tabPendingClose); setTabPendingClose(null); },
                       children: `Close Tab`,
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          }),
+        duplicateWarningModal &&
+          (0, J.jsx)(`div`, {
+            className: `modal-overlay`,
+            style: { zIndex: 9999, background: `rgba(0, 0, 0, 0.7)` },
+            children: (0, J.jsxs)(`div`, {
+              className: `glass-panel modal-content`,
+              style: { background: `var(--panel-bg, #1e293b)`, color: `var(--text-primary, #f8fafc)`, border: `1px solid var(--panel-border, #334155)`, padding: `2rem`, maxWidth: `560px`, width: `100%`, textAlign: `left`, borderRadius: `12px`, boxShadow: `0 20px 25px -5px rgba(0, 0, 0, 0.5)` },
+              children: [
+                (0, J.jsxs)(`div`, {
+                  style: { display: `flex`, alignItems: `center`, gap: `12px`, marginBottom: `1rem` },
+                  children: [
+                    (0, J.jsx)(`span`, { style: { fontSize: `2rem` }, children: `⚠️` }),
+                    (0, J.jsxs)(`div`, {
+                      children: [
+                        (0, J.jsx)(`h2`, { style: { margin: 0, fontSize: `1.25rem`, color: `#b91c1c` }, children: `Possible Duplicate Billing Detected` }),
+                        (0, J.jsx)(`p`, { style: { margin: 0, fontSize: `0.875rem`, color: `var(--text-secondary)` }, children: `A bill was already completed for this patient within the last 15 minutes.` }),
+                      ],
+                    }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  style: { background: `rgba(255, 255, 255, 0.05)`, border: `1px solid var(--panel-border, rgba(255, 255, 255, 0.1))`, borderRadius: `8px`, padding: `1rem`, marginBottom: `1.25rem`, fontSize: `0.9rem` },
+                  children: [
+                    (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, marginBottom: `0.5rem` }, children: [(0, J.jsx)(`strong`, { children: `Patient:` }), (0, J.jsx)(`span`, { children: duplicateWarningModal.patientName || `Walk-in` })] }),
+                    (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, marginBottom: `0.5rem` }, children: [(0, J.jsx)(`strong`, { children: `Previous Bill ID:` }), (0, J.jsx)(`span`, { style: { fontFamily: `monospace`, fontWeight: `bold` }, children: duplicateWarningModal.billId })] }),
+                    (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, marginBottom: `0.5rem` }, children: [(0, J.jsx)(`strong`, { children: `Previous Bill Time:` }), (0, J.jsx)(`span`, { children: duplicateWarningModal.billTime ? new Date(duplicateWarningModal.billTime).toLocaleTimeString() : `Recent` })] }),
+                    (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, marginBottom: `0.5rem` }, children: [(0, J.jsx)(`strong`, { children: `Previous Bill Amount:` }), (0, J.jsx)(`span`, { style: { color: `#059669`, fontWeight: `bold` }, children: `₹${(duplicateWarningModal.billAmount || 0).toFixed(2)}` })] }),
+                    (0, J.jsxs)(`div`, { style: { display: `flex`, justifyContent: `space-between`, marginBottom: `0.5rem` }, children: [(0, J.jsx)(`strong`, { children: `Current Bill Amount:` }), (0, J.jsx)(`span`, { style: { color: `#2563eb`, fontWeight: `bold` }, children: `₹${(duplicateWarningModal.currentAmount || 0).toFixed(2)}` })] }),
+                    Array.isArray(duplicateWarningModal.matchedMedicines) && duplicateWarningModal.matchedMedicines.length > 0 &&
+                      (0, J.jsxs)(`div`, {
+                        style: { marginTop: `0.5rem`, paddingTop: `0.5rem`, borderTop: `1px dashed var(--border-color, #cbd5e1)` },
+                        children: [
+                          (0, J.jsx)(`strong`, { children: `Matching / Overlapping Medicines:` }),
+                          (0, J.jsx)(`div`, { style: { marginTop: `0.25rem`, color: `#d97706`, fontWeight: `500` }, children: duplicateWarningModal.matchedMedicines.join(`, `) }),
+                        ],
+                      }),
+                  ],
+                }),
+                (0, J.jsxs)(`div`, {
+                  style: { display: `flex`, flexDirection: `column`, gap: `8px` },
+                  children: [
+                    (0, J.jsx)(`button`, {
+                      className: `btn btn-outline`,
+                      style: { width: `100%`, borderColor: `#2563eb`, color: `#2563eb` },
+                      onClick: () => {
+                        let prevId = duplicateWarningModal.billId;
+                        setDuplicateWarningModal(null);
+                        try {
+                          if (window.VHC_NAVIGATE_REPORTS) window.VHC_NAVIGATE_REPORTS(prevId);
+                          else i(`Previous Bill ID: ${prevId}. Check Sales Reports to view details.`, `info`, 10e3);
+                        } catch {}
+                      },
+                      children: `🔍 Review Previous Bill`,
+                    }),
+                    (0, J.jsx)(`button`, {
+                      className: `btn`,
+                      style: { width: `100%`, background: `#d97706`, color: `white` },
+                      onClick: () => {
+                        setDuplicateWarningModal(null);
+                        allowDuplicateOverrideRef.current = true;
+                        setTimeout(() => { oe(); }, 50);
+                      },
+                      children: `⚠️ Continue New Billing (Legitimate)`,
+                    }),
+                    (0, J.jsx)(`button`, {
+                      className: `btn btn-secondary`,
+                      style: { width: `100%` },
+                      onClick: () => setDuplicateWarningModal(null),
+                      children: `✕ Cancel Checkout`,
                     }),
                   ],
                 }),

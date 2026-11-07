@@ -10,7 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import assert from 'assert';
 import Database from 'better-sqlite3';
-import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, getPendingStockOverlays, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary, clearSalesHistoryData, clearSalesAndInventoryLedgerData, clearInventoryLedgerData, getFinancialSyncOperations, getFinancialIntegritySnapshot, getUnsyncedFinancialSyncOperations, markFinancialSyncAttempt, markFinancialSyncConfirmed, markFinancialSyncSaleConfirmed, markFinancialSyncStockPending, markFinancialSyncReviewRequired, getOfflineAuthIdentity, recordOfflineAuthIdentity, clearOfflineAuthIdentity } from './database.js';
+import { initDatabase, getDatabaseStatus, getSchemaVersion, closeDatabase, createLocalSale, cancelLocalSale, getLocalSaleByBillId, getPendingStockOverlays, recordCreditRepayment, getCreditRepaymentsByBillId, getCreditSettlementByBillId, getSalesHistory, getSalesSummary, clearSalesHistoryData, clearSalesAndInventoryLedgerData, clearInventoryLedgerData, getFinancialSyncOperations, getFinancialIntegritySnapshot, getUnsyncedFinancialSyncOperations, markFinancialSyncAttempt, markFinancialSyncConfirmed, markFinancialSyncSaleConfirmed, markFinancialSyncStockPending, markFinancialSyncReviewRequired, getOfflineAuthIdentity, recordOfflineAuthIdentity, clearOfflineAuthIdentity, getRecentSalesForDuplicateCheck } from './database.js';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vhc-db-selftest-'));
 const dbPath = path.join(tmpDir, 'selftest.db');
@@ -482,6 +482,54 @@ check('P. cancellation restores stock atomically via a reverse stock_movement', 
   assert.strictEqual(secondCancel.noop, true);
 });
 
+check('Q. operationId idempotency: replaying a sale with the same operationId returns duplicate: true and does not deduct stock twice', () => {
+  const opId = 'OP-IDEMPOTENCY-' + Date.now();
+  const bill1 = 'BILL-OP-1-' + Date.now();
+  const res1 = createLocalSale({
+    billId: bill1,
+    operationId: opId,
+    paymentMode: 'Cash',
+    totalAmount: 50,
+    patientSnapshot: { name: 'Idempotent Patient', contact: '9999900001' },
+    paymentDetails: { amountReceived: 50, outstandingAmount: 0, status: 'Paid' },
+    items: [sampleCartItem({ name: 'Idempotent Drug', batch: 'IDEM-1', qty: 2, stock: 10 })],
+    extraParticulars: [],
+  });
+  assert.strictEqual(res1.success, true);
+  assert.strictEqual(res1.duplicate, undefined);
+  const q1 = new Database(dbPath, { readonly: true }).prepare("SELECT qty FROM stock_batches WHERE batch_no='IDEM-1'").get().qty;
+  assert.strictEqual(q1, 8, 'stock should be deducted once (10 - 2 = 8)');
+
+  // Retry with DIFFERENT billId but SAME operationId
+  const bill2 = 'BILL-OP-2-' + Date.now();
+  const res2 = createLocalSale({
+    billId: bill2,
+    operationId: opId,
+    paymentMode: 'Cash',
+    totalAmount: 50,
+    patientSnapshot: { name: 'Idempotent Patient', contact: '9999900001' },
+    paymentDetails: { amountReceived: 50, outstandingAmount: 0, status: 'Paid' },
+    items: [sampleCartItem({ name: 'Idempotent Drug', batch: 'IDEM-1', qty: 2, stock: 8 })],
+    extraParticulars: [],
+  });
+  assert.strictEqual(res2.success, true);
+  assert.strictEqual(res2.duplicate, true, 'must be recognized as duplicate via operationId');
+  assert.strictEqual(res2.saleId, res1.saleId, 'must reference the existing sale id');
+  const q2 = new Database(dbPath, { readonly: true }).prepare("SELECT qty FROM stock_batches WHERE batch_no='IDEM-1'").get().qty;
+  assert.strictEqual(q2, 8, 'stock must NOT be deducted again on retry with same operationId');
+});
+
+check('R. duplicate bill warning lookup: getRecentSalesForDuplicateCheck detects recent sales for the same patient within 15 minutes', () => {
+  const dupChecks = getRecentSalesForDuplicateCheck({ patientName: 'Idempotent Patient', windowMinutes: 15 });
+  assert.ok(dupChecks.length >= 1, 'should find recent sale for Idempotent Patient');
+  assert.strictEqual(dupChecks[0].patientName, 'Idempotent Patient');
+  assert.strictEqual(dupChecks[0].totalAmount, 50);
+  assert.ok(dupChecks[0].items.some((it) => it.drugName === 'Idempotent Drug'));
+
+  const noMatches = getRecentSalesForDuplicateCheck({ patientName: 'Completely Different Patient', windowMinutes: 15 });
+  assert.strictEqual(noMatches.length, 0);
+});
+
 console.log('=== 9. Credit repayments ===');
 
 function makeCreditSale(billId, totalAmount, overrides = {}) {
@@ -736,8 +784,10 @@ check('V1. schema includes durable financial sync metadata but no network engine
   const raw = new Database(dbPath, { readonly: true });
   const versions = raw.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((r) => r.version);
   const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+  const salesCols = raw.prepare("PRAGMA table_info(sales)").all().map((c) => c.name);
   raw.close();
-  assert.deepStrictEqual(versions, [1, 2, 3, 4, 5, 6]);
+  assert.deepStrictEqual(versions, [1, 2, 3, 4, 5, 6, 7]);
+  assert.ok(salesCols.includes('operation_id'), 'sales table must include operation_id');
   assert.ok(!tables.includes('sync_queue'), 'no sync_queue table must exist');
   assert.ok(tables.includes('credit_repayments'));
   assert.ok(tables.includes('financial_sync_operations'));

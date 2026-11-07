@@ -1672,10 +1672,31 @@ ipcMain.handle('database:clear-offline-auth-identity', async () => {
 
 // Local-first billing. These only ever touch vhc_pharmacy.db — nothing here talks to Supabase or
 // changes cloud stock (the renderer's existing bulkUpdateInventory path remains its sole owner).
+const activeCheckoutIpcLocks = new Map();
 ipcMain.handle('database:create-local-sale', async (event, payload) => {
   const mod = await initLocalDatabase();
   if (!mod) return DB_UNAVAILABLE();
-  try { return mod.createLocalSale(payload); } catch (e) { return { success: false, error: e.message }; }
+  if (!payload || !payload.billId) return { success: false, rejected: true, error: 'billId is required' };
+  const lockKey = payload.operationId ? `op:${payload.operationId}` : `bill:${payload.billId}`;
+  if (activeCheckoutIpcLocks.has(lockKey)) {
+    return activeCheckoutIpcLocks.get(lockKey);
+  }
+  const promise = (async () => {
+    try {
+      return mod.createLocalSale(payload);
+    } catch (e) {
+      return { success: false, error: e.message };
+    } finally {
+      activeCheckoutIpcLocks.delete(lockKey);
+    }
+  })();
+  activeCheckoutIpcLocks.set(lockKey, promise);
+  return promise;
+});
+ipcMain.handle('database:get-recent-sales-for-duplicate-check', async (event, payload) => {
+  const mod = await initLocalDatabase();
+  if (!mod) return [];
+  try { return mod.getRecentSalesForDuplicateCheck(payload || {}); } catch (e) { return []; }
 });
 ipcMain.handle('database:cancel-local-sale', async (event, billId) => {
   const mod = await initLocalDatabase();

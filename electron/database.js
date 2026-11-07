@@ -278,6 +278,27 @@ const MIGRATIONS = [
         .run(now);
     },
   },
+  {
+    // Idempotency & Duplicate Billing Prevention: add operation_id to sales with a UNIQUE partial index
+    version: 7,
+    name: 'add_checkout_operation_id_and_idempotency',
+    up(database) {
+      const cols = database.prepare("PRAGMA table_info(sales)").all();
+      const hasOpId = cols.some((c) => c.name === 'operation_id');
+      if (!hasOpId) {
+        database.exec(`
+          ALTER TABLE sales ADD COLUMN operation_id TEXT;
+        `);
+      }
+      database.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_operation_id ON sales (operation_id) WHERE operation_id IS NOT NULL;
+      `);
+      const now = new Date().toISOString();
+      database
+        .prepare("UPDATE database_metadata SET value = '7', updated_at = ? WHERE key = 'schema_version'")
+        .run(now);
+    },
+  },
 ];
 
 function ensureMigrationsTable(database) {
@@ -629,7 +650,14 @@ export function createLocalSale(payload) {
     const result = db.transaction(() => {
       const now = new Date().toISOString();
 
-      const existingSale = db.prepare('SELECT id, bill_id FROM sales WHERE bill_id = ? LIMIT 1').get(payload.billId);
+      const opId = payload.operationId ? String(payload.operationId).trim() : null;
+      let existingSale = null;
+      if (opId) {
+        existingSale = db.prepare('SELECT id, bill_id, operation_id FROM sales WHERE operation_id = ? LIMIT 1').get(opId);
+      }
+      if (!existingSale) {
+        existingSale = db.prepare('SELECT id, bill_id, operation_id FROM sales WHERE bill_id = ? LIMIT 1').get(payload.billId);
+      }
       if (existingSale) {
         return { success: true, duplicate: true, saleId: existingSale.id, billId: existingSale.bill_id, lineCount: 0 };
       }
@@ -707,14 +735,15 @@ export function createLocalSale(payload) {
       const paymentDetails = payload.paymentDetails || {};
       db.prepare(
         `INSERT INTO sales (
-          id, bill_id, patient_id, patient_name, doctor_name, payment_mode,
+          id, bill_id, operation_id, patient_id, patient_name, doctor_name, payment_mode,
           subtotal, total_tax, total_amount, gst_mode, discount, discount_percent,
           amount_received, outstanding_amount, payment_status, payment_breakdown, recorded_by,
           patient_snapshot, sale_date, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
       ).run(
         saleId,
         payload.billId,
+        opId,
         patientId,
         (payload.patientSnapshot && payload.patientSnapshot.name) || null,
         payload.doctorName || null,
@@ -792,6 +821,21 @@ export function createLocalSale(payload) {
     })();
     return result;
   } catch (e) {
+    if (e && e.message && (e.message.includes('UNIQUE constraint failed: sales.operation_id') || e.message.includes('UNIQUE constraint failed: sales.bill_id'))) {
+      try {
+        const opId = payload.operationId ? String(payload.operationId).trim() : null;
+        let existingSale = null;
+        if (opId) {
+          existingSale = db.prepare('SELECT id, bill_id, operation_id FROM sales WHERE operation_id = ? LIMIT 1').get(opId);
+        }
+        if (!existingSale) {
+          existingSale = db.prepare('SELECT id, bill_id, operation_id FROM sales WHERE bill_id = ? LIMIT 1').get(payload.billId);
+        }
+        if (existingSale) {
+          return { success: true, duplicate: true, saleId: existingSale.id, billId: existingSale.bill_id, lineCount: 0 };
+        }
+      } catch {}
+    }
     return { success: false, rejected: e.rejected === true, error: e.message };
   }
 }
@@ -1065,6 +1109,72 @@ export function getLocalSaleByBillId(billId) {
      ORDER BY sm.created_at, sm.id`
   ).all(sale.id, billId);
   return { ...sale, sale_items: items, stock_movements: stockMovements };
+}
+
+/**
+ * Duplicate Billing Prevention: Query recent sales within a time window (default 15 minutes)
+ * to detect potential duplicate billing for the same patient.
+ */
+export function getRecentSalesForDuplicateCheck({ patientName = '', patientId = '', windowMinutes = 15 } = {}) {
+  if (!db) return [];
+  const pName = (patientName || '').trim().toLowerCase();
+  const pId = (patientId || '').trim();
+  if (!pName && !pId) return [];
+
+  const windowMs = (Number(windowMinutes) || 15) * 60 * 1000;
+  const thresholdIso = new Date(Date.now() - windowMs).toISOString();
+
+  try {
+    const candidates = db.prepare(`
+      SELECT id, bill_id, operation_id, patient_id, patient_name, total_amount, payment_mode, sale_date, created_at
+      FROM sales
+      WHERE status = 'active'
+        AND (sale_date >= ? OR created_at >= ?)
+      ORDER BY sale_date DESC
+      LIMIT 20
+    `).all(thresholdIso, thresholdIso);
+
+    const matches = [];
+    const getItems = db.prepare(`
+      SELECT drug_name, quantity, rate, total, batch_no
+      FROM sale_items
+      WHERE sale_id = ?
+    `);
+
+    for (const cand of candidates) {
+      const candName = (cand.patient_name || '').trim().toLowerCase();
+      const candPatientId = (cand.patient_id || '').trim();
+
+      const nameMatches = pName && candName && (candName === pName || candName.includes(pName) || pName.includes(candName));
+      const idMatches = pId && candPatientId && candPatientId === pId;
+
+      if (nameMatches || idMatches) {
+        const items = getItems.all(cand.id);
+        matches.push({
+          saleId: cand.id,
+          billId: cand.bill_id,
+          operationId: cand.operation_id || null,
+          patientName: cand.patient_name,
+          patientId: cand.patient_id,
+          totalAmount: cand.total_amount,
+          paymentMode: cand.payment_mode,
+          saleDate: cand.sale_date || cand.created_at,
+          items: items.map((it) => ({
+            drugName: it.drug_name,
+            medicineName: it.drug_name,
+            quantity: it.quantity,
+            rate: it.rate,
+            total: it.total,
+            batchNo: it.batch_no,
+          })),
+        });
+      }
+    }
+    return matches;
+  } catch (err) {
+    console.warn('[LocalSQLite] getRecentSalesForDuplicateCheck error:', err);
+    return [];
+  }
 }
 
 export function getPendingStockOverlays() {
