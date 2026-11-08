@@ -51175,44 +51175,44 @@ function vhcA4InvoiceHtml(d) {
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #ffffff; }
 body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; font-size: 10.5pt; color: #111827; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.page { width: 186mm; margin: 0 auto; }
-.hdr { display: flex; align-items: center; gap: 5mm; background: #13294b; color: #ffffff; padding: 5mm 6mm; border-radius: 2mm; border-bottom: 1.2mm solid #0f766e; }
-.hdr img { height: 16mm; width: auto; background: #ffffff; border-radius: 1.5mm; padding: 1mm; }
-.hdr .nm { font-size: 18pt; font-weight: 800; letter-spacing: .02em; line-height: 1.15; }
-.hdr .tg { font-size: 9pt; opacity: .92; margin-top: .6mm; }
-.hdr .ct { font-size: 9pt; margin-top: 1mm; }
+.page { width: 186mm; margin: 0 auto; background: #ffffff; }
+.hdr { display: flex; align-items: center; gap: 5mm; background: #ffffff; color: #111827; padding: 3mm 0 4mm; border-bottom: .4mm solid #111827; }
+.hdr img { height: 16mm; width: auto; background: transparent; padding: 0; }
+.hdr .nm { font-size: 18pt; font-weight: 800; letter-spacing: .02em; line-height: 1.15; color: #111827; }
+.hdr .tg { font-size: 9pt; color: #4b5563; margin-top: .6mm; font-weight: 500; }
+.hdr .ct { font-size: 9pt; color: #4b5563; margin-top: 1mm; }
 .hdr .doc { margin-left: auto; text-align: right; }
-.hdr .doc .ty { font-size: 13pt; font-weight: 800; letter-spacing: .08em; border: .4mm solid #ffffff; padding: 1mm 3mm; border-radius: 1mm; display: inline-block; }
-.ids { font-size: 8.5pt; color: #374151; margin: 2mm 1mm 0; }
+.hdr .doc .ty { font-size: 12pt; font-weight: 800; letter-spacing: .08em; border: .4mm solid #111827; color: #111827; padding: 1mm 3.5mm; border-radius: 1mm; display: inline-block; background: #ffffff; }
+.ids { font-size: 8.5pt; color: #4b5563; margin: 2mm 0 0; }
 .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin: 4mm 0; }
-.box { border: .3mm solid #9ca3af; border-left: 1.2mm solid #0f766e; border-radius: 1.5mm; padding: 2.5mm 3.5mm; }
-.box h4 { margin: 0 0 1mm; font-size: 8pt; text-transform: uppercase; letter-spacing: .08em; color: #13294b; }
-.box .v { font-size: 11.5pt; font-weight: 700; }
+.box { border: .3mm solid #d1d5db; border-left: .8mm solid #0f766e; border-radius: 1.5mm; padding: 2.5mm 3.5mm; background: #ffffff; }
+.box h4 { margin: 0 0 1mm; font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #374151; }
+.box .v { font-size: 11.5pt; font-weight: 700; color: #111827; }
 .box .kv { display: flex; justify-content: space-between; gap: 3mm; font-size: 9.5pt; padding: .4mm 0; }
 .box .kv span:first-child { color: #4b5563; }
-table.items { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.box .kv strong { color: #111827; }
+table.items { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 1mm; }
 table.items thead { display: table-header-group; }
-table.items th { background: #13294b; color: #ffffff; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 2mm 2mm; border: .3mm solid #13294b; }
-table.items td { padding: 1.8mm 2mm; border-bottom: .3mm solid #d1d5db; vertical-align: top; font-size: 9.5pt; overflow-wrap: anywhere; word-break: break-word; }
+table.items th { background: #ffffff; color: #111827; font-size: 8.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 2mm 2mm; border-top: .4mm solid #111827; border-bottom: .4mm solid #111827; }
+table.items td { padding: 1.8mm 2mm; border-bottom: .25mm solid #e5e7eb; vertical-align: top; font-size: 9.5pt; color: #111827; overflow-wrap: anywhere; word-break: break-word; background: #ffffff; }
 table.items tbody tr { break-inside: avoid; page-break-inside: avoid; }
-table.items tbody tr:nth-child(even) td { background: #f3f6f9; }
 table.items .r { text-align: right; white-space: nowrap; }
-table.items .b { font-weight: 700; }
-table.items .c-n { width: 10mm; color: #4b5563; white-space: nowrap; padding-left: 1.5mm; padding-right: 1mm; }
-table.items .nm { font-weight: 700; }
+table.items .b { font-weight: 700; color: #111827; }
+table.items .c-n { width: 10mm; color: #6b7280; white-space: nowrap; padding-left: 1.5mm; padding-right: 1mm; }
+table.items .nm { font-weight: 700; color: #111827; }
 table.items .dt { font-size: 8.3pt; color: #4b5563; margin-top: .5mm; }
 table.items.small td:last-child { width: 32mm; }
 col.w-item { width: auto; }
-h3.sec { font-size: 9pt; text-transform: uppercase; letter-spacing: .08em; color: #13294b; margin: 4mm 0 1.5mm; border-bottom: .5mm solid #0f766e; padding-bottom: .8mm; }
+h3.sec { font-size: 9pt; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #111827; margin: 4mm 0 1.5mm; border-bottom: .35mm solid #374151; padding-bottom: .8mm; }
 .sum { display: flex; justify-content: flex-end; margin-top: 4mm; break-inside: avoid; page-break-inside: avoid; }
 .sum table { border-collapse: collapse; min-width: 80mm; }
-.sum th { text-align: left; font-weight: 600; color: #374151; padding: 1.2mm 3mm; font-size: 10pt; }
-.sum td { text-align: right; padding: 1.2mm 3mm; font-size: 10pt; white-space: nowrap; }
-.sum tr.net th, .sum tr.net td { font-size: 12.5pt; font-weight: 800; color: #ffffff; background: #0f766e; border: .4mm solid #0b5c56; }
-.decl { margin-top: 3mm; font-size: 8.5pt; font-weight: 700; border: .3mm dashed #6b7280; padding: 2mm 3mm; border-radius: 1mm; }
-.foot { margin-top: 6mm; padding-top: 2.5mm; border-top: .5mm solid #13294b; display: flex; justify-content: space-between; gap: 4mm; font-size: 8.5pt; color: #374151; break-inside: avoid; }
+.sum th { text-align: left; font-weight: 600; color: #4b5563; padding: 1.2mm 3mm; font-size: 9.5pt; }
+.sum td { text-align: right; padding: 1.2mm 3mm; font-size: 9.5pt; color: #111827; white-space: nowrap; }
+.sum tr.net th, .sum tr.net td { font-size: 12pt; font-weight: 800; color: #111827; background: #ffffff; border-top: .35mm solid #111827; border-bottom: .5mm double #111827; padding: 2mm 3mm; }
+.decl { margin-top: 3mm; font-size: 8.5pt; font-weight: 700; color: #374151; border: .3mm dashed #9ca3af; padding: 2mm 3mm; border-radius: 1mm; background: #ffffff; }
+.foot { margin-top: 6mm; padding-top: 2.5mm; border-top: .35mm solid #9ca3af; display: flex; justify-content: space-between; gap: 4mm; font-size: 8.5pt; color: #4b5563; break-inside: avoid; }
 .foot .sig { text-align: right; min-width: 50mm; }
-.foot .sig .ln { margin-top: 10mm; border-top: .3mm solid #374151; padding-top: 1mm; }
+.foot .sig .ln { margin-top: 10mm; border-top: .3mm solid #111827; padding-top: 1mm; color: #111827; }
 </style></head><body><div class="page">
 <div class="hdr">${d.logoUrl ? `<img src="${esc(d.logoUrl)}" alt="" onerror="this.style.display='none'">` : ``}<div><div class="nm">${esc(st.name || `VARNIKA HEALTH CARE`)}</div>${st.tagline ? `<div class="tg">${esc(st.tagline)}</div>` : ``}${contact ? `<div class="ct">${contact}</div>` : ``}</div>
 <div class="doc"><div class="ty">${composition ? `BILL OF SUPPLY` : `TAX INVOICE`}</div></div></div>
